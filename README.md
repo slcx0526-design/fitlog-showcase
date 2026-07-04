@@ -2,11 +2,17 @@
 
 A local-first fitness, nutrition, cardio, and body-composition dashboard built for structured self-tracking on mobile.
 
+**Live demo:** [fitlog-showcase.vercel.app](https://fitlog-showcase.vercel.app/)
+
 FitLog is designed around one practical loop:
 
 > plan a workout → log real execution → review performance → adjust the next session
 
 The current product interface is Chinese-first because it is built for personal daily use. This repository and its engineering documentation are maintained in English for portfolio review.
+
+## Demo notes
+
+The public demo starts with browser-local state. Any records entered in the demo remain in that browser unless exported by the user. The deployment contains no personal workout, nutrition, or body-composition data.
 
 ## What it solves
 
@@ -102,4 +108,4 @@ RFM body-fat estimates, BMR calculations, and maintenance-calorie trends are est
 
 ## License
 
-Private during active development. A separate public showcase repository will contain a sanitized release snapshot and an explicit license before publication.
+This repository is published for portfolio evaluation and code review. See [LICENSE](./LICENSE) for usage restrictions.
