@@ -106,6 +106,6 @@ npm run audit:prod
 
 RFM body-fat estimates, BMR calculations, and maintenance-calorie trends are estimates, not clinical or DXA measurements. Cardio records are intended for activity and recovery review, not as a precise same-day food allowance.
 
-## License
+## Usage
 
-This repository is published for portfolio evaluation and code review. See [LICENSE](./LICENSE) for usage restrictions.
+This repository is public for portfolio evaluation and technical review. No open-source license is currently granted; all rights remain reserved by the repository owner.
