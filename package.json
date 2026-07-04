@@ -1,0 +1,33 @@
+{
+  "name": "fitlog",
+  "version": "2.7.0",
+  "private": true,
+  "description": "Local-first fitness, nutrition, cardio, and body-composition dashboard deployable on Vercel.",
+  "engines": {
+    "node": "22.x",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run build",
+    "audit:prod": "npm audit --omit=dev --audit-level=moderate"
+  },
+  "dependencies": {
+    "next": "15.5.19",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0"
+  },
+  "packageManager": "npm@10.9.2"
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#f6f4ee"/>
+  <g fill="#d9401f" font-family="ui-sans-serif, -apple-system, sans-serif" font-weight="800">
+    <text x="256" y="316" text-anchor="middle" font-size="248" letter-spacing="-12">FL</text>
+  </g>
+  <rect x="56" y="392" width="400" height="20" rx="10" fill="#d9401f" opacity="0.18"/>
+  <rect x="56" y="392" width="160" height="20" rx="10" fill="#d9401f"/>
+</svg>
