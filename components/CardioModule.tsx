@@ -203,8 +203,8 @@ export default function CardioModule({
           </div>
           {customOpen && (
             <input
-              autoFocus
               value={activityMode}
+              aria-label="自定义有氧方式"
               onChange={(event) => setActivityMode(event.target.value)}
               placeholder="例如：游泳、爬山"
               className="number-cell mt-2 h-11 w-full rounded-xl border border-border bg-surface-2 px-3 text-[14px] text-fg outline-none focus:border-accent"
@@ -280,7 +280,7 @@ export default function CardioModule({
                 <NumberField value={avgHR} onChange={onAvgHR} ariaLabel="平均心率" placeholder="可不填" allowDecimal={false} className="number-cell tnum h-11 w-full rounded-xl border border-border bg-surface-2 px-3 text-[15px] font-semibold text-fg outline-none focus:border-accent" />
               </label>
               {!canDeriveZone && avgHR > 0 && <p className="text-[10px] text-faint">填写出生年份或实测最大心率后，平均心率可自动判定区间。</p>}
-              <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="备注，例如：坡度 6%" className="number-cell h-11 w-full rounded-xl border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none focus:border-accent" />
+              <input aria-label="有氧备注" value={note} onChange={(event) => setNote(event.target.value)} placeholder="备注，例如：坡度 6%" className="number-cell h-11 w-full rounded-xl border border-border bg-surface-2 px-3 text-[13px] text-fg outline-none focus:border-accent" />
             </div>
           )}
         </div>

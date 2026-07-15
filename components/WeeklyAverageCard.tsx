@@ -64,7 +64,7 @@ export default function WeeklyAverageCard({
         {WEEKS.map((w) => {
           const active = w === weeksBack;
           return (
-            <button
+            <button type="button"
               key={w}
               onClick={() => setWeeksBack(w)}
               className={

@@ -7,6 +7,16 @@ export default function ServiceWorkerRegistrar() {
   const { tr } = useI18n();
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
 
+  // A production worker can remain attached after the same origin is later
+  // opened with `next dev`, where un-hashed chunk names would otherwise look stale.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))).catch(() => undefined);
+    if (typeof window !== "undefined" && window.caches) {
+      void window.caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("fitlog-")).map((key) => window.caches.delete(key)))).catch(() => undefined);
+    }
+  }, []);
+
   // 分块加载失败自愈：挂 VPN / 部署后旧外壳引用了失效的 JS 分块时，
   // 表现为白屏。检测到这类错误就清掉 SW + 缓存并刷新一次（每会话仅一次，防循环）。
   useEffect(() => {
@@ -113,7 +123,7 @@ export default function ServiceWorkerRegistrar() {
     >
       <div className="flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
         <span>{tr("有新版本")}</span>
-        <button
+        <button type="button"
           onClick={() => waiting.postMessage("SKIP_WAITING")}
           className="press rounded-full bg-bg px-3 py-1 text-[12px] font-semibold text-fg"
         >

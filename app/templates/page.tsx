@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
 import { DEFAULT_EXERCISES } from "@/lib/exercises";
+import { inferIntent, intentLabel, performanceModeFor, prescriptionForPreset } from "@/lib/prescription";
 import {
   TEMPLATE_TYPES,
   TYPE_LABEL,
@@ -21,17 +22,38 @@ import {
   type Equipment,
   type MuscleGroup,
 } from "@/lib/muscles";
-import type { ExercisePreset, Template, TemplateItem, TrainingType } from "@/lib/types";
+import type { ExercisePreset, RecordMode, Template, TemplateItem } from "@/lib/types";
 
 const EQUIP_ORDER: Equipment[] = ["machine", "cable", "free", "bodyweight"];
+type CustomRecordKind = "weightReps" | "reps" | "duration" | "distance";
+const CUSTOM_RECORD_MODES: Record<CustomRecordKind, RecordMode[]> = { weightReps: ["weight", "reps"], reps: ["reps"], duration: ["duration"], distance: ["distance"] };
 
 type Tr = (s: string, vars?: Record<string, string | number>) => string;
+
+function templateItemMode(item: TemplateItem) {
+  const preset = DEFAULT_EXERCISES.find((candidate) => candidate.id === item.exerciseId);
+  return item.prescription?.performanceMode ?? performanceModeFor(item.recordModes ?? preset?.recordModes);
+}
+
+function targetUnit(item: TemplateItem, tr: Tr) {
+  const mode = templateItemMode(item);
+  return mode === "duration" ? tr("秒") : mode === "distance" ? "m" : tr("次");
+}
+
+function targetLimits(item: TemplateItem) {
+  const mode = templateItemMode(item);
+  if (mode === "duration") return { min: 5, max: 600, step: 5 };
+  if (mode === "distance") return { min: 1, max: 1000, step: 5 };
+  return { min: 1, max: 40, step: 1 };
+}
 
 /** 单个模板 → 纯文字（无 RPE、无署名，跟随语言） */
 function templateToText(tpl: Template, tr: Tr): string {
   const head = `${tpl.name.trim() || tr("未命名模板")} · ${tr(TYPE_LABEL[tpl.type as "push" | "pull" | "legs"])}`;
   const lines = tpl.items.map(
-    (it, i) => `${i + 1}. ${tr(it.name)}  ${it.sets} × ${formatReps(it.repsLow, it.repsHigh)}`
+    (it, i) => {
+      return `${i + 1}. ${tr(it.name)}  ${it.sets} × ${formatReps(it.repsLow, it.repsHigh)} ${targetUnit(it, tr)}`;
+    }
   );
   return [head, ...lines].join("\n");
 }
@@ -100,6 +122,10 @@ export default function TemplatesPage() {
     }
   }, [data.templates, loaded]);
 
+  useEffect(() => () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+  }, []);
+
   if (!loaded) {
     return (
       <div className="pt-2">
@@ -156,7 +182,7 @@ export default function TemplatesPage() {
       </div>
 
       {all.length > 0 && (
-        <button
+        <button type="button"
           onClick={() =>
             copyText(
               allTemplatesToText(all, tr),
@@ -174,7 +200,7 @@ export default function TemplatesPage() {
         </button>
       )}
 
-      <button
+      <button type="button"
         onClick={() => router.push("/schedule")}
         className="press mt-3 flex h-11 w-full items-center justify-center rounded-lg bg-accent text-[15px] font-semibold text-accent-fg"
       >
@@ -231,7 +257,7 @@ function TypeSection({
           />
         ))}
 
-        <button
+        <button type="button"
           onClick={add}
           disabled={full}
           className={
@@ -277,7 +303,14 @@ function TemplateCard({
   const [confirmDel, setConfirmDel] = useState(false);
 
   function update(idx: number, patch: Partial<TemplateItem>) {
-    setTemplateItems(tpl.id, items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+    const changesTrack = patch.sets != null || patch.repsLow != null || patch.repsHigh != null || patch.trainingIntent != null;
+    const changesEffort = Object.prototype.hasOwnProperty.call(patch, "rpe");
+    setTemplateItems(tpl.id, items.map((it, i) => i === idx ? {
+      ...it,
+      ...patch,
+      ...(changesTrack ? { prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined } : {}),
+      ...(changesEffort ? { prescription: undefined, targetRirMin: undefined, targetRirMax: undefined } : {}),
+    } : it));
   }
   function remove(idx: number) {
     setTemplateItems(tpl.id, items.filter((_, i) => i !== idx));
@@ -291,9 +324,10 @@ function TemplateCard({
   }
   function add(p: ExercisePreset) {
     if (items.some((it) => it.exerciseId === p.id)) return;
+    const prescription = prescriptionForPreset(p, tpl.type);
     setTemplateItems(tpl.id, [
       ...items,
-      { exerciseId: p.id, name: p.name, sets: 3, repsLow: 8, repsHigh: 12 },
+      { exerciseId: p.id, name: p.name, sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax, loadIncrementKg: prescription.loadIncrementKg, recordModes: p.recordModes },
     ]);
   }
 
@@ -304,7 +338,7 @@ function TemplateCard({
   return (
     <div className="control-card overflow-hidden">
       <div className="flex items-center gap-2 px-3.5 py-3">
-        <button
+        <button type="button"
           onClick={onToggle}
           className="press flex min-w-0 flex-1 items-center gap-3 text-left"
           aria-expanded={open}
@@ -362,11 +396,12 @@ function TemplateCard({
           <div className="flex items-center gap-2">
             <input
               value={tpl.name}
+              aria-label={tr("模板名称")}
               onChange={(e) => renameTemplate(tpl.id, e.target.value)}
               placeholder={tr("模板名称…")}
               className="number-cell h-10 min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-3 text-[15px] font-semibold text-fg outline-none placeholder:font-normal placeholder:text-faint focus:border-accent"
             />
-            <button
+            <button type="button"
               onClick={() => {
                 const id = duplicateTemplate(tpl.id);
                 if (id) {
@@ -383,7 +418,7 @@ function TemplateCard({
                 <rect x="8" y="4" width="11" height="11" rx="1.8" stroke="currentColor" strokeWidth="1.7" />
               </svg>
             </button>
-            <button
+            <button type="button"
               onClick={() =>
                 copyText(
                   templateToText(tpl, tr),
@@ -400,14 +435,14 @@ function TemplateCard({
               </svg>
             </button>
             {confirmDel ? (
-              <button
+              <button type="button"
                 onClick={() => deleteTemplate(tpl.id)}
                 className="press h-10 shrink-0 rounded-lg border border-warn/60 bg-warn/10 px-3 text-[13px] font-semibold text-warn"
               >
                 {tr("确认删除")}
               </button>
             ) : (
-              <button
+              <button type="button"
                 onClick={() => setConfirmDel(true)}
                 aria-label={tr("删除")}
                 className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-warn"
@@ -429,13 +464,16 @@ function TemplateCard({
             <div key={it.exerciseId} className="control-strip rounded-xl px-2.5 py-2">
               <div className="flex items-center gap-1.5">
                 <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-fg">{tr(it.name)}</span>
-                <button onClick={() => move(idx, -1)} aria-label={tr("上移")} className={"press grid h-8 w-8 place-items-center " + (idx === 0 ? "text-border" : "text-faint")}>
+                <span className="tnum shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                  {templateItemMode(it) === "duration" ? tr("时长") : templateItemMode(it) === "distance" ? tr("距离") : intentLabel(it.trainingIntent ?? inferIntent(it.repsLow, it.repsHigh))} · {it.repsLow}–{it.repsHigh} {targetUnit(it, tr)}
+                </span>
+                <button type="button" onClick={() => move(idx, -1)} aria-label={tr("上移")} className={"press grid h-8 w-8 place-items-center " + (idx === 0 ? "text-border" : "text-faint")}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M6 11L12 5L18 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-                <button onClick={() => move(idx, 1)} aria-label={tr("下移")} className={"press grid h-8 w-8 place-items-center " + (idx === items.length - 1 ? "text-border" : "text-faint")}>
+                <button type="button" onClick={() => move(idx, 1)} aria-label={tr("下移")} className={"press grid h-8 w-8 place-items-center " + (idx === items.length - 1 ? "text-border" : "text-faint")}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M6 13L12 19L18 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-                <button onClick={() => remove(idx)} aria-label={tr("移除")} className="press grid h-8 w-8 place-items-center text-faint hover:text-accent">
+                <button type="button" onClick={() => remove(idx)} aria-label={tr("移除")} className="press grid h-8 w-8 place-items-center text-faint hover:text-accent">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18M6 18L18 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
                 </button>
               </div>
@@ -444,30 +482,35 @@ function TemplateCard({
               <div className="mt-2 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <span className="w-9 shrink-0 text-[12px] text-faint">{tr("组")}</span>
-                  <Stepper value={it.sets} min={1} max={12} onChange={(v) => update(idx, { sets: v })} />
+                  <Stepper label={tr("组数")} value={it.sets} min={1} max={12} onChange={(v) => update(idx, { sets: v })} />
                 </div>
                 <div>
-                  <span className="mb-1 block text-[12px] text-faint">{tr("次")}</span>
+                  <span className="mb-1 block text-[12px] text-faint">{templateItemMode(it) === "duration" ? tr("时长") : templateItemMode(it) === "distance" ? tr("距离") : tr("次数")}</span>
                   <div className="flex items-center gap-2">
                     <Stepper
+                      label={tr("目标下限")}
                       value={it.repsLow}
-                      min={5}
-                      max={12}
+                      min={targetLimits(it).min}
+                      max={targetLimits(it).max}
+                      step={targetLimits(it).step}
                       onChange={(low) => update(idx, { repsLow: low, repsHigh: Math.max(low, it.repsHigh) })}
                     />
                     <span className="text-[13px] text-faint">–</span>
                     <Stepper
+                      label={tr("目标上限")}
                       value={it.repsHigh}
-                      min={6}
-                      max={20}
+                      min={targetLimits(it).min}
+                      max={targetLimits(it).max}
+                      step={targetLimits(it).step}
                       onChange={(high) => update(idx, { repsHigh: high, repsLow: Math.min(it.repsLow, high) })}
                     />
+                    <span className="text-[11px] text-faint">{targetUnit(it, tr)}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                {templateItemMode(it) === "reps" && <div className="flex items-center gap-2">
                   <span className="w-9 shrink-0 text-[12px] text-faint">RPE</span>
                   {it.rpe == null ? (
-                    <button
+                    <button type="button"
                       onClick={() => update(idx, { rpe: 8 })}
                       className="choice-chip press flex h-9 items-center gap-1 border border-border bg-surface px-3 text-[12px] text-muted"
                     >
@@ -478,8 +521,8 @@ function TemplateCard({
                     </button>
                   ) : (
                     <>
-                      <Stepper value={it.rpe} min={7} max={10} step={0.5} onChange={(v) => update(idx, { rpe: v })} />
-                      <button
+                      <Stepper label="RPE" value={it.rpe} min={7} max={10} step={0.5} onChange={(v) => update(idx, { rpe: v })} />
+                      <button type="button"
                         onClick={() => update(idx, { rpe: undefined })}
                         className="press text-[12px] text-faint"
                       >
@@ -487,7 +530,12 @@ function TemplateCard({
                       </button>
                     </>
                   )}
-                </div>
+                </div>}
+                {templateItemMode(it) === "reps" && <div className="flex items-center gap-2">
+                  <span className="w-9 shrink-0 text-[12px] text-faint">{tr("加重")}</span>
+                  <Stepper label={tr("加重")} value={it.loadIncrementKg ?? 2.5} min={0} max={10} step={0.5} onChange={(v) => update(idx, { loadIncrementKg: v })} />
+                  <span className="text-[11px] text-faint">kg</span>
+                </div>}
               </div>
             </div>
           ))}
@@ -499,7 +547,7 @@ function TemplateCard({
               onClose={() => setPickerOpen(false)}
             />
           ) : (
-            <button
+            <button type="button"
               onClick={() => setPickerOpen(true)}
               className="choice-chip press flex h-10 w-full items-center justify-center gap-1.5 border border-dashed border-border-strong bg-surface text-[13px] font-medium text-muted active:bg-surface-2"
             >
@@ -524,12 +572,14 @@ function TemplateFact({ label, value }: { label: string; value: string }) {
 
 // 通用步进器（组 / 次 / RPE 共用，无下拉）
 function Stepper({
+  label,
   value,
   min,
   max,
   step = 1,
   onChange,
 }: {
+  label: string;
   value: number;
   min: number;
   max: number;
@@ -540,20 +590,22 @@ function Stepper({
   const inc = () => onChange(Math.min(max, +(value + step).toFixed(1)));
   return (
     <div className="control-strip flex items-center rounded-xl">
-      <button
+      <button type="button"
         onClick={dec}
         disabled={value <= min}
         className="press grid h-9 w-9 place-items-center text-muted disabled:opacity-25"
-        aria-label="−"
+        aria-label={`${label} · 减少`}
+        title={`${label} · 减少`}
       >
         −
       </button>
       <span className="tnum w-10 text-center text-[14px] font-bold text-fg">{value}</span>
-      <button
+      <button type="button"
         onClick={inc}
         disabled={value >= max}
         className="press grid h-9 w-9 place-items-center text-muted disabled:opacity-25"
-        aria-label="+"
+        aria-label={`${label} · 增加`}
+        title={`${label} · 增加`}
       >
         +
       </button>
@@ -588,14 +640,16 @@ function MusclePicker({
   const [editId, setEditId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newEquip, setNewEquip] = useState<Equipment | "">("");
+  const [newRecordKind, setNewRecordKind] = useState<CustomRecordKind>("weightReps");
 
   function createHere() {
     const name = newName.trim();
     if (!name || muscle === null || muscle === "untagged") return;
-    const p = addCustomExercise(name, false, muscle, newEquip || undefined);
+    const p = addCustomExercise(name, false, muscle, newEquip || undefined, CUSTOM_RECORD_MODES[newRecordKind]);
     onPick(p);
     setNewName("");
     setNewEquip("");
+    setNewRecordKind("weightReps");
   }
 
   const list =
@@ -609,12 +663,12 @@ function MusclePicker({
     <div className="control-strip rounded-2xl p-2.5">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{tr("按部位选择")}</span>
-        <button onClick={onClose} className="press text-[12px] font-medium text-muted">{tr("收起")}</button>
+        <button type="button" onClick={onClose} className="press text-[12px] font-medium text-muted">{tr("收起")}</button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
         {muscles.map((m) => (
-          <button
+          <button type="button"
             key={m}
             onClick={() => setMuscle((cur) => (cur === m ? null : m))}
             className={"choice-chip press border px-2.5 py-1.5 text-[13px] " + (muscle === m ? "border-accent bg-accent-soft font-medium text-accent" : "border-border bg-surface text-fg")}
@@ -623,7 +677,7 @@ function MusclePicker({
           </button>
         ))}
         {untagged.length > 0 && (
-          <button
+          <button type="button"
             onClick={() => setMuscle((cur) => (cur === "untagged" ? null : "untagged"))}
             className={"choice-chip press border px-2.5 py-1.5 text-[13px] " + (muscle === "untagged" ? "border-accent bg-accent-soft font-medium text-accent" : "border-border bg-surface text-faint")}
           >
@@ -641,7 +695,7 @@ function MusclePicker({
             }
             return (
               <div key={p.id} className="flex items-center gap-1">
-                <button
+                <button type="button"
                   onClick={() => !added && onPick(p)}
                   disabled={added}
                   className={"choice-chip flex min-w-0 flex-1 items-center gap-2 border px-2.5 py-2 text-left " + (added ? "cursor-default border-border bg-surface text-faint" : "press border-border bg-surface text-fg active:bg-accent-soft")}
@@ -656,7 +710,7 @@ function MusclePicker({
                   )}
                 </button>
                 {isCustomExercise(p) && (
-                  <button
+                  <button type="button"
                     onClick={() => setEditId(p.id)}
                     aria-label={tr("编辑")}
                     className="press grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint"
@@ -675,6 +729,7 @@ function MusclePicker({
               <div className="flex gap-1.5">
                 <input
                   value={newName}
+                  aria-label={tr("动作名称")}
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && createHere()}
                   placeholder={tr("动作名称…")}
@@ -689,7 +744,7 @@ function MusclePicker({
                   <option value="">{tr("器械（选填）")}</option>
                   {EQUIP_ORDER.map((eq) => <option key={eq} value={eq}>{tr(EQUIPMENT_LABELS[eq])}</option>)}
                 </select>
-                <button
+                <button type="button"
                   onClick={createHere}
                   disabled={!newName.trim()}
                   className="press h-9 shrink-0 rounded-lg bg-fg px-3 text-[13px] font-medium text-bg disabled:opacity-30"
@@ -697,6 +752,12 @@ function MusclePicker({
                   {tr("新建")}
                 </button>
               </div>
+              <select value={newRecordKind} onChange={(event) => setNewRecordKind(event.target.value as CustomRecordKind)} aria-label={tr("记录方式")} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-[12px] text-muted outline-none focus:border-accent">
+                <option value="weightReps">{tr("重量次数")}</option>
+                <option value="reps">{tr("仅次数")}</option>
+                <option value="duration">{tr("时长")}</option>
+                <option value="distance">{tr("距离")}</option>
+              </select>
             </div>
           )}
         </div>

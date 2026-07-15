@@ -27,6 +27,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/.tmp-training-tests/
 
 # repository recovery artifacts / local deployment metadata
 .git_broken_backup*/

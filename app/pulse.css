@@ -1,0 +1,176 @@
+/* Pulse is a training execution layer, not a recolor of Lite. */
+.pulse-session-console {
+  display: none;
+}
+
+:root[data-mode="pulse"] .pulse-session-console {
+  display: block;
+  overflow: hidden;
+  border: 2px solid #101013;
+  border-radius: 1rem 0.55rem 1rem 0.55rem;
+  background: #101013;
+  box-shadow: 4px 4px 0 var(--accent);
+  color: #fffdf7;
+}
+
+:root[data-mode="pulse"] .pulse-console-top {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid rgba(255, 253, 247, 0.18);
+  color: rgba(255, 253, 247, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+:root[data-mode="pulse"] .pulse-live-dot {
+  width: 0.43rem;
+  height: 0.43rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ff5548;
+  box-shadow: 0 0 0 3px rgba(255, 85, 72, 0.18);
+  animation: pulseLiveBeat 1.05s ease-in-out infinite;
+}
+
+:root[data-mode="pulse"] .pulse-console-body {
+  padding: 0.72rem 0.8rem 0.76rem;
+}
+
+:root[data-mode="pulse"] .pulse-console-label {
+  color: #ff8177;
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+:root[data-mode="pulse"] .pulse-console-progress {
+  height: 0.36rem;
+  margin-top: 0.72rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 253, 247, 0.42);
+  background: rgba(255, 253, 247, 0.1);
+}
+
+:root[data-mode="pulse"] .pulse-console-progress > span {
+  display: block;
+  height: 100%;
+  min-width: 0.32rem;
+  background: linear-gradient(90deg, #ff5548, #ffd04b);
+  transition: width 180ms ease-out;
+}
+
+:root[data-mode="pulse"] .pulse-rest-row {
+  display: grid;
+  grid-template-columns: 0.75fr 1.7fr 0.75fr;
+  gap: 0.38rem;
+  padding: 0.5rem;
+  background: #f7efe0;
+  color: #101013;
+}
+
+:root[data-mode="pulse"] .pulse-rest-main,
+:root[data-mode="pulse"] .pulse-rest-adjust {
+  min-height: 3.2rem;
+  border: 1.5px solid #101013;
+  border-radius: 0.7rem 0.32rem 0.7rem 0.32rem;
+  background: #fffdf7;
+  color: #101013;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  transition: transform 75ms ease-out, box-shadow 75ms ease-out, background-color 100ms ease-out;
+}
+
+:root[data-mode="pulse"] .pulse-rest-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.06rem;
+  background: #ff5548;
+  color: #fffdf7;
+  box-shadow: 2px 2px 0 #101013;
+}
+
+:root[data-mode="pulse"] .pulse-rest-adjust:active,
+:root[data-mode="pulse"] .pulse-rest-main:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+@keyframes pulseLiveBeat {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.72); opacity: 0.58; }
+}
+
+/* Home keeps Pulse focused on three real actions instead of decorating every metric. */
+.pulse-daily-brief { display: none; }
+:root[data-mode="pulse"] .pulse-daily-brief {
+  display: block;
+  margin-bottom: 0.9rem;
+  overflow: hidden;
+  border: 2px solid #fff8ea;
+  border-radius: 0.9rem 0.3rem 0.9rem 0.3rem;
+  background: linear-gradient(145deg, rgba(231,42,34,.24), transparent 58%), #101013;
+  box-shadow: 4px 4px 0 #e72a22;
+  color: #fff8ea;
+}
+:root[data-mode="pulse"] .pulse-daily-brief__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.78rem 0.82rem 0.66rem;
+  border-bottom: 1px solid rgba(255,248,234,.24);
+}
+:root[data-mode="pulse"] .pulse-daily-brief__kicker,
+:root[data-mode="pulse"] .pulse-daily-brief__index {
+  color: rgba(255,248,234,.6);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+:root[data-mode="pulse"] .pulse-daily-brief h2 {
+  margin-top: 0.2rem;
+  max-width: 16rem;
+  color: #fff8ea;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+:root[data-mode="pulse"] .pulse-daily-brief__score {
+  color: #ffd04b;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+}
+:root[data-mode="pulse"] .pulse-daily-brief__score small { color: rgba(255,248,234,.62); font-size: 0.66rem; }
+:root[data-mode="pulse"] .pulse-daily-brief__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+:root[data-mode="pulse"] .pulse-daily-brief__step { min-width: 0; padding: 0.56rem 0.5rem 0.62rem; border-left: 1px solid rgba(255,248,234,.14); }
+:root[data-mode="pulse"] .pulse-daily-brief__step:first-child { border-left: 0; }
+:root[data-mode="pulse"] .pulse-daily-brief__step p { margin-top: 0.16rem; color: #fff8ea; font-family: var(--font-mono); font-size: 0.61rem; font-weight: 900; }
+:root[data-mode="pulse"] .pulse-daily-brief__step > div > span { display: block; margin-top: 0.15rem; color: rgba(255,248,234,.65); font-size: 0.57rem; }
+:root[data-mode="pulse"] .pulse-daily-brief__mark { display: inline-grid; width: 1.12rem; height: 1.12rem; place-items: center; margin-top: 0.4rem; border: 1px solid rgba(255,248,234,.5); border-radius: 50%; color: #ff9d94; font-size: 0.66rem; font-weight: 900; }
+:root[data-mode="pulse"] .pulse-daily-brief__step.is-done .pulse-daily-brief__mark { border-color: #ffd04b; background: #ffd04b; color: #101013; }
+:root[data-mode="pulse"] .pulse-daily-brief__cta { display: flex; min-height: 2.8rem; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,248,234,.22); background: linear-gradient(98deg, #e72a22 0 68%, #101013 68%); padding: 0 0.82rem; color: #fff8ea; font-family: var(--font-mono); font-size: 0.68rem; font-weight: 900; }
+:root[data-mode="pulse"] .pulse-daily-brief__cta span:last-child { color: #ffd04b; font-size: 1.1rem; }
+
+@media (max-width: 340px) {
+  :root[data-mode="pulse"] .pulse-daily-brief__steps { grid-template-columns: 1fr; }
+  :root[data-mode="pulse"] .pulse-daily-brief__step { display: flex; align-items: center; gap: 0.42rem; border-top: 1px solid rgba(255,248,234,.12); border-left: 0; }
+  :root[data-mode="pulse"] .pulse-daily-brief__mark { margin: 0 0 0 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-mode="pulse"] .pulse-live-dot,
+  :root[data-mode="pulse"] .pulse-console-progress > span {
+    animation: none !important;
+    transition: none !important;
+  }
+}

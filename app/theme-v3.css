@@ -1,0 +1,35 @@
+/* Final theme layer. Pulse stays concentrated in active areas. */
+:root[data-mode="pulse"]{--bg:#100b0b;--surface:#17100f;--surface-2:#211413;--border:#55221f;--border-strong:#c93a32;--fg:#fff4e5;--muted:#ceb4aa;--faint:#8b7169;--accent:#e73830;--accent-fg:#fff6e8;--accent-soft:#31110f}
+:root[data-mode="pulse"] body{background:#100b0b!important;background-image:radial-gradient(circle at 96% -8%,rgba(231,56,48,.16),transparent 21rem),repeating-linear-gradient(-24deg,rgba(255,255,255,.018) 0 1px,transparent 1px 13px)!important}
+:root[data-mode="pulse"] .control-card,:root[data-mode="pulse"] .metric-sheen{border-color:rgba(255,244,229,.16)!important;border-radius:4px 12px 4px 12px!important;background:#17100f!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 8px 19px rgba(0,0,0,.16)!important}
+:root[data-mode="pulse"] .action-card{border-color:rgba(255,244,229,.42)!important;border-radius:2px 16px 2px 16px!important;background:linear-gradient(105deg,#e73830 0 7px,#17100f 7px 100%)!important;box-shadow:4px 4px 0 #050404!important}
+:root[data-mode="pulse"] .control-card::before,:root[data-mode="pulse"] .metric-sheen::before{display:none!important}
+:root[data-mode="pulse"] .action-card::before{content:""!important;display:block!important;position:absolute!important;right:-.25rem!important;top:.7rem!important;width:2.15rem!important;height:.28rem!important;background:#e73830!important;transform:rotate(-22deg)!important}
+:root[data-mode="pulse"] .choice-chip{border-radius:3px 8px 3px 8px!important}:root[data-mode="pulse"] .choice-chip[aria-pressed="true"]{box-shadow:2px 2px 0 rgba(231,56,48,.35)!important}
+:root[data-mode="pulse"] .app-nav{border-top-color:rgba(255,244,229,.22)!important;background:linear-gradient(104deg,#0c0909 0 76%,#37110f 76% 78%,#0c0909 78%)!important}
+:root[data-mode="pulse"] .nav-item[data-active="true"]{color:#0d0909!important;transform:skewX(-5deg)}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-icon-shell{border:1px solid #fff4e5!important;border-radius:2px 8px 2px 8px!important;background:#fff4e5!important;box-shadow:3px 3px 0 #e73830!important}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph,:root[data-mode="pulse"] .nav-item[data-active="true"]>span:last-child{transform:skewX(5deg)}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph *{stroke:#0d0909!important}:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph path[fill="var(--accent)"]{fill:#e73830!important;stroke:#e73830!important}
+:root[data-mode="pulse"] .pulse-session-console{border-color:#fff4e5!important;border-radius:2px 16px 2px 16px!important;box-shadow:5px 5px 0 #050404!important}
+
+/* Midnight: quiet blue-hour records with no ornamental overload. */
+:root[data-mode="midnight"]{--accent:#82e5ff;--accent-soft:#103650;--border:#223e5c;--surface:#08152a;--surface-2:#0e1e36}
+:root[data-mode="midnight"] body{background-image:radial-gradient(ellipse at 78% -8%,rgba(170,231,255,.15),transparent 24rem),radial-gradient(ellipse at 14% 31%,rgba(38,89,149,.16),transparent 24rem),linear-gradient(180deg,rgba(130,228,255,.02) 1px,transparent 1px)!important;background-size:auto,auto,100% 10px!important}
+:root[data-mode="midnight"] .control-card,:root[data-mode="midnight"] .metric-sheen,:root[data-mode="midnight"] .action-card{border-color:rgba(151,227,255,.2)!important;border-radius:15px 15px 4px 15px!important;background:linear-gradient(146deg,rgba(255,255,255,.024),transparent 34%),#08152a!important;box-shadow:inset 0 1px 0 rgba(220,248,255,.07),0 10px 26px rgba(0,0,0,.17)!important}
+:root[data-mode="midnight"] .control-card::after,:root[data-mode="midnight"] .metric-sheen::after,:root[data-mode="midnight"] .action-card::after{display:none!important}
+:root[data-mode="midnight"] .app-nav{border-top-color:rgba(151,229,255,.16)!important;background:linear-gradient(180deg,rgba(5,13,28,.96),rgba(3,9,20,.96))!important}
+:root[data-mode="midnight"] .nav-item[data-active="true"] .nav-icon-shell{border-radius:999px 999px 7px 999px!important;background:rgba(130,229,255,.1)!important}
+
+/* Survival: one dark field-kit world; no pale paper-card inversion. */
+:root[data-mode="survival"]{color-scheme:dark;--bg:#192019;--surface:#242b22;--surface-2:#30382e;--border:#586354;--border-strong:#98a58d;--fg:#f0eddf;--muted:#c2c0ae;--faint:#92998a;--accent:#c18b58;--accent-fg:#1c221b;--accent-soft:#374537}
+:root[data-mode="survival"] body{background:#192019!important;background-image:radial-gradient(circle at 8% -4%,rgba(171,188,144,.1),transparent 21rem),radial-gradient(circle at 105% 31%,rgba(137,89,50,.12),transparent 20rem),repeating-linear-gradient(18deg,rgba(238,235,210,.018) 0 1px,transparent 1px 11px)!important}
+:root[data-mode="survival"] .control-card,:root[data-mode="survival"] .metric-sheen,:root[data-mode="survival"] .action-card{border-color:rgba(194,201,173,.28)!important;border-radius:3px 10px 3px 10px!important;background:linear-gradient(90deg,rgba(236,230,204,.022) 1px,transparent 1px) 0 0/25px 25px,linear-gradient(rgba(236,230,204,.018) 1px,transparent 1px) 0 0/25px 25px,#242b22!important;box-shadow:3px 4px 0 rgba(5,8,5,.28),inset 0 1px 0 rgba(255,250,227,.05)!important}
+:root[data-mode="survival"] .control-card::before,:root[data-mode="survival"] .metric-sheen::before,:root[data-mode="survival"] .action-card::before,:root[data-mode="survival"] .control-card::after,:root[data-mode="survival"] .metric-sheen::after,:root[data-mode="survival"] .action-card::after{display:none!important}
+:root[data-mode="survival"] .control-strip{border-color:rgba(194,201,173,.2)!important;border-radius:3px 8px 3px 8px!important;background:rgba(10,14,9,.24)!important}
+:root[data-mode="survival"] .choice-chip{border-radius:3px 8px 3px 8px!important}:root[data-mode="survival"] .choice-chip[aria-pressed="true"]{border-color:rgba(193,139,88,.8)!important;background:rgba(193,139,88,.13)!important;color:#f0ddba!important}
+:root[data-mode="survival"] .app-nav{border-top-color:rgba(193,139,88,.34)!important;background:linear-gradient(180deg,rgba(24,30,22,.98),rgba(12,16,11,.98))!important}
+:root[data-mode="survival"] .nav-item[data-active="true"] .nav-icon-shell{border:1px solid rgba(193,139,88,.72)!important;border-radius:3px 8px 3px 8px!important;background:rgba(193,139,88,.13)!important;box-shadow:2px 2px 0 rgba(0,0,0,.3)!important}
+:root[data-mode="survival"] .nav-item[data-active="true"]::before{display:none!important}
+
+@media(prefers-reduced-motion:reduce){:root[data-mode="pulse"] .press,:root[data-mode="midnight"] .press,:root[data-mode="survival"] .press{transition:none!important}}

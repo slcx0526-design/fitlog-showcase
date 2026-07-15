@@ -65,6 +65,7 @@ export default function WeightChart({
     : -1;
   const previous = globalSelectedIndex > 0 ? allData[globalSelectedIndex - 1] : null;
   const selectedDelta = selected && previous ? selected.weight - previous.weight : null;
+  const avgValues = useMemo(() => rollingMean(data, 7), [data]);
 
   const selectNearestPoint = useCallback(
     (clientX: number) => {
@@ -120,7 +121,6 @@ export default function WeightChart({
     )
     .join(" ");
 
-  const avgValues = useMemo(() => rollingMean(data, 7), [data]);
   const avgPath = avgValues
     .map((value, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)},${y(value).toFixed(1)}`)
     .join(" ");
@@ -147,7 +147,7 @@ export default function WeightChart({
         </div>
         {n > 1 && (
           <div className="flex items-center gap-2">
-            <button
+            <button type="button"
               onClick={() => setShowAvg((value) => !value)}
               className={
                 "choice-chip press border px-2 py-0.5 text-[11px] font-medium " +

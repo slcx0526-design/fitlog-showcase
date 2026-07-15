@@ -117,13 +117,13 @@ export default class ErrorBoundary extends React.Component<
         </pre>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <button onClick={this.reload} style={btn(true)}>
+          <button type="button" onClick={this.reload} style={btn(true)}>
             重试 Retry
           </button>
-          <button onClick={this.exportData} style={btn(false)}>
+          <button type="button" onClick={this.exportData} style={btn(false)}>
             导出数据 Export
           </button>
-          <button onClick={this.hardReset} style={btn(false)}>
+          <button type="button" onClick={this.hardReset} style={btn(false)}>
             清除数据并重启 Reset
           </button>
         </div>

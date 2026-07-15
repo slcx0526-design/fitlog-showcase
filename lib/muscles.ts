@@ -8,7 +8,11 @@
 
 export type MuscleGroup =
   | "chest"
+  | "upperChest"
   | "back"
+  | "lats"
+  | "upperBack"
+  | "lowerBack"
   | "traps"
   | "serratus"
   | "frontDelt"
@@ -28,7 +32,11 @@ export type MuscleGroup =
 
 export const MUSCLE_LABELS: Record<MuscleGroup, string> = {
   chest: "胸",
+  upperChest: "上胸",
   back: "背",
+  lats: "背阔肌",
+  upperBack: "上背",
+  lowerBack: "下背/竖脊肌",
   traps: "斜方肌",
   serratus: "前锯肌",
   frontDelt: "前束",
@@ -50,11 +58,15 @@ export const MUSCLE_LABELS: Record<MuscleGroup, string> = {
 /** 展示顺序（推→拉→腿→核心，便于阅读） */
 export const MUSCLE_ORDER: MuscleGroup[] = [
   "chest",
+  "upperChest",
   "frontDelt",
   "sideDelt",
   "triceps",
   "serratus",
+  "lats",
+  "upperBack",
   "back",
+  "lowerBack",
   "rearDelt",
   "traps",
   "biceps",
@@ -118,7 +130,11 @@ type VolumeTier = "default" | "medium" | "small";
 const MUSCLE_TIER: Record<MuscleGroup, VolumeTier> = {
   // 现有 12 个：通用目标（不变）
   chest: "default",
+  upperChest: "default",
   back: "default",
+  lats: "default",
+  upperBack: "default",
+  lowerBack: "medium",
   frontDelt: "default",
   sideDelt: "default",
   rearDelt: "default",
@@ -168,7 +184,9 @@ export function weeklyTargetFor(
  */
 export const CORE_MUSCLES: MuscleGroup[] = [
   "chest",
-  "back",
+  "upperChest",
+  "lats",
+  "upperBack",
   "sideDelt",
   "biceps",
   "triceps",

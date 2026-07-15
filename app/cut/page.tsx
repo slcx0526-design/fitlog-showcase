@@ -1,7 +1,7 @@
 "use client";
 
-import CutDashboard from "@/components/CutDashboard";
+import CutHome from "@/components/CutHome";
 
 export default function CutPage() {
-  return <CutDashboard />;
+  return <CutHome />;
 }

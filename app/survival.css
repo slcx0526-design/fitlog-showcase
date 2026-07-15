@@ -1,0 +1,298 @@
+/*
+ * Survival Journal is an original field-notebook mode: weathered paper,
+ * muted moss, map lines and practical daily checklists. It intentionally uses
+ * no third-party game art, text, audio assets, or copied screen layouts.
+ */
+:root[data-mode="survival"] {
+  color-scheme: light;
+  --bg: #d6d0bd;
+  --surface: #eee9d9;
+  --surface-2: #e3ddcb;
+  --border: #aaa48f;
+  --border-strong: #737764;
+  --fg: #263126;
+  --muted: #667063;
+  --faint: #8b907f;
+  --accent: #536f49;
+  --accent-fg: #f6f1e4;
+  --accent-soft: #d9e3cf;
+  --warn: #a5663e;
+  --warn-soft: #ead7c5;
+}
+
+:root[data-mode="survival"] body {
+  background-color: #d6d0bd;
+  background-image:
+    radial-gradient(circle at 14% 4%, rgba(247, 244, 226, 0.78), transparent 20rem),
+    radial-gradient(circle at 95% 22%, rgba(92, 112, 77, 0.15), transparent 17rem),
+    repeating-linear-gradient(17deg, rgba(55, 67, 45, 0.035) 0 1px, transparent 1px 8px),
+    repeating-linear-gradient(104deg, rgba(99, 79, 53, 0.026) 0 1px, transparent 1px 13px);
+  background-attachment: fixed;
+}
+
+:root[data-mode="survival"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(45, 50, 39, 0.1) 120%);
+}
+
+:root[data-mode="survival"] .control-card {
+  border: 1px solid rgba(115, 119, 100, 0.72) !important;
+  border-radius: 4px 4px 12px 4px !important;
+  background:
+    linear-gradient(96deg, rgba(255, 255, 246, 0.48), transparent 44%),
+    var(--surface) !important;
+  box-shadow: 0 2px 0 rgba(84, 88, 71, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+:root[data-mode="survival"] .metric-sheen,
+:root[data-mode="survival"] .action-card {
+  border-color: rgba(115, 119, 100, 0.68) !important;
+  border-radius: 4px 4px 10px 4px !important;
+  background: linear-gradient(96deg, rgba(255,255,246,.42), transparent 46%), var(--surface) !important;
+  box-shadow: 0 2px 0 rgba(84,88,71,.16), inset 0 1px 0 rgba(255,255,255,.62) !important;
+}
+:root[data-mode="survival"] .metric-sheen::after { opacity: 0.28; }
+
+:root[data-mode="survival"] .control-strip {
+  border: 1px solid rgba(115, 119, 100, 0.5);
+  background: rgba(218, 212, 193, 0.64) !important;
+}
+
+:root[data-mode="survival"] .choice-chip {
+  border-radius: 2px 8px 2px 8px !important;
+}
+
+:root[data-mode="survival"] .press {
+  transition: transform 110ms ease-out, filter 120ms ease-out, background-color 120ms ease-out;
+}
+
+:root[data-mode="survival"] .press:active {
+  transform: translateY(1px) rotate(-0.15deg);
+  filter: saturate(0.88) brightness(0.96);
+}
+
+:root[data-mode="survival"] .app-nav {
+  border-top-color: rgba(83, 111, 73, 0.44) !important;
+  background: rgba(230, 225, 208, 0.92) !important;
+  box-shadow: 0 -10px 22px rgba(56, 61, 47, 0.12);
+}
+
+:root[data-mode="survival"] .nav-item[data-active="true"] {
+  color: #46633e;
+}
+
+:root[data-mode="survival"] .nav-item[data-active="true"] .nav-icon-shell {
+  border: 1px solid rgba(83, 111, 73, 0.64);
+  background: rgba(83, 111, 73, 0.1);
+  box-shadow: inset 0 0 14px rgba(83, 111, 73, 0.08);
+}
+
+:root[data-mode="survival"] input,
+:root[data-mode="survival"] textarea,
+:root[data-mode="survival"] select {
+  caret-color: #536f49;
+}
+
+:root[data-mode="survival"] input:focus,
+:root[data-mode="survival"] textarea:focus,
+:root[data-mode="survival"] select:focus {
+  box-shadow: 0 0 0 2px rgba(83, 111, 73, 0.17);
+}
+
+.survival-mode-control {
+  overflow: hidden;
+  border: 1px solid rgba(83, 111, 73, 0.72);
+  border-radius: 4px 4px 16px 4px;
+  background:
+    linear-gradient(135deg, rgba(251, 248, 232, 0.74), transparent 46%),
+    #dfe4d3;
+  box-shadow: 0 3px 0 rgba(73, 83, 61, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  color: #2a372a;
+}
+
+.survival-mode-control__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .9rem;
+  padding: .9rem .9rem .76rem;
+  background-image: repeating-linear-gradient(0deg, transparent 0 19px, rgba(83,111,73,.075) 20px);
+}
+
+.survival-mode-control__eyebrow,
+.survival-journal-status__eyebrow,
+.survival-session-guide__eyebrow {
+  color: #58734e;
+  font-family: var(--font-mono);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.survival-mode-control h2 {
+  margin-top: .18rem;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.survival-mode-control__header p:last-child {
+  margin-top: .26rem;
+  max-width: 17rem;
+  color: #68705f;
+  font-size: .69rem;
+  line-height: 1.45;
+}
+
+.survival-mode-control__state {
+  flex: 0 0 auto;
+  border: 1px solid rgba(83,111,73,.38);
+  border-radius: 2px;
+  padding: .25rem .44rem;
+  color: #6f7567;
+  font-family: var(--font-mono);
+  font-size: .56rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  transform: rotate(1.2deg);
+}
+
+.survival-mode-control__state.is-active {
+  border-color: rgba(83,111,73,.8);
+  background: rgba(83,111,73,.14);
+  color: #385336;
+}
+
+.survival-mode-control__actions {
+  border-top: 1px solid rgba(83,111,73,.18);
+  padding: .6rem;
+  background: rgba(90, 101, 76, .055);
+}
+
+.survival-mode-control__switch {
+  display: flex;
+  min-height: 2.6rem;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(83,111,73,.63);
+  border-radius: 2px 10px 2px 10px;
+  background: #536f49;
+  padding: 0 .75rem;
+  color: #f4f0e4;
+  font-family: var(--font-mono);
+  font-size: .71rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.survival-mode-control__switch span:last-child { font-size: 1rem; }
+.survival-mode-control__toggles { display: grid; grid-template-columns: 1fr 1fr; gap: .42rem; margin-top: .54rem; }
+
+.survival-mode-control__toggle {
+  display: flex;
+  min-height: 2.3rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(83,111,73,.28);
+  border-radius: 2px 8px 2px 8px;
+  background: rgba(248,245,231,.68);
+  padding: 0 .58rem;
+  color: #536152;
+  font-size: .66rem;
+}
+
+.survival-mode-control__toggle span:last-child {
+  color: rgba(63,85,59,.5);
+  font-family: var(--font-mono);
+  font-size: .58rem;
+  font-weight: 800;
+}
+.survival-mode-control__toggle span:last-child.is-on { color: #486843; }
+.survival-mode-control__note { padding: 0 .9rem .78rem; color: #7b806f; font-size: .61rem; line-height: 1.45; }
+
+.survival-journal-status {
+  margin-bottom: .8rem;
+  overflow: hidden;
+  border: 1px solid rgba(83,111,73,.58);
+  border-radius: 3px 13px 3px 13px;
+  background:
+    linear-gradient(118deg, rgba(251,248,232,.7), transparent 48%),
+    rgba(224, 230, 211, .92);
+  box-shadow: 0 2px 0 rgba(73,83,61,.16);
+}
+
+.survival-journal-status__top { display: flex; align-items: flex-start; justify-content: space-between; padding: .7rem .76rem .55rem; }
+.survival-journal-status h2 { margin-top: .16rem; color: #344536; font-size: .94rem; font-weight: 800; }
+.survival-journal-status__count { border: 1px solid rgba(83,111,73,.5); border-radius: 999px; padding: .22rem .46rem; color: #44623f; font-family: var(--font-mono); font-size: .67rem; font-weight: 800; }
+.survival-journal-status__rows { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid rgba(83,111,73,.18); }
+.survival-journal-status__entry { min-width: 0; padding: .55rem .55rem .62rem; border-left: 1px dashed rgba(83,111,73,.28); }
+.survival-journal-status__entry:first-child { border-left: 0; }
+.survival-journal-status__mark { display: inline-grid; width: 1rem; height: 1rem; place-items: center; border: 1px solid rgba(83,111,73,.46); border-radius: 999px; color: #7f8878; font-size: .65rem; }
+.survival-journal-status__mark.is-done { border-color: #55734b; background: #55734b; color: #f2f0e4; }
+.survival-journal-status__name { display: block; margin-top: .33rem; color: #3e4d3e; font-size: .68rem; font-weight: 800; }
+.survival-journal-status__detail { display: block; margin-top: .1rem; overflow: hidden; color: #78806f; font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.survival-session-guide {
+  overflow: hidden;
+  border: 1px solid rgba(83,111,73,.64);
+  border-radius: 3px 16px 3px 16px;
+  background:
+    radial-gradient(circle at 82% 22%, rgba(219,232,205,.76), transparent 10rem),
+    linear-gradient(135deg, #e9e5d4, #d4dac9 74%);
+  box-shadow: 0 3px 0 rgba(73,83,61,.18), inset 0 1px 0 rgba(255,255,250,.7);
+}
+
+.survival-session-guide__top { display: flex; justify-content: space-between; padding: .4rem .72rem; border-bottom: 1px solid rgba(83,111,73,.23); color: #607558; font-family: var(--font-mono); font-size: .59rem; font-weight: 800; letter-spacing: .1em; }
+.survival-session-guide__body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(7.8rem,.75fr); }
+.survival-session-guide__body > div { min-height: 5.3rem; padding: .72rem .76rem; }
+.survival-session-guide__rest { border-left: 1px solid rgba(83,111,73,.2); background: rgba(246,244,227,.32); }
+.survival-session-guide__exercise { margin-top: .25rem; color: #314032; font-size: .97rem; font-weight: 800; }
+.survival-session-guide__meta { margin-top: .31rem; color: #71806c; font-size: .62rem; }
+.survival-session-guide__rest-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: .32rem; height: 100%; align-items: center; }
+.survival-session-guide__rest-options button,
+.survival-session-guide__rest-main { min-height: 2.25rem; border: 1px solid rgba(83,111,73,.42); border-radius: 2px 8px 2px 8px; background: rgba(250,248,235,.82); color: #3d563b; font-family: var(--font-mono); font-size: .62rem; font-weight: 800; }
+.survival-session-guide__rest-main { display: flex; width: 100%; height: 100%; min-height: 3.65rem; flex-direction: column; align-items: center; justify-content: center; gap: .08rem; background: #536f49; color: #f5f1e5; }
+.survival-session-guide__rest-main small { font-size: .56rem; letter-spacing: .08em; opacity: .76; }
+.survival-session-guide__track { height: .28rem; background: rgba(47,64,47,.14); }
+.survival-session-guide__track > span { display: block; min-width: .28rem; height: 100%; background: #5b7e51; transition: width 190ms ease-out; }
+
+.survival-field-mark {
+  position: fixed;
+  z-index: 82;
+  border: 1px solid rgba(64, 86, 57, .76);
+  border-radius: 2px;
+  background: rgba(239,235,216,.9);
+  padding: .14rem .28rem;
+  color: #496141;
+  font-family: var(--font-mono);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-5deg);
+  box-shadow: 2px 2px 0 rgba(58,75,52,.14);
+  animation: survivalMark .52s ease-out forwards;
+}
+
+@keyframes survivalMark { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(-8deg) scale(.7); } 22% { opacity: .96; } 100% { opacity: 0; transform: translate(-50%, calc(-50% - 15px)) rotate(-4deg) scale(1.04); } }
+
+.survival-route-note { position: fixed; inset: 0; z-index: 76; pointer-events: none; background: rgba(233,228,208,.12); animation: survivalRouteFade .48s ease-out forwards; }
+.survival-route-note::before { content: ""; position: absolute; inset: 12% -25%; border-top: 1px solid rgba(68,93,60,.54); border-bottom: 1px solid rgba(68,93,60,.28); background: rgba(235,231,214,.56); transform: rotate(-7deg) translateX(-34%); animation: survivalRouteSlide .42s ease-out forwards; }
+.survival-route-note span { position: absolute; top: calc(env(safe-area-inset-top) + 18px); left: 17px; z-index: 1; color: #405b3d; font-family: var(--font-mono); font-size: .66rem; font-weight: 900; letter-spacing: .11em; animation: survivalRouteText .44s ease-out forwards; }
+@keyframes survivalRouteSlide { 0% { transform: rotate(-7deg) translateX(-34%); } 100% { transform: rotate(-7deg) translateX(34%); } }
+@keyframes survivalRouteText { 0% { opacity: 0; transform: translateY(-5px); } 22% { opacity: 1; } 100% { opacity: 0; transform: translateY(3px); } }
+@keyframes survivalRouteFade { 0%, 72% { opacity: 1; } 100% { opacity: 0; } }
+
+@media (max-width: 360px) {
+  .survival-session-guide__body { grid-template-columns: 1fr; }
+  .survival-session-guide__rest { border-top: 1px solid rgba(83,111,73,.2); border-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-mode="survival"] * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  .survival-field-mark, .survival-route-note { display: none; }
+}

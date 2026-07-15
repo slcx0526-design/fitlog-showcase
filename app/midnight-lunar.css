@@ -1,0 +1,25 @@
+:root[data-mode="midnight"] {
+  --bg: #07193f;
+  --surface: #103064;
+  --surface-2: #17467d;
+  --border: #4ba8db;
+  --border-strong: #9ce9ff;
+  --fg: #f5fdff;
+  --muted: #bfdcf2;
+  --faint: #85aed0;
+  --accent: #8feaff;
+  --accent-fg: #08265b;
+  --accent-soft: #1b5a94;
+}
+
+:root[data-mode="midnight"] body {
+  background: linear-gradient(135deg, #174d96 0%, #0c2c68 42%, #06163d 100%);
+}
+
+:root[data-mode="midnight"] .control-card {
+  border-color: rgba(163, 235, 255, .5) !important;
+  border-radius: 1.15rem .48rem 1.15rem .48rem !important;
+  background: linear-gradient(145deg, rgba(255,255,255,.16), transparent 33%), rgba(11,45,100,.76) !important;
+}
+
+:root[data-mode="midnight"] .choice-chip { border-radius: 999px !important; }

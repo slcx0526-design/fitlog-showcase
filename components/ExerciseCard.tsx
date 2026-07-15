@@ -1,394 +1,163 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { Exercise, SetRecord } from "@/lib/types";
+import { useState } from "react";
+import type { Exercise, PerformanceMode, SetRecord } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
-import { isPersonaMode, useUIMode } from "@/lib/uiMode";
-import { useNow } from "@/lib/hooks";
+import { useUIMode } from "@/lib/uiMode";
 import { usePersona } from "@/lib/copy";
-import { useI18n } from "@/lib/i18n";
-import { formatCompact, timeSince } from "@/lib/date";
-import { formatReps } from "@/lib/templates";
+import { useI18n, type Locale } from "@/lib/i18n";
+import { formatCompact } from "@/lib/date";
+import {
+  analyzeTrackTrend,
+  findTrackHistories,
+  lastValidWorkingSet,
+  performanceModeFor,
+  progressionSuggestion,
+  workingSets,
+  type TrackHistoryResult,
+} from "@/lib/prescription";
 import NumberField from "./NumberField";
+import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
 
-function fmt(n: number) {
-  return String(n);
+const fmt = (value: number) => String(value);
+const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
+
+function formatSet(set: SetRecord, mode: PerformanceMode, locale: Locale) {
+  if (mode === "duration") return `${fmt(set.durationSeconds ?? 0)} ${tx(locale, "秒", "sec", "秒")}`;
+  if (mode === "distance") return `${fmt(set.distanceMeters ?? 0)} m`;
+  return set.weight > 0 ? `${fmt(set.weight)}kg × ${set.reps}` : `${set.reps} ${tx(locale, "次", "reps", "回")}`;
 }
 
-function summarizeSets(sets: SetRecord[]) {
-  return sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join("  ");
+function summarize(sets: SetRecord[], mode: PerformanceMode, locale: Locale) {
+  return sets.map((set) => formatSet(set, mode, locale)).join("  ");
 }
 
-function bestSet(sets: SetRecord[]) {
-  if (!sets.length) return null;
-  return sets.reduce((winner, set) => {
-    const current = set.weight * set.reps;
-    const previous = winner.weight * winner.reps;
-    return current > previous ? set : winner;
-  }, sets[0]);
-}
-
-function formatSet(set: SetRecord) {
-  return `${fmt(set.weight)}kg × ${set.reps}`;
-}
-
-export default function ExerciseCard({
-  date,
-  exercise,
-  sessionLastSet,
-  templateId,
-}: {
-  date: string;
-  exercise: Exercise;
-  sessionLastSet?: SetRecord | null;
-  templateId?: string;
-}) {
+export default function ExerciseCard({ date, exercise }: { date: string; exercise: Exercise }) {
   const { tr, locale } = useI18n();
   const { persona } = usePersona();
-  const { addSet, updateSet, removeSet, removeExercise, lastSession } =
-    useStore();
-  const toast = useToast();
   const { mode } = useUIMode();
+  const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, data } = useStore();
+  const toast = useToast();
   const [open, setOpen] = useState(true);
-  const [flashIdx, setFlashIdx] = useState<number | null>(null);
-  const [commitIdx, setCommitIdx] = useState<number | null>(null);
+  const [options, setOptions] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const histories = findTrackHistories(data.days, exercise.id, date, exercise.progressionTrackId, 6);
+  const previous = histories.same[0] ?? null;
+  const suggestion = progressionSuggestion(exercise.prescription, previous);
+  const trend = analyzeTrackTrend(histories.same);
+  const performanceMode = exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes);
+  const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
+  const currentWorking = workingSets(exercise.sets);
+  const carry = lastValidWorkingSet(exercise.sets) ?? previous?.sets.at(-1) ?? null;
+  const acceptedWeight = exercise.plannedLoadKg;
+  const entryWeight = acceptedWeight ?? carry?.weight ?? 0;
+  const entryReps = acceptedWeight != null ? 0 : carry?.reps ?? 0;
+  const setUnit = tx(locale, "组", "sets", "セット");
+  const repUnit = tx(locale, "次", "reps", "回");
 
-  const lastRowRef = useRef<HTMLDivElement | null>(null);
-  const justAdded = useRef(false);
-
-  const prev = lastSession(exercise.id, date, templateId);
-  // 取上次「最后一组有效数据」：跳过 0×0 的占位/跳过组，避免 USE LAST 给出 0kg×0 的垃圾值
-  const prevLast = (() => {
-    if (!prev || !prev.sets.length) return null;
-    for (let i = prev.sets.length - 1; i >= 0; i--) {
-      const s = prev.sets[i];
-      if ((s.weight ?? 0) > 0 || (s.reps ?? 0) > 0) return s;
-    }
-    return null;
-  })();
-  const prevBest = prev ? bestSet(prev.sets) : null;
-
-  // 最新一组的相对时间（仅当展开 + 有 at 戳）
-  const lastSet = exercise.sets[exercise.sets.length - 1];
-  const hasTimestamp = !!lastSet?.at;
-  const now = useNow(open && hasTimestamp, 20_000);
-  const lastSetRelative = lastSet?.at ? timeSince(lastSet.at, now, locale) : null;
-
-  function commitEdit(idx: number) {
-    setCommitIdx(idx);
-    window.setTimeout(
-      () => setCommitIdx((cur) => (cur === idx ? null : cur)),
-      700
-    );
+  function patch(index: number, value: Partial<SetRecord>) {
+    const current = exercise.sets[index];
+    if (current) updateSet(date, exercise.id, index, { ...current, ...value });
   }
 
-  // 新增后：滚动到最新组（在 DOM 提交后执行）
-  useEffect(() => {
-    if (justAdded.current) {
-      justAdded.current = false;
-      lastRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [exercise.sets.length]);
-
-  function commitAdd(weight: number, reps: number) {
-    const newIndex = exercise.sets.length;
-    justAdded.current = true;
-    addSet(date, exercise.id, { weight, reps });
-    setFlashIdx(newIndex);
-    if (weight > 0) {
-      toast.show(
-        isPersonaMode(mode)
-          ? `${fmt(weight)} × ${reps}  ${persona.setComplete(mode)}`
-          : `${fmt(weight)} × ${reps} ${persona.setComplete(mode)}`
-      );
-    } else {
-      toast.show(persona.setAdded(mode));
-    }
+  function add(blank = false) {
+    const set: SetRecord = performanceMode === "duration"
+      ? { weight: 0, reps: 0, durationSeconds: blank ? 0 : carry?.durationSeconds ?? 0 }
+      : performanceMode === "distance"
+        ? { weight: 0, reps: 0, distanceMeters: blank ? 0 : carry?.distanceMeters ?? 0 }
+        : { weight: blank ? 0 : entryWeight, reps: blank ? 0 : entryReps };
+    addSet(date, exercise.id, { ...set, type: "working", completion: "completed", technique: "normal" });
+    if (set.weight > 0 && set.reps === 0) toast.show(tx(locale, "已填入建议负重，请记录真实次数", "Suggested load added — enter actual reps", "推奨重量を入力しました。実際の回数を記録してください"));
+    else toast.show(!blank && currentWorking.length > 0 ? `${formatSet(set, performanceMode, locale)} ${persona.setComplete(mode)}` : persona.setAdded(mode));
     if (mode === "pulse") pulseFeedback("confirm");
-    else if (mode === "lite") haptic(12);
-    window.setTimeout(
-      () => setFlashIdx((cur) => (cur === newIndex ? null : cur)),
-      1500
-    );
+    else haptic(8);
   }
 
-  // 这次"加一组"会自动填入的值：
-  //   有当前会话的组 → 复制上一组（带着你今天的实际重量往下走）
-  //   否则有自身历史 → 上次训练的最后一组（跨天"沿用上次"）
-  //   否则 → 本次训练里你最近录的那一组（新动作不必从 0 开始）
-  const carry: SetRecord | null =
-    exercise.sets.length > 0
-      ? exercise.sets[exercise.sets.length - 1]
-      : prevLast ?? sessionLastSet ?? null;
-  const carryFromLastSession = exercise.sets.length === 0 && !!prevLast;
-
-  function handleAddSet() {
-    if (carry) commitAdd(carry.weight, carry.reps);
-    else commitAdd(0, 0);
+  function acceptSuggestion() {
+    if (suggestion.nextWeight == null || suggestion.nextWeight <= 0) return;
+    setExercisePlannedLoad(date, exercise.id, suggestion.nextWeight);
+    toast.show(tx(locale, `本次计划负重已设为 ${suggestion.nextWeight}kg`, `Planned load set to ${suggestion.nextWeight}kg`, `今回の予定重量を ${suggestion.nextWeight}kg に設定しました`));
   }
 
-  return (
-    <div className="control-card">
-      {/* 头部：点击折叠/展开 */}
-      <div className="flex items-center gap-2 px-3.5 py-3">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="press flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          <span className="truncate text-[15px] font-semibold text-fg">
-            {tr(exercise.name)}
-          </span>
-          {exercise.isMain && (
-            <span className="shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-              {tr("主")}
-            </span>
-          )}
-          {exercise.planned && (
-            <span className="tnum shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
-              {tr("计划 {p}", {
-                p: `${exercise.planned.sets}×${formatReps(exercise.planned.repsLow, exercise.planned.repsHigh)}`,
-              })}
-              {exercise.planned.rpe ? ` @${exercise.planned.rpe}` : ""}
-            </span>
-          )}
-          {exercise.sets.length > 0 && (
-            <span className="tnum shrink-0 text-[12px] text-faint">
-              {tr("{n} 组", { n: exercise.sets.length })}
-            </span>
-          )}
-        </button>
+  function suggestionText() {
+    if (!exercise.prescription) return "";
+    const { targetRepMin, targetRepMax, loadIncrementKg } = exercise.prescription;
+    const targetUnit = performanceMode === "duration" ? tx(locale, "秒", "sec", "秒") : performanceMode === "distance" ? "m" : tx(locale, "次", "reps", "回");
+    const prefix = tx(locale, `目标 ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `Target ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `目標 ${targetRepMin}–${targetRepMax} ${targetUnit} · `);
+    const message = suggestion.status === "noHistory" ? tx(locale, "当前轨道暂无记录，先记录本次表现", "No history on this track — log this session first", "このトラックには記録がありません。まず今回を記録してください")
+      : suggestion.status === "finishSets" ? tx(locale, "先完成计划工作组，再调整负重", "Finish planned work sets before changing load", "予定のワーキングセットを完了してから負荷を調整します")
+      : suggestion.status === "addWeight" ? tx(locale, `下次加 ${loadIncrementKg} kg`, `Add ${loadIncrementKg} kg next time`, `次回は ${loadIncrementKg} kg 増やす`)
+      : suggestion.status === "modeReference" ? tx(locale, "保留同轨道历史参考，不自动套用负重", "Same-track history is shown without auto-filling load", "同一トラック履歴のみ表示し、重量は自動入力しません")
+      : suggestion.status === "effortCheck" ? tx(locale, "次数已达标，但上次状态不适合直接加重", "Rep target met, but the last session was not ready for a load increase", "回数は達成しましたが、前回の状態ではすぐに増量しません")
+      : suggestion.status === "stabilize" ? tx(locale, "先稳定达到目标次数下限", "Reach the bottom of the rep range first", "先に目標回数の下限を安定して達成します")
+      : tx(locale, "保持重量，继续补次数", "Keep the load and build reps", "重量を維持して回数を伸ばします");
+    return `${prefix}${message}`;
+  }
 
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-label={tr("折叠")}
-          className="press grid h-9 w-9 place-items-center text-faint"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            style={{
-              transform: open ? "rotate(180deg)" : "none",
-              transition: "transform .15s",
-            }}
-          >
-            <path
-              d="M6 9L12 15L18 9"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <button
-          onClick={() => {
-            if (exercise.sets.length > 0) setConfirmDelete(true);
-            else removeExercise(date, exercise.id);
-          }}
-          aria-label={tr("删除动作")}
-          className="press grid h-9 w-9 place-items-center text-faint hover:text-accent"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M6 6L18 18M6 18L18 6"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-      </div>
-
-      {/* 删除确认：有记录时不直接删 */}
-      {confirmDelete && (
-        <div className="animate-slidedown flex items-center gap-2 border-t border-accent/30 bg-accent-soft px-3.5 py-2.5">
-          <span className="tnum flex-1 text-[13px] font-medium text-accent">
-            {tr("删除「{name}」及 {n} 组记录？", { name: tr(exercise.name), n: exercise.sets.length })}
-          </span>
-          <button
-            onClick={() => setConfirmDelete(false)}
-            className="press h-9 rounded-md border border-border bg-surface px-3 text-[13px] text-fg"
-          >
-            {tr("取消")}
-          </button>
-          <button
-            onClick={() => removeExercise(date, exercise.id)}
-            className="press h-9 rounded-md bg-accent px-3 text-[13px] font-semibold text-accent-fg"
-          >
-            {tr("删除")}
-          </button>
+  return <section className="control-card">
+    <div className="flex items-center gap-2 px-3.5 py-3">
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press min-w-0 flex-1 text-left">
+        <p className="truncate text-[15px] font-semibold text-fg">{tr(exercise.name)}</p>
+        <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+          {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
+          {exercise.progressionTrackLabel && <Chip label={tr(exercise.progressionTrackLabel)} accent />}
+          {exercise.planned && <Chip label={tx(locale, `计划 ${exercise.planned.sets} 组`, `Plan ${exercise.planned.sets} sets`, `予定 ${exercise.planned.sets} セット`)} />}
+          {currentWorking.length > 0 && <span className="tnum text-faint">{currentWorking.length} {setUnit}</span>}
         </div>
-      )}
-
-      {/* 上次记录参考 */}
-      <div className="soft-divider border-t px-3.5 py-1.5">
-        {prev ? (
-          <div className="space-y-1">
-            <p className="tnum truncate text-[12px] text-muted">
-              <span className="font-sans text-faint">{tr("上次 ")}</span>
-              {formatCompact(prev.date, locale).md}
-              <span className="font-sans text-faint"> · </span>
-              {summarizeSets(prev.sets)}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              <span className="tnum rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
-                上次 {prev.sets.length} 组
-              </span>
-              {prevBest && (
-                <span className="tnum rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
-                  最佳 {formatSet(prevBest)}
-                </span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <p className="text-[12px] text-faint">{tr("首次记录此动作")}</p>
-        )}
-      </div>
-
-      {open && (
-        <div className="animate-slidedown px-3.5 pb-3 pt-1">
-          {exercise.sets.map((s, i) => (
-            <div
-              key={i}
-              ref={i === exercise.sets.length - 1 ? lastRowRef : null}
-              className={
-                "set-row soft-divider flex items-center gap-2 rounded-lg border-t px-1.5 py-2 first:border-t-0 " +
-                (flashIdx === i ? "flash-row" : "")
-              }
-            >
-              <span className="tnum w-5 shrink-0 text-center text-[13px] text-faint">
-                {i + 1}
-              </span>
-              <NumberField
-                value={s.weight}
-                onChange={(w) => updateSet(date, exercise.id, i, { ...s, weight: w })}
-                onCommit={() => commitEdit(i)}
-                ariaLabel={tr("第{n}组 重量", { n: i + 1 })}
-                placeholder="0"
-                allowDecimal
-                className="number-cell tnum h-11 w-[72px] rounded-lg border border-border bg-surface-2 text-center text-[16px] font-medium text-fg outline-none focus:border-accent"
-              />
-              <span className="text-[12px] text-faint">kg</span>
-              <span className="text-faint">×</span>
-              <NumberField
-                value={s.reps}
-                onChange={(r) => updateSet(date, exercise.id, i, { ...s, reps: r })}
-                onCommit={() => commitEdit(i)}
-                ariaLabel={tr("第{n}组 次数", { n: i + 1 })}
-                placeholder="0"
-                allowDecimal={false}
-                className="number-cell tnum h-11 w-[60px] rounded-lg border border-border bg-surface-2 text-center text-[16px] font-medium text-fg outline-none focus:border-accent"
-              />
-              <span className="text-[12px] text-faint">{tr("次")}</span>
-              {/* 编辑提交的小 ✓（与"加组高亮"不重叠：刚加的组只闪 bg，不显示 ✓） */}
-              {commitIdx === i && flashIdx !== i && (
-                <span
-                  className="edit-commit grid h-5 w-5 place-items-center rounded-full bg-accent text-accent-fg"
-                  aria-label={tr("已保存")}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M5 13L9 17L19 7"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              )}
-              {/* 最新一组旁的相对时间（仅最后一行 + 有时间戳） */}
-              {i === exercise.sets.length - 1 && lastSetRelative && flashIdx !== i && commitIdx !== i && (
-                <span className="tnum text-[11px] text-faint">
-                  {lastSetRelative}
-                </span>
-              )}
-              <button
-                onClick={() => {
-                  setFlashIdx((c) => (c === i ? null : c));
-                  removeSet(date, exercise.id, i);
-                }}
-                aria-label={tr("删除该组")}
-                className="press ml-auto grid h-10 w-10 place-items-center text-faint hover:text-accent"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M5 12H19"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </div>
-          ))}
-
-          {/* 添加区：统一一个按钮，每组都显式展示"将填入 Xkg × Y" */}
-          <div className="mt-2 space-y-2">
-            <button
-              onClick={handleAddSet}
-              className={
-                "press flex h-12 w-full items-center justify-center gap-2 rounded-md text-[15px] font-semibold " +
-                (carry
-                  ? carryFromLastSession
-                    ? "bg-accent text-accent-fg"
-                    : "border border-border-strong bg-surface-2 text-fg active:bg-surface"
-                  : "border border-dashed border-border-strong bg-surface text-muted active:bg-surface-2")
-              }
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 5V19M5 12H19"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-              {carry ? (
-                <span className="tnum">
-                  {carryFromLastSession ? persona.useLast(mode) : persona.addSet(mode)}
-                  {" · "}
-                  {formatSet(carry)}
-                </span>
-              ) : (
-                persona.addSet(mode)
-              )}
-            </button>
-
-            {carry && (
-              <div className="grid grid-cols-2 gap-2">
-                {exercise.sets.length > 0 ? (
-                  <button
-                    onClick={() => commitAdd(exercise.sets[exercise.sets.length - 1].weight, exercise.sets[exercise.sets.length - 1].reps)}
-                    className="press h-9 rounded-md border border-border bg-surface-2 px-2 text-[12px] font-semibold text-fg active:bg-surface"
-                  >
-                    沿用上一组
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => commitAdd(carry.weight, carry.reps)}
-                    className="press h-9 rounded-md border border-border bg-surface-2 px-2 text-[12px] font-semibold text-fg active:bg-surface"
-                  >
-                    沿用参考
-                  </button>
-                )}
-                <button
-                  onClick={() => commitAdd(0, 0)}
-                  className="press h-9 rounded-md text-[13px] font-medium text-muted active:bg-surface-2"
-                >
-                  {tr("空白组")}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      </button>
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press grid h-9 w-9 place-items-center text-faint" aria-label={open ? tx(locale, "收起动作", "Collapse exercise", "種目を折りたたむ") : tx(locale, "展开动作", "Expand exercise", "種目を展開する")}>⌄</button>
+      <button type="button" onClick={() => exercise.sets.length ? setConfirmDelete(true) : removeExercise(date, exercise.id)} className="press grid h-9 w-9 place-items-center text-faint hover:text-accent" aria-label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}>×</button>
     </div>
-  );
+
+    {confirmDelete && <div className="flex items-center gap-2 border-t border-accent/30 bg-accent-soft px-3.5 py-2.5">
+      <p className="flex-1 text-[12px] text-accent">{tx(locale, `删除此动作及其 ${exercise.sets.length} 组记录？`, `Delete this exercise and its ${exercise.sets.length} set records?`, `この種目と ${exercise.sets.length} セットの記録を削除しますか？`)}</p>
+      <button type="button" onClick={() => setConfirmDelete(false)} className="press rounded-md border border-border bg-surface px-2 py-1 text-[11px]">{tx(locale, "取消", "Cancel", "キャンセル")}</button>
+      <button type="button" onClick={() => removeExercise(date, exercise.id)} className="press rounded-md bg-accent px-2 py-1 text-[11px] text-accent-fg">{tx(locale, "删除", "Delete", "削除")}</button>
+    </div>}
+
+    <div className="border-t border-border px-3.5 py-2.5">
+      <p className="text-[11px] text-faint">{previous ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`) : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
+      {exercise.prescription && <p className="mt-1 text-[10px] text-muted">{suggestionText()}</p>}
+      {trend.sessionCount >= 2 && <p className="mt-1 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {trend.latestE1rm != null ? `e1RM ${trend.latestE1rm}kg` : "—"} · {trend.message}</p>}
+      {acceptedWeight != null && <div className="mt-2 flex items-center justify-between rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} · <b>{acceptedWeight}kg</b></span><button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press font-semibold">{tx(locale, "清除", "Clear", "解除")}</button></div>}
+      {currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
+      {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
+        <div className="mt-2 space-y-2">
+          <HistoryRows title={tx(locale, "同轨道", "Same track", "同一トラック")} rows={histories.same.slice(0, 4)} locale={locale} />
+          <HistoryRows title={tx(locale, "其他轨道参考", "Other track reference", "他トラックの参考")} rows={histories.other.slice(0, 3)} locale={locale} showTrack />
+          <HistoryRows title={tx(locale, "Legacy 旧记录", "Legacy records", "旧記録")} rows={histories.legacy.slice(0, 3)} locale={locale} />
+        </div>
+      </details>}
+    </div>
+
+    {open && <div className="px-3.5 pb-3 pt-1">
+      {exercise.sets.map((set, index) => <div key={set.at ?? `legacy-set-${index}`} className="soft-divider flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0">
+        <span className="tnum w-5 text-center text-[12px] text-faint">{index + 1}</span>
+        {recordsWeight && <><NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} allowDecimal className="number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">kg ×</span></>}
+        {performanceMode === "reps" && <><NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} className="number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{repUnit}</span></>}
+        {performanceMode === "duration" && <><NumberField value={set.durationSeconds ?? 0} onChange={(durationSeconds) => patch(index, { durationSeconds })} ariaLabel={tx(locale, `第${index + 1}组时长`, `Set ${index + 1} duration`, `セット${index + 1}の時間`)} className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{tx(locale, "秒", "sec", "秒")}</span></>}
+        {performanceMode === "distance" && <><NumberField value={set.distanceMeters ?? 0} onChange={(distanceMeters) => patch(index, { distanceMeters })} ariaLabel={tx(locale, `第${index + 1}组距离`, `Set ${index + 1} distance`, `セット${index + 1}の距離`)} allowDecimal className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">m</span></>}
+        {set.completion === "partial" && <Chip label={tx(locale, "部分", "Partial", "部分")} />}
+        {set.completion === "skipped" && <Chip label={tx(locale, "跳过", "Skipped", "スキップ")} />}
+        {set.technique && set.technique !== "normal" && <Chip label={set.technique === "rehab" ? tx(locale, "康复", "Rehab", "リハビリ") : set.technique} />}
+        <button type="button" onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} className="press ml-auto h-9 w-9 text-faint" aria-label={tx(locale, "组设置", "Set options", "セット設定")}>···</button>
+        <button type="button" onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} className="press h-9 w-9 text-faint hover:text-accent" aria-label={tx(locale, "删除组", "Delete set", "セットを削除")}>−</button>
+        {options === index && <SetCapacityOptions set={set} onChange={(value) => patch(index, value)} />}
+      </div>)}
+      <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `按建议添加 ${acceptedWeight}kg`, `Add suggested ${acceptedWeight}kg`, `推奨 ${acceptedWeight}kg を追加`) : carry ? tx(locale, `沿用 ${formatSet(carry, performanceMode, locale)}`, `Repeat ${formatSet(carry, performanceMode, locale)}`, `${formatSet(carry, performanceMode, locale)} を引き継ぐ`) : tx(locale, "添加工作组", "Add working set", "ワーキングセットを追加")}</button>
+      {(carry || acceptedWeight != null) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
+    </div>}
+  </section>;
+}
+
+function HistoryRows({ title, rows, locale, showTrack = false }: { title: string; rows: TrackHistoryResult[]; locale: Locale; showTrack?: boolean }) {
+  if (!rows.length) return null;
+  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${row.exercise.progressionTrackId}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack && row.exercise.progressionTrackLabel ? ` · ${row.exercise.progressionTrackLabel}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, row.exercise.prescription?.performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
+}
+
+function Chip({ label, accent = false }: { label: string; accent?: boolean }) {
+  return <span className={"rounded px-1.5 py-0.5 text-[10px] " + (accent ? "bg-accent-soft font-semibold text-accent" : "bg-surface-2 text-faint")}>{label}</span>;
 }

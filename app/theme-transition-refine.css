@@ -1,0 +1,51 @@
+/* Final transition pass: three themes move with different materials and pacing. */
+
+/* PULSE — a fast poster-cut. It crosses the screen in strips and never floods it with light. */
+:root[data-mode="pulse"] .pulse-route-wipe{background:transparent;animation:pulsePosterFade 250ms linear forwards}
+:root[data-mode="pulse"] .pulse-route-wipe__shadow,:root[data-mode="pulse"] .pulse-route-wipe__red,:root[data-mode="pulse"] .pulse-route-wipe__paper{position:absolute;top:-32%;bottom:-32%;transform:skewX(-24deg) translateX(-220%)}
+:root[data-mode="pulse"] .pulse-route-wipe__shadow{left:-12%;width:35%;background:#080606;animation:pulsePosterCut 215ms cubic-bezier(.18,.86,.21,1) forwards}
+:root[data-mode="pulse"] .pulse-route-wipe__paper{left:20%;width:18%;background:#f6efe0;animation:pulsePosterCut 220ms 14ms cubic-bezier(.18,.86,.21,1) forwards}
+:root[data-mode="pulse"] .pulse-route-wipe__red{left:43%;width:27%;background:#e9312d;animation:pulsePosterCut 225ms 28ms cubic-bezier(.18,.86,.21,1) forwards}
+:root[data-mode="pulse"] .pulse-route-wipe__label{top:calc(env(safe-area-inset-top) + 14px);left:15px;font-size:.64rem;animation:pulsePosterLabel 230ms ease-out forwards}
+:root[data-mode="pulse"] .pulse-impact::before,:root[data-mode="pulse"] .pulse-impact::after{animation-duration:230ms;box-shadow:none}
+:root[data-mode="pulse"] .pulse-impact span{animation-duration:240ms;border:1px solid #e9312d;background:#0b0808}
+@keyframes pulsePosterCut{0%{transform:skewX(-24deg) translateX(-220%)}100%{transform:skewX(-24deg) translateX(460%)}}
+@keyframes pulsePosterFade{0%,66%{opacity:1}100%{opacity:0}}
+@keyframes pulsePosterLabel{0%{opacity:0;transform:translateX(-8px) skewX(-8deg)}25%{opacity:1}100%{opacity:0;transform:translateX(8px) skewX(-8deg)}}
+
+/* MIDNIGHT — a single moon reflection and a descending horizon line. */
+:root[data-mode="midnight"] .midnight-route-scan{background:radial-gradient(ellipse at 74% -8%,rgba(220,249,255,.18),transparent 42%);animation:midnightReflectionFade 360ms ease-out forwards}
+:root[data-mode="midnight"] .midnight-route-scan::before{content:"";position:absolute;top:-40%;bottom:-40%;left:-40%;width:42%;background:linear-gradient(105deg,transparent 25%,rgba(225,250,255,.06) 38%,rgba(247,254,255,.4) 50%,rgba(113,208,255,.08) 62%,transparent 76%);transform:translateX(-120%) rotate(4deg);animation:midnightReflectionPass 340ms cubic-bezier(.18,.7,.22,1) forwards}
+:root[data-mode="midnight"] .midnight-route-scan__line{top:30%;height:1px;background:linear-gradient(90deg,transparent,#b4eaff,transparent)!important;animation:midnightHorizon 330ms ease-out forwards}
+:root[data-mode="midnight"] .midnight-route-scan__label{top:calc(env(safe-area-inset-top) + 15px);left:16px;right:auto;font-size:.58rem;letter-spacing:.12em;animation:midnightReflectionLabel 310ms ease-out forwards}
+:root[data-mode="midnight"] .midnight-tap-ripple{border-color:#b4eaff!important;box-shadow:0 0 0 5px rgba(180,234,255,.11),0 0 14px rgba(180,234,255,.2)!important;animation-duration:360ms}
+@keyframes midnightReflectionPass{0%{transform:translateX(-120%) rotate(4deg)}100%{transform:translateX(340%) rotate(4deg)}}
+@keyframes midnightHorizon{0%{transform:translateY(-9px) scaleX(.16);opacity:0}28%{opacity:.78}100%{transform:translateY(86px) scaleX(1);opacity:0}}
+@keyframes midnightReflectionFade{0%,74%{opacity:1}100%{opacity:0}}
+@keyframes midnightReflectionLabel{0%{opacity:0;transform:translateY(-3px)}28%{opacity:1}100%{opacity:0;transform:translateY(3px)}}
+
+/* SURVIVAL — a folded map and a graphite route, not a scan or neon sweep. */
+:root[data-mode="survival"] .survival-route-note{background:rgba(214,208,189,.1);animation:fieldMapFade 390ms ease-out forwards}
+:root[data-mode="survival"] .survival-route-note::before{inset:16% -18%;border:1px solid rgba(61,89,56,.45);border-radius:2px;background:linear-gradient(90deg,rgba(83,111,73,.11) 1px,transparent 1px) 0 0/24px 24px,linear-gradient(rgba(83,111,73,.09) 1px,transparent 1px) 0 0/24px 24px,rgba(237,232,213,.93);box-shadow:0 12px 23px rgba(43,49,37,.17);transform:rotate(-4deg) translateX(-78%);animation:fieldMapFold 380ms cubic-bezier(.18,.74,.2,1) forwards}
+:root[data-mode="survival"] .survival-route-note::after{content:"";position:absolute;top:50%;left:15%;width:70%;border-top:2px dashed #53714d;transform:rotate(-5deg) scaleX(.08);transform-origin:left;animation:fieldRouteDraw 310ms 65ms ease-out forwards}
+:root[data-mode="survival"] .survival-route-note span{top:calc(env(safe-area-inset-top) + 17px);left:17px;color:#3d5b38;font-size:.58rem;letter-spacing:.1em}
+:root[data-mode="survival"] .survival-field-mark{border-color:#52704b;background:#ece5d1;color:#3f6139;box-shadow:2px 2px 0 rgba(58,75,52,.16);animation-duration:300ms}
+@keyframes fieldMapFold{0%{transform:rotate(-4deg) translateX(-78%)}100%{transform:rotate(-4deg) translateX(36%)}}
+@keyframes fieldRouteDraw{0%{transform:rotate(-5deg) scaleX(.08);opacity:0}100%{transform:rotate(-5deg) scaleX(1);opacity:1}}
+@keyframes fieldMapFade{0%,76%{opacity:1}100%{opacity:0}}
+
+/* Pulse navigation gets a bolder cut-paper glyph treatment without copying source icons. */
+:root[data-mode="pulse"] .app-nav{background:linear-gradient(104deg,#080707 0 78%,#32100f 78%)!important}
+:root[data-mode="pulse"] .nav-item{border-radius:2px 12px 2px 12px!important}
+:root[data-mode="pulse"] .nav-item[data-active="true"]{transform:skewX(-7deg);text-shadow:none}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-icon-shell{border-color:#f4ead9;background:#f4ead9!important;box-shadow:3px 3px 0 #e9322d!important}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph{filter:drop-shadow(1px 1px 0 rgba(0,0,0,.24));color:#100909}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph *{stroke:#100909!important;fill:#100909}
+:root[data-mode="pulse"] .nav-item[data-active="true"] .nav-glyph path[fill="var(--accent)"]{fill:#e9322d!important;stroke:#e9322d!important}
+:root[data-mode="pulse"] .nav-item:not([data-active="true"]) .nav-icon-shell{border:1px solid transparent}
+:root[data-mode="pulse"] .nav-item:not([data-active="true"]) .nav-glyph{stroke-width:2px}
+
+/* Selected biological sex chip stays legible in every theme. */
+.control-strip .choice-chip[aria-pressed="true"]{position:relative;z-index:1;border:1px solid var(--accent)!important;background:var(--surface)!important;color:var(--accent)!important;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
+@media(prefers-reduced-motion:reduce){.pulse-route-wipe,.midnight-route-scan,.survival-route-note,.pulse-impact,.midnight-tap-ripple,.survival-field-mark{display:none!important}}

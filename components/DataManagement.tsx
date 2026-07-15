@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { daysAgo } from "@/lib/date";
 import { type AppData, downloadBackup, parseBackupWithMeta } from "@/lib/storage";
 import { typeLabel } from "@/lib/exercises";
+import { performanceModeFor, workingSets } from "@/lib/prescription";
 
 export default function DataManagement() {
   const { tr, locale } = useI18n();
@@ -30,7 +31,7 @@ export default function DataManagement() {
   const stale = !lastBackup || lastBackup.days >= 30;
   const currentDayCount = Object.keys(data.days).length;
   const filledDayCount = Object.values(data.days).filter((day) => {
-    const sets = day.workout?.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) ?? 0;
+    const sets = day.workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
     const cardioMinutes = (day.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
     return sets > 0 || day.workout?.type === "rest" || (day.nutrition?.calories ?? 0) > 0 || cardioMinutes > 0;
   }).length;
@@ -138,7 +139,7 @@ export default function DataManagement() {
         </div>
 
         <div className="flex gap-2">
-          <button
+          <button type="button"
             onClick={exportData}
             className="choice-chip press flex h-11 flex-1 items-center justify-center gap-1.5 border border-border bg-surface-2 text-[14px] font-medium text-fg active:bg-surface"
           >
@@ -153,7 +154,7 @@ export default function DataManagement() {
             </svg>
             {tr("导出备份")}
           </button>
-          <button
+          <button type="button"
             onClick={() => fileRef.current?.click()}
             className="choice-chip press flex h-11 flex-1 items-center justify-center gap-1.5 border border-border bg-surface-2 text-[14px] font-medium text-fg active:bg-surface"
           >
@@ -171,6 +172,7 @@ export default function DataManagement() {
           <input
             ref={fileRef}
             type="file"
+            aria-label={tr("选择备份文件")}
             accept="application/json,.json"
             onChange={onFile}
             className="hidden"
@@ -222,13 +224,13 @@ export default function DataManagement() {
               </p>
             )}
             <div className="mt-2 flex gap-2">
-              <button
+              <button type="button"
                 onClick={() => setPendingImport(null)}
                 className="press h-9 flex-1 rounded-md border border-border bg-surface text-[13px] text-fg"
               >
                 {tr("取消")}
               </button>
-              <button
+              <button type="button"
                 onClick={() => {
                   downloadBackup(data);
                   flash("ok", tr("当前数据已导出"));
@@ -237,7 +239,7 @@ export default function DataManagement() {
               >
                 {tr("先导出当前")}
               </button>
-              <button
+              <button type="button"
                 onClick={confirmImport}
                 className="press h-9 flex-1 rounded-md bg-accent text-[13px] font-semibold text-accent-fg"
               >
@@ -249,7 +251,7 @@ export default function DataManagement() {
 
         {/* 清空：两段内联确认，无弹窗 */}
         {!confirming ? (
-          <button
+          <button type="button"
             onClick={() => setConfirming(true)}
             className="choice-chip press h-10 w-full text-[13px] font-medium text-muted active:bg-surface-2"
           >
@@ -260,13 +262,13 @@ export default function DataManagement() {
             <span className="flex-1 pl-1 text-[13px] font-medium text-accent">
               {tr("确认清空？不可恢复")}
             </span>
-            <button
+            <button type="button"
               onClick={() => setConfirming(false)}
               className="press h-9 rounded-md border border-border bg-surface px-3 text-[13px] text-fg"
             >
               {tr("取消")}
             </button>
-            <button
+            <button type="button"
               onClick={() => {
                 clearAll();
                 setConfirming(false);
@@ -321,21 +323,21 @@ function dateStamp() {
 }
 
 function downloadTrainingCsv(data: AppData) {
-  const rows: (string | number | undefined | null)[][] = [["date", "type", "exercise", "set", "weight", "reps"]];
+  const rows: (string | number | undefined | null)[][] = [["date", "type", "template_id", "microcycle_id", "session_difficulty", "exercise", "track_id", "track_label", "performance_mode", "set", "weight_kg", "reps", "duration_seconds", "distance_meters", "completion", "technique"]];
   Object.keys(data.days).sort().forEach((date) => {
     const workout = data.days[date].workout;
     if (!workout) return;
     if (workout.type === "rest") {
-      rows.push([date, typeLabel(workout.type), "休息", "", "", ""]);
+      rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, "休息", "", "", "", "", "", "", "", "", "", ""]);
       return;
     }
     workout.exercises.forEach((exercise) => {
       if (!exercise.sets.length) {
-        rows.push([date, typeLabel(workout.type), exercise.name, "", "", ""]);
+        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exercise.progressionTrackId, exercise.progressionTrackLabel, exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), "", "", "", "", "", "", ""]);
         return;
       }
       exercise.sets.forEach((set, index) => {
-        rows.push([date, typeLabel(workout.type), exercise.name, index + 1, set.weight, set.reps]);
+        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exercise.progressionTrackId, exercise.progressionTrackLabel, exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), index + 1, set.weight, set.reps, set.durationSeconds, set.distanceMeters, set.completion, set.technique]);
       });
     });
   });

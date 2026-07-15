@@ -1,0 +1,49 @@
+/* Full-screen route transitions: visible by design, each theme moves with a distinct material. */
+.theme-route-transition{position:fixed;inset:0;z-index:9999;overflow:hidden;pointer-events:none}
+.theme-route-transition span,.theme-route-transition strong{position:absolute;display:block}
+.theme-route-transition strong{z-index:5;font-family:var(--font-mono);font-size:.72rem;font-weight:900;letter-spacing:.16em;white-space:nowrap}
+
+/* Old route flashes are retired so only the deliberate full-screen transition remains. */
+.pulse-route-wipe,.midnight-route-scan,.survival-route-note{display:none!important}
+
+/* Pulse: torn poster sheets cut across the display. */
+.theme-route-transition--pulse{background:transparent;animation:routePulseShell 680ms linear forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-a,.theme-route-transition--pulse .theme-route-transition__pulse-b,.theme-route-transition--pulse .theme-route-transition__pulse-c{top:-18%;bottom:-18%;transform:skewX(-20deg) translateX(-180%)}
+.theme-route-transition--pulse .theme-route-transition__pulse-a{left:-18%;width:47%;background:#0b0808;animation:routePulseSliceA 610ms cubic-bezier(.2,.78,.16,1) forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-b{left:20%;width:28%;background:#ed312e;animation:routePulseSliceB 620ms 42ms cubic-bezier(.2,.78,.16,1) forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-c{left:50%;width:24%;background:#f6efe0;animation:routePulseSliceC 630ms 82ms cubic-bezier(.2,.78,.16,1) forwards}
+.theme-route-transition--pulse .theme-route-transition__moon,.theme-route-transition--pulse .theme-route-transition__horizon,.theme-route-transition--pulse .theme-route-transition__map,.theme-route-transition--pulse .theme-route-transition__route{display:none}
+.theme-route-transition--pulse strong{top:calc(env(safe-area-inset-top) + 42%);left:7%;color:#fff8e9;text-shadow:4px 4px 0 #e92f2d;transform:skewX(-10deg);animation:routePulseLabel 680ms ease-out forwards}
+@keyframes routePulseSliceA{0%{transform:skewX(-20deg) translateX(-180%)}44%{transform:skewX(-20deg) translateX(64%)}100%{transform:skewX(-20deg) translateX(340%)}}
+@keyframes routePulseSliceB{0%{transform:skewX(-20deg) translateX(-180%)}48%{transform:skewX(-20deg) translateX(54%)}100%{transform:skewX(-20deg) translateX(342%)}}
+@keyframes routePulseSliceC{0%{transform:skewX(-20deg) translateX(-180%)}53%{transform:skewX(-20deg) translateX(42%)}100%{transform:skewX(-20deg) translateX(344%)}}
+@keyframes routePulseShell{0%,76%{opacity:1}100%{opacity:0}}
+@keyframes routePulseLabel{0%{opacity:0;transform:translateX(-20px) skewX(-10deg)}28%{opacity:1;transform:translateX(0) skewX(-10deg)}70%{opacity:1}100%{opacity:0;transform:translateX(24px) skewX(-10deg)}}
+
+/* Midnight: a calm blue time-cut. No orb, bloom, moon disc, or circular motif. */
+.theme-route-transition--midnight{background:linear-gradient(118deg,rgba(3,10,27,.1),rgba(8,33,80,.82) 48%,rgba(4,13,37,.36));animation:routeMidnightShell 540ms ease-out forwards}
+.theme-route-transition--midnight::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent 0 38%,rgba(196,244,255,.14) 38% 38.2%,transparent 38.2% 61%,rgba(196,244,255,.08) 61% 61.15%,transparent 61.15%);transform:translateX(-100%);animation:routeMidnightPanels 500ms cubic-bezier(.18,.78,.22,1) forwards}
+.theme-route-transition--midnight::after{content:"";position:absolute;left:0;right:0;top:48%;height:1px;background:linear-gradient(90deg,transparent,rgba(220,249,255,.9) 32%,rgba(157,223,255,.9) 60%,transparent);box-shadow:0 7px 0 rgba(157,223,255,.16);transform:scaleX(.08);transform-origin:center;animation:routeMidnightLine 470ms 45ms ease-out forwards}
+.theme-route-transition--midnight .theme-route-transition__moon{display:none}
+.theme-route-transition--midnight .theme-route-transition__horizon{left:12%;right:12%;top:32%;height:36%;border-top:1px solid rgba(185,239,255,.2);border-bottom:1px solid rgba(185,239,255,.12);transform:translateY(-120%);animation:routeMidnightWindow 500ms cubic-bezier(.16,.78,.2,1) forwards}
+.theme-route-transition--midnight .theme-route-transition__pulse-a,.theme-route-transition--midnight .theme-route-transition__pulse-b,.theme-route-transition--midnight .theme-route-transition__pulse-c,.theme-route-transition--midnight .theme-route-transition__map,.theme-route-transition--midnight .theme-route-transition__route{display:none}
+.theme-route-transition--midnight strong{top:calc(env(safe-area-inset-top) + 47%);left:9%;color:#e9fbff;text-shadow:0 2px 13px rgba(102,207,255,.62);animation:routeMidnightLabel 530ms ease-out forwards}
+@keyframes routeMidnightShell{0%{opacity:0}12%{opacity:1}76%{opacity:1}100%{opacity:0}}
+@keyframes routeMidnightPanels{0%{transform:translateX(-100%)}52%{transform:translateX(0)}100%{transform:translateX(100%)}}
+@keyframes routeMidnightLine{0%{opacity:0;transform:scaleX(.08)}22%{opacity:1}72%{opacity:.82;transform:scaleX(1)}100%{opacity:0;transform:scaleX(1.08)}}
+@keyframes routeMidnightWindow{0%{opacity:0;transform:translateY(-120%)}34%{opacity:1;transform:translateY(0)}72%{opacity:.85;transform:translateY(4%)}100%{opacity:0;transform:translateY(16%)}}
+@keyframes routeMidnightLabel{0%{opacity:0;transform:translateY(7px)}24%{opacity:1;transform:translateY(0)}66%{opacity:.94}100%{opacity:0;transform:translateY(-4px)}}
+
+/* Survival: a folded paper map enters, a route is drawn, then the page folds out. */
+.theme-route-transition--survival{background:rgba(40,47,33,.16);animation:routeSurvivalShell 720ms ease-out forwards}
+.theme-route-transition--survival .theme-route-transition__map{top:15%;right:7%;width:86%;height:64%;border:1px solid rgba(62,86,55,.78);border-radius:2px 16px 2px 16px;background:linear-gradient(90deg,rgba(80,109,69,.14) 1px,transparent 1px) 0 0/28px 28px,linear-gradient(rgba(80,109,69,.14) 1px,transparent 1px) 0 0/28px 28px,linear-gradient(140deg,#f2eddc,#d9dfc6);box-shadow:0 18px 34px rgba(34,41,29,.26),inset 0 1px 0 rgba(255,255,248,.8);transform:translateX(125%) rotate(7deg);animation:routeSurvivalMap 690ms cubic-bezier(.16,.8,.18,1) forwards}
+.theme-route-transition--survival .theme-route-transition__route{top:46%;left:15%;width:70%;border-top:3px dashed #4f7247;transform:rotate(-8deg) scaleX(.02);transform-origin:left;animation:routeSurvivalLine 380ms 180ms ease-out forwards}
+.theme-route-transition--survival .theme-route-transition__route::after{content:"";position:absolute;right:-.2rem;top:-.34rem;width:.56rem;height:.56rem;border-radius:999px;background:#bb7448;box-shadow:0 0 0 .23rem rgba(187,116,72,.18)}
+.theme-route-transition--survival .theme-route-transition__pulse-a,.theme-route-transition--survival .theme-route-transition__pulse-b,.theme-route-transition--survival .theme-route-transition__pulse-c,.theme-route-transition--survival .theme-route-transition__moon,.theme-route-transition--survival .theme-route-transition__horizon{display:none}
+.theme-route-transition--survival strong{top:calc(env(safe-area-inset-top) + 45%);left:11%;color:#344d31;text-shadow:0 1px 0 rgba(255,255,244,.78);animation:routeSurvivalLabel 670ms ease-out forwards}
+@keyframes routeSurvivalShell{0%{opacity:0}12%{opacity:1}82%{opacity:1}100%{opacity:0}}
+@keyframes routeSurvivalMap{0%{transform:translateX(125%) rotate(7deg)}36%{transform:translateX(0) rotate(-3deg)}72%{transform:translateX(-4%) rotate(-2deg)}100%{transform:translateX(-118%) rotate(-8deg)}}
+@keyframes routeSurvivalLine{0%{opacity:0;transform:rotate(-8deg) scaleX(.02)}100%{opacity:1;transform:rotate(-8deg) scaleX(1)}}
+@keyframes routeSurvivalLabel{0%{opacity:0;transform:translateX(-12px) rotate(-2deg)}25%{opacity:1;transform:translateX(0) rotate(-2deg)}68%{opacity:1}100%{opacity:0;transform:translateX(13px) rotate(-2deg)}}
+
+@media(prefers-reduced-motion:reduce){.theme-route-transition{display:none!important}}

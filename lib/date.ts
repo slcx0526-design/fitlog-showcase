@@ -36,18 +36,23 @@ export function lastNDays(n: number): string[] {
   return out;
 }
 
-/** 当前自然周（周一→周日）的 7 个键，按时间正序 */
-export function currentWeekKeys(): string[] {
-  const today = new Date();
-  const dow = (today.getDay() + 6) % 7; // 0 = 周一
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - dow);
+/** 指定日期所在自然周（周一→周日）的 7 个键，按时间正序 */
+export function weekKeysFor(anchorKey: string): string[] {
+  const anchor = fromKey(anchorKey);
+  const dow = (anchor.getDay() + 6) % 7; // 0 = 周一
+  const monday = new Date(anchor);
+  monday.setDate(anchor.getDate() - dow);
   const out: string[] = [];
   for (let i = 0; i < 7; i++) {
     out.push(toKey(monday));
     monday.setDate(monday.getDate() + 1);
   }
   return out;
+}
+
+/** 当前自然周（周一→周日）的 7 个键，按时间正序 */
+export function currentWeekKeys(): string[] {
+  return weekKeysFor(todayKey());
 }
 
 // ---- 本地化日期显示（zh / ja / en） ----

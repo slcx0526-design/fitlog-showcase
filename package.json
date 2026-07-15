@@ -1,18 +1,20 @@
 {
   "name": "fitlog",
-  "version": "2.7.0",
+  "version": "4.1.0",
   "private": true,
   "description": "Local-first fitness, nutrition, cardio, and body-composition dashboard deployable on Vercel.",
   "engines": {
-    "node": "22.x",
+    "node": ">=22 <25",
     "npm": ">=10"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
+    "build": "npm run test:training && NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "next start",
+    "lint": "eslint app components lib scripts --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run build",
+    "verify": "npm run lint && npm run typecheck && npm run build",
+    "test:training": "rm -rf .tmp-training-tests && tsc -p tsconfig.training-tests.json && node .tmp-training-tests/scripts/training-system.test.js && node .tmp-training-tests/scripts/training-regression.test.js && node .tmp-training-tests/scripts/training-decision.test.js && node .tmp-training-tests/scripts/cut-system.test.js && rm -rf .tmp-training-tests",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate"
   },
   "dependencies": {
@@ -21,10 +23,18 @@
     "react-dom": "19.2.7"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.5.19",
     "@types/node": "^20.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.63.0",
+    "@typescript-eslint/parser": "^8.63.0",
     "autoprefixer": "^10.4.19",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.5.0"

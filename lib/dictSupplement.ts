@@ -1,0 +1,54 @@
+// Supplemental translations for newer UI surfaces and legacy copy not yet in lib/dict.ts.
+// Keys remain Simplified Chinese so all callers continue to use tr(zhKey).
+
+export const DICT_JA_SUPPLEMENT: Record<string, string> = {
+  "主导航": "メインナビゲーション", "进度": "進捗", "减脂": "減量", "日志": "ログ", "身体": "身体",
+  "查看训练": "トレーニングを見る", "继续训练": "トレーニングを続ける", "记录休息日": "休息日を記録", "开始{type}": "{type}を開始",
+  "补齐基本资料": "基本情報を入力", "身高、生理性别与出生年份用于热量和心率估算。": "身長・生物学的性別・生年はカロリーと心拍数の推定に使用します。", "去填写": "入力する",
+  "已记录总热量": "合計カロリーを記録済み", "记录总热量": "合計カロリーを記録", "目标 {n} · 剩 {m}": "目標 {n} · 残り {m}", "目标 {n} · 超 {m}": "目標 {n} · 超過 {m}",
+  "本周累计 {n} 分": "今週合計 {n} 分", "记录后影响本周速度": "記録すると今週のペースに反映", "快速记录一次有氧": "有酸素をすばやく記録",
+  "减脂与趋势": "減量と推移", "趋势已校准 · 有氧影响周速度": "推移を校正済み · 有酸素は週のペースに反映", "先用公式起点，记录够后自动校准": "まず計算式を基準にし、記録が十分になると自動校正", "开启后汇总饮食、有氧和体重趋势": "有効にすると食事・有酸素・体重推移を統合", "开启": "有効にする",
+  "体重": "体重", "腰围": "ウエスト", "晨重": "朝の体重", "{n} kg · 已进入趋势": "{n} kg · 推移に反映済み", "起床后、如厕后、进食前记录一次": "起床後・トイレ後・食事前に1回記録",
+  "晨重和腰围已记录": "朝の体重とウエストを記録しました", "腰围已记录": "ウエストを記録しました", "晨重已记录": "朝の体重を記録しました", "体重 · kg": "体重 · kg", "今日体重": "今日の体重", "腰围（可选）": "ウエスト（任意）", "建议每周 1–2 次；不作为每日完成项。": "週1〜2回がおすすめ。毎日の必須項目ではありません。", "腰围 · cm": "ウエスト · cm", "今日腰围": "今日のウエスト", "查看身体趋势": "身体の推移を見る",
+  "今天安排休息；恢复也是计划的一部分。": "今日は休息日。回復も計画の一部です。", "已完成 {n} 组。": "{n}セット完了。", "已完成 {n} 组，随时继续。": "{n}セット完了。いつでも続けられます。", "按计划开始，也可在训练页调整。": "プランに従って開始。トレーニング画面で調整できます。", "选择类型后开始记录。": "タイプを選んで記録を開始します。",
+
+  "主题设定": "テーマ設定", "界面主题": "テーマ", "主题只改变视觉、动效和信息强调，不会改动训练、饮食、减脂或身体数据。": "テーマは見た目・動き・情報の強調だけを変更します。トレーニング、食事、減量、身体データは変更しません。", "日常记录": "日常記録", "默认界面：稳定、轻量、专注记录。": "標準画面：安定・軽量・記録に集中。", "行动主题": "アクションテーマ", "高对比、目标推进、快速反馈。": "高コントラスト、目標推進、素早いフィードバック。", "月夜主题": "月夜テーマ", "月光、时间感、长期状态与恢复。": "月明かり、時間感覚、長期状態と回復。", "野外主题": "アウトドアテーマ", "路线、补给、体征和行动日志。": "ルート、補給、コンディション、行動ログ。",
+
+  "训练 CSV": "トレーニング CSV", "身体 CSV": "身体 CSV", "日志 CSV": "ログ CSV", "备份与设置": "バックアップと設定", "模板": "テンプレート", "动作": "種目",
+  "单臂划船": "ワンアームロー", "坐姿飞鸟": "シーテッド・ラテラルレイズ", "器械飞鸟（固定）": "マシンフライ（固定）", "上肢路线": "上半身ルート",
+
+  "本次容量": "今回のボリューム", "减脂容量按整套模板 80% 分配，优先保留主项。": "減量期のボリュームはテンプレート全体の80%で配分し、メイン種目を優先して残します。", "当前安排": "現在の予定", "已完成": "完了", "还有 {n} 组容量未覆盖": "あと {n} セット分のボリュームが未充足", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "不足種目には動作パターン・目標筋群・器具代替リストから候補を提示します。追加後も今回のボリュームで判定し、同等の代替とみなしません。", "查看动作组数": "種目セット数を見る", "工作组按 80% 执行，重量不纳入计算": "ワーキングセットは80%で実施。重量は計算に含めません。", "周工作组 {a} → {b} · 有效容量 {c} → {d}": "週間ワーキングセット {a} → {b} · 有効ボリューム {c} → {d}", "查看每次与每周组数": "各回と週間セット数を見る", "查看各肌群有效周容量": "筋群ごとの有効週間ボリュームを見る", "不自动降重量、不统计吨位；主动作保留，负重按当天状态自行调整。": "重量は自動で下げず、トン数も集計しません。メイン種目は維持し、負荷は当日の状態で調整します。",
+
+  "今天的测量": "今日の測定", "同一天可以反复更新，最新数值会覆盖旧记录。": "同じ日に何度でも更新でき、最新値が以前の記録を上書きします。", "体脂估算": "体脂肪推定", "请输入体重或腰围": "体重またはウエストを入力してください", "身体趋势": "身体の推移", "一张图切换体重、腰围和 RFM 体脂估算": "1つのグラフで体重・ウエスト・RFM体脂肪推定を切り替えます。", "平均线": "平均線", "最近30天": "直近30日", "最近90天": "直近90日", "全部": "すべて", "点击图表查看": "グラフをタップして確認",
+
+  "今天做什么，系统只给一条主线。": "今日やることは、システムが1つの主線だけ示します。", "关闭减脂模式": "減量モードをオフ", "开启减脂模式": "減量モードをオン", "减脂模式未开启": "減量モードはオフです", "开启后，饮食、有氧和体重趋势会汇总成每周速度。": "有効にすると、食事・有酸素・体重推移を週間ペースに統合します。", "开启减脂": "減量を開始", "先建立起点": "まず基準を作成", "补齐最近体重、身高、生理性别和出生年份后，系统才能给出日目标和周速度。": "最近の体重・身長・生物学的性別・生年を入力すると、日次目標と週間ペースを算出できます。", "补齐资料": "情報を入力", "目标 {n}% / 周": "目標 {n}% / 週", "今日目标": "今日の目標", "当前余量": "現在の残り", "饮食状态": "食事の状態", "未记录": "未記録", "更新饮食": "食事を更新", "记录饮食": "食事を記録", "记录有氧": "有酸素を記録", "记录晨重": "朝の体重を記録", "这周": "今週", "实际饮食和有氧已经进入周度估算。": "実際の食事と有酸素は週間推定に反映済みです。", "饮食偏差": "食事差分", "有氧影响": "有酸素の影響", "预计赤字": "予測赤字", "记录更多有氧会加快预计速度；记录不足会放慢。趋势成熟后再由真实体重确认。": "有酸素を多く記録すると予測ペースは速くなり、不足すると遅くなります。推移が十分になったら実測体重で確認します。", "计划设置": "プラン設定", "速度和日常走动。": "ペースと日常活動。", "每周速度": "週間ペース", "日常走动": "日常活動", "有氧不预设在这里。去有氧页记录后，会直接影响本周速度。": "有酸素はここで事前設定しません。有酸素ページで記録すると今週のペースに直接反映されます。",
+
+  "记录方式": "記録方式", "重量次数": "重量＋回数", "仅次数": "回数のみ", "距离": "距離", "次数": "回数", "秒": "秒", "背阔肌": "広背筋", "上背": "上背部", "有日志": "ログあり", "按部位选动作 · 存目标组数与范围 · 训练页一键套用": "部位から種目を選択 · セット目標と範囲を保存 · トレーニング画面で適用",
+  "体重 · 腰围 · 体脂趋势": "体重 · ウエスト · 体脂肪の推移", "容量 · 最近训练 · 有氧": "ボリューム · 最近のトレーニング · 有酸素", "按日期回看与补记": "日付ごとに振り返り・追加入力",
+};
+
+export const DICT_EN_SUPPLEMENT: Record<string, string> = {
+  "主导航": "Main navigation", "进度": "Progress", "减脂": "Cut", "日志": "Log", "身体": "Body",
+  "查看训练": "View workout", "继续训练": "Continue workout", "记录休息日": "Log rest day", "开始{type}": "Start {type}",
+  "补齐基本资料": "Complete basic profile", "身高、生理性别与出生年份用于热量和心率估算。": "Height, biological sex, and birth year are used for calorie and heart-rate estimates.", "去填写": "Set up",
+  "已记录总热量": "Total calories logged", "记录总热量": "Log total calories", "目标 {n} · 剩 {m}": "Target {n} · {m} left", "目标 {n} · 超 {m}": "Target {n} · {m} over",
+  "本周累计 {n} 分": "{n} min this week", "记录后影响本周速度": "Logging affects this week's pace", "快速记录一次有氧": "Quick-log cardio",
+  "减脂与趋势": "Cut & trends", "趋势已校准 · 有氧影响周速度": "Trend calibrated · cardio affects weekly pace", "先用公式起点，记录够后自动校准": "Start from the formula; calibrates automatically with enough data", "开启后汇总饮食、有氧和体重趋势": "When enabled, combines nutrition, cardio, and weight trends", "开启": "Enable",
+  "体重": "Weight", "腰围": "Waist", "晨重": "Morning weight", "{n} kg · 已进入趋势": "{n} kg · added to trend", "起床后、如厕后、进食前记录一次": "Record once after waking, after the bathroom, before food.",
+  "晨重和腰围已记录": "Morning weight and waist saved", "腰围已记录": "Waist saved", "晨重已记录": "Morning weight saved", "体重 · kg": "Weight · kg", "今日体重": "Today's weight", "腰围（可选）": "Waist (optional)", "建议每周 1–2 次；不作为每日完成项。": "Recommended 1–2 times weekly; not a daily requirement.", "腰围 · cm": "Waist · cm", "今日腰围": "Today's waist", "查看身体趋势": "View body trends",
+  "今天安排休息；恢复也是计划的一部分。": "Today is a rest day. Recovery is part of the plan.", "已完成 {n} 组。": "{n} sets completed.", "已完成 {n} 组，随时继续。": "{n} sets completed. Continue whenever ready.", "按计划开始，也可在训练页调整。": "Start from the plan, or adjust it in Training.", "选择类型后开始记录。": "Choose a type to start logging.",
+
+  "主题设定": "Theme settings", "界面主题": "Interface theme", "主题只改变视觉、动效和信息强调，不会改动训练、饮食、减脂或身体数据。": "Themes change only visuals, motion, and emphasis. They do not change training, nutrition, cut, or body data.", "日常记录": "Daily log", "默认界面：稳定、轻量、专注记录。": "Default mode: stable, light, and focused on logging.", "行动主题": "Action theme", "高对比、目标推进、快速反馈。": "High contrast, goal momentum, fast feedback.", "月夜主题": "Moonlight theme", "月光、时间感、长期状态与恢复。": "Moonlight, a sense of time, long-term status and recovery.", "野外主题": "Survival theme", "路线、补给、体征和行动日志。": "Routes, supplies, biometrics, and activity logs.",
+
+  "训练 CSV": "Training CSV", "身体 CSV": "Body CSV", "日志 CSV": "Log CSV", "备份与设置": "Backup & settings", "模板": "Templates", "动作": "Exercises",
+  "单臂划船": "One-arm row", "坐姿飞鸟": "Seated lateral raise", "器械飞鸟（固定）": "Machine fly (fixed)", "上肢路线": "Upper-body route",
+
+  "本次容量": "Session volume", "减脂容量按整套模板 80% 分配，优先保留主项。": "Cut volume is allocated at 80% across the template, prioritizing main lifts.", "当前安排": "Planned now", "已完成": "Completed", "还有 {n} 组容量未覆盖": "{n} volume sets still uncovered", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "Missing movements get candidates from movement pattern, target muscle, and equipment substitutes. Added options still count against this session's volume; they are not treated as equivalent automatically.", "查看动作组数": "View exercise sets", "工作组按 80% 执行，重量不纳入计算": "Working sets run at 80%; load is not included in the calculation.", "周工作组 {a} → {b} · 有效容量 {c} → {d}": "Weekly working sets {a} → {b} · effective volume {c} → {d}", "查看每次与每周组数": "View session and weekly sets", "查看各肌群有效周容量": "View effective weekly volume by muscle", "不自动降重量、不统计吨位；主动作保留，负重按当天状态自行调整。": "Loads are not auto-reduced and tonnage is not counted. Main movements stay; adjust load for the day.",
+
+  "今天的测量": "Today's measurements", "同一天可以反复更新，最新数值会覆盖旧记录。": "You can update repeatedly on the same day; the latest value replaces the earlier record.", "体脂估算": "Body-fat estimate", "请输入体重或腰围": "Enter weight or waist", "身体趋势": "Body trends", "一张图切换体重、腰围和 RFM 体脂估算": "Switch weight, waist, and RFM body-fat estimate in one chart.", "平均线": "Average line", "最近30天": "Last 30 days", "最近90天": "Last 90 days", "全部": "All", "点击图表查看": "Tap chart to inspect",
+
+  "今天做什么，系统只给一条主线。": "The system gives one clear priority for today.", "关闭减脂模式": "Disable cut mode", "开启减脂模式": "Enable cut mode", "减脂模式未开启": "Cut mode is off", "开启后，饮食、有氧和体重趋势会汇总成每周速度。": "When enabled, nutrition, cardio, and weight trends are combined into a weekly pace.", "开启减脂": "Enable cut", "先建立起点": "Set a baseline first", "补齐最近体重、身高、生理性别和出生年份后，系统才能给出日目标和周速度。": "Add recent weight, height, biological sex, and birth year before the app can set daily targets and weekly pace.", "补齐资料": "Complete profile", "目标 {n}% / 周": "Target {n}% / wk", "今日目标": "Today's target", "当前余量": "Remaining", "饮食状态": "Nutrition status", "未记录": "Not logged", "更新饮食": "Update nutrition", "记录饮食": "Log nutrition", "记录有氧": "Log cardio", "记录晨重": "Log morning weight", "这周": "This week", "实际饮食和有氧已经进入周度估算。": "Actual nutrition and cardio are included in the weekly estimate.", "饮食偏差": "Nutrition variance", "有氧影响": "Cardio impact", "预计赤字": "Projected deficit", "记录更多有氧会加快预计速度；记录不足会放慢。趋势成熟后再由真实体重确认。": "Logging more cardio speeds up the projected pace; incomplete logs slow it down. Confirm with real body weight once the trend matures.", "计划设置": "Plan settings", "速度和日常走动。": "Pace and daily activity.", "每周速度": "Weekly pace", "日常走动": "Daily activity", "有氧不预设在这里。去有氧页记录后，会直接影响本周速度。": "Cardio is not preset here. Logging it on the cardio page directly affects this week's pace.",
+
+  "记录方式": "Recording method", "重量次数": "Weight + reps", "仅次数": "Reps only", "距离": "Distance", "次数": "Reps", "秒": "sec", "背阔肌": "Lats", "上背": "Upper back", "有日志": "Has logs", "按部位选动作 · 存目标组数与范围 · 训练页一键套用": "Choose exercises by area · save set targets and ranges · apply in Training",
+  "体重 · 腰围 · 体脂趋势": "Weight · waist · body-fat trends", "容量 · 最近训练 · 有氧": "Volume · recent training · cardio", "按日期回看与补记": "Review and backfill by date",
+};

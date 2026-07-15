@@ -1,24 +1,16 @@
 import { fromKey, toKey } from "./date";
 import type { CardioEntry, CutPlan, DayLog, Zone } from "./types";
 
-/**
- * Cardio is tracked as a weekly execution target, not as a same-day calorie
- * adjustment. The default is deliberately conservative and can be changed by
- * the user inside the cut plan or Cardio page.
- */
 export const DEFAULT_WEEKLY_CARDIO_MINUTES = 120;
+const validZone = (value: unknown): value is Zone => value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
 
 export function weeklyCardioGoal(plan: CutPlan | undefined): number {
   const value = plan?.weeklyCardioMinutes;
-  if (!value || !Number.isFinite(value)) return DEFAULT_WEEKLY_CARDIO_MINUTES;
-  return Math.min(420, Math.max(30, Math.round(value)));
+  return !value || !Number.isFinite(value) ? DEFAULT_WEEKLY_CARDIO_MINUTES : Math.min(420, Math.max(30, Math.round(value)));
 }
 
 export function cardioMinutes(entries: CardioEntry[] | undefined): number {
-  return (entries ?? []).reduce(
-    (sum, entry) => sum + (Number.isFinite(entry.minutes) ? Math.max(0, entry.minutes) : 0),
-    0,
-  );
+  return (entries ?? []).reduce((sum, entry) => sum + (Number.isFinite(entry.minutes) ? Math.max(0, entry.minutes) : 0), 0);
 }
 
 export interface CardioWeekSummary {
@@ -40,28 +32,16 @@ export function weekKeysForDate(anchorDate?: string): string[] {
   const weekday = (base.getDay() + 6) % 7;
   const monday = new Date(base);
   monday.setDate(base.getDate() - weekday);
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(monday);
-    day.setDate(monday.getDate() + index);
-    return toKey(day);
-  });
+  return Array.from({ length: 7 }, (_, index) => { const day = new Date(monday); day.setDate(monday.getDate() + index); return toKey(day); });
 }
 
-export function cardioWeekSummary(
-  days: Record<string, DayLog>,
-  plan: CutPlan | undefined,
-  anchorDate?: string,
-): CardioWeekSummary {
+export function cardioWeekSummary(days: Record<string, DayLog>, plan: CutPlan | undefined, anchorDate?: string): CardioWeekSummary {
   const dates = weekKeysForDate(anchorDate);
   const targetMinutes = weeklyCardioGoal(plan);
   const zoneMinutes: Record<Zone, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   const byMode = new Map<string, number>();
   const dayMinutes: Record<string, number> = {};
-  let totalMinutes = 0;
-  let sessions = 0;
-  let activeDays = 0;
-  let unclassifiedMinutes = 0;
-
+  let totalMinutes = 0, sessions = 0, activeDays = 0, unclassifiedMinutes = 0;
   for (const date of dates) {
     const entries = days[date]?.cardio ?? [];
     const minutes = cardioMinutes(entries);
@@ -69,28 +49,13 @@ export function cardioWeekSummary(
     if (minutes > 0) activeDays += 1;
     totalMinutes += minutes;
     sessions += entries.length;
-
     for (const entry of entries) {
       const safeMinutes = Number.isFinite(entry.minutes) ? Math.max(0, entry.minutes) : 0;
       const mode = entry.mode?.trim() || "有氧";
       byMode.set(mode, (byMode.get(mode) ?? 0) + safeMinutes);
-      if (entry.zone) zoneMinutes[entry.zone] += safeMinutes;
+      if (validZone(entry.zone)) zoneMinutes[entry.zone] += safeMinutes;
       else unclassifiedMinutes += safeMinutes;
     }
   }
-
-  return {
-    dates,
-    totalMinutes,
-    targetMinutes,
-    progress: targetMinutes > 0 ? Math.min(1, totalMinutes / targetMinutes) : 0,
-    activeDays,
-    sessions,
-    zoneMinutes,
-    unclassifiedMinutes,
-    modeMinutes: Array.from(byMode.entries())
-      .map(([mode, minutes]) => ({ mode, minutes }))
-      .sort((a, b) => b.minutes - a.minutes),
-    dayMinutes,
-  };
+  return { dates, totalMinutes, targetMinutes, progress: targetMinutes > 0 ? Math.min(1, totalMinutes / targetMinutes) : 0, activeDays, sessions, zoneMinutes, unclassifiedMinutes, modeMinutes: Array.from(byMode.entries()).map(([mode, minutes]) => ({ mode, minutes })).sort((a, b) => b.minutes - a.minutes), dayMinutes };
 }

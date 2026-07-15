@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": ".tmp-training-tests",
+    "jsx": "react-jsx",
+    "incremental": false
+  },
+  "include": [
+    "lib/types.ts",
+    "lib/muscles.ts",
+    "lib/prescription.ts",
+    "lib/volume.ts",
+    "lib/microcycle.ts",
+    "lib/bodyfat.ts",
+    "lib/weight.ts",
+    "lib/cut.ts",
+    "lib/cutMode.ts",
+    "lib/cutCoach.ts",
+    "lib/trainingDecision.ts",
+    "scripts/training-system.test.ts",
+    "scripts/training-regression.test.ts",
+    "scripts/training-decision.test.ts",
+    "scripts/cut-system.test.ts"
+  ]
+}

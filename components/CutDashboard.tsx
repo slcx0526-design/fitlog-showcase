@@ -21,6 +21,7 @@ import {
   projectedWeightAtBodyFat,
   suggestedCutVolumeScale,
 } from "@/lib/cutMode";
+import { workingSets } from "@/lib/prescription";
 
 const ACTIVITY_LEVELS: BaselineActivity[] = ["low", "light", "moderate", "high"];
 const LOSS_PRESETS = [0.25, 0.5, 0.75] as const;
@@ -80,7 +81,7 @@ export default function CutDashboard() {
       ? Math.round(energy.calorieTarget - intake)
       : null;
   const setCount =
-    day?.workout?.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) ??
+    day?.workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ??
     0;
   const cardioToday = (day?.cardio ?? []).reduce(
     (sum, entry) => sum + entry.minutes,

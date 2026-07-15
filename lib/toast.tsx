@@ -4,6 +4,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -26,6 +27,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToast({ id, content });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(null), 1600);
+  }, []);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
   }, []);
 
   return (

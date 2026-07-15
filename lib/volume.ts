@@ -1,34 +1,44 @@
-import type { DayLog } from "./types";
-import type { MuscleGroup } from "./muscles";
-
-// ============================================================
-// 每周容量稽核（C 层）—— 纯函数，便于独立验算。
-// 计数口径（锁定）：只算主肌群，1 个动作的"已记录组数"整数计入其主肌群。
-// 没打标的旧动作 / 自定义动作（无 primaryMuscle）不计入任何肌群。
-// ============================================================
-
-export type VolumeMap = Partial<Record<MuscleGroup, number>>;
-
-/** 把若干天的训练按主肌群累计组数 */
-export function weeklyVolume(days: (DayLog | undefined)[]): VolumeMap {
-  const v: VolumeMap = {};
-  for (const day of days) {
-    const ex = day?.workout?.exercises;
-    if (!ex) continue;
-    for (const e of ex) {
-      if (!e.primaryMuscle) continue;
-      const n = e.sets.length;
-      if (!n) continue;
-      v[e.primaryMuscle] = (v[e.primaryMuscle] ?? 0) + n;
-    }
-  }
-  return v;
-}
+import type { AppData } from "./storage";
+import type { DayLog, Exercise, MuscleTargetMap, SetRecord, VolumeContribution, Zone } from "./types";
+import { MUSCLE_LABELS, MUSCLE_ORDER, weeklyTargetFor, type MuscleGroup, type TrainingLevel } from "./muscles";
+import { activeMicrocyclePattern, isActiveMicrocycleDay } from "./microcycle";
+import { hasSetPerformance } from "./prescription";
 
 export type VolumeStatus = "under" | "in" | "over";
+export type VolumeMap = Partial<Record<MuscleGroup, number>>;
+export type VolumeScope = "microcycle" | "7d" | "28d";
+export interface MuscleVolumeSource { exerciseId: string; name: string; direct: boolean; rawDirectSets: number; directEffectiveSets: number; indirectEffectiveSets: number; stimulusSets: number; rehabSets: number; sets?: number; contribution?: number; }
+export interface MuscleVolumeRow { muscle: MuscleGroup; rawDirectSets: number; directEffectiveSets: number; indirectEffectiveSets: number; stimulusSets: number; rehabSets: number; directSets: number; /** Backward-compatible target-facing value: direct effective sets only. */ effectiveSets: number; target: { low: number; high: number }; status: VolumeStatus; sources: MuscleVolumeSource[]; }
+export interface VolumeSummary { rows: MuscleVolumeRow[]; totalWorkingSets: number; totalDirectEffectiveSets: number; totalIndirectEffectiveSets: number; resistanceRecoveryLoad: number; totalMechanicalVolume: number; cardioMinutes: number; cardioStress: number; trainingDays: number; totalDirectSets: number; /** Backward-compatible target-facing total: direct effective sets only. */ totalEffectiveSets: number; }
+export interface VolumeAdvice { muscle: MuscleGroup; kind: "add" | "hold" | "reduce"; priority: number; title: string; detail: string; suggestedDirectSets: number; primarySource?: MuscleVolumeSource; }
 
-export function volumeStatus(sets: number, low: number, high: number): VolumeStatus {
-  if (sets < low) return "under";
-  if (sets > high) return "over";
-  return "in";
+const round = (n: number) => Math.round(n * 100) / 100;
+const zones: Record<Zone, number> = { 1: .4, 2: .6, 3: 1, 4: 1.4, 5: 1.8 };
+const validZone = (zone: unknown): zone is Zone => zone === 1 || zone === 2 || zone === 3 || zone === 4 || zone === 5;
+const hasEntry = (s: SetRecord) => hasSetPerformance(s);
+const fallback = (e: Exercise): VolumeContribution[] => e.primaryMuscle ? [{ muscle: e.primaryMuscle, weight: 1, direct: true }] : [];
+export const isCountedWorkingSet = (s: SetRecord) => s.type !== "warmup" && s.completion !== "skipped" && s.technique !== "rehab" && hasEntry(s);
+const isRehab = (s: SetRecord) => s.type !== "warmup" && s.completion !== "skipped" && s.technique === "rehab" && hasEntry(s);
+export function setEffortFactor(s: SetRecord) { if (!isCountedWorkingSet(s)) return 0; let n=1; if(s.completion==="partial") n*=.5; if(s.technique==="technique") n=Math.min(n,.25); if(s.technique==="dropSet"||s.technique==="restPause"||s.technique==="myoReps") n*=1.25; return round(Math.min(1.5,Math.max(0,n))); }
+export const mechanicalVolumeForSet = (s: SetRecord) => isCountedWorkingSet(s) ? Math.max(0,s.weight)*Math.max(0,s.reps) : 0;
+export const volumeStatus = (n:number,low:number,high:number):VolumeStatus => n<low?"under":n>high?"over":"in";
+export const targetForMuscle = (m:MuscleGroup,level?:TrainingLevel,custom?:MuscleTargetMap) => custom?.[m] ?? weeklyTargetFor(m,level);
+
+export function computeVolumeSummary(days:(DayLog|undefined)[],level?:TrainingLevel,targets?:MuscleTargetMap,targetScale=1):VolumeSummary {
+  const map=new Map<MuscleGroup,MuscleVolumeRow>();
+  const row=(m:MuscleGroup)=>{ let x=map.get(m); if(!x){const t=targetForMuscle(m,level,targets); x={muscle:m,rawDirectSets:0,directEffectiveSets:0,indirectEffectiveSets:0,stimulusSets:0,rehabSets:0,directSets:0,effectiveSets:0,target:{low:round(t.low*targetScale),high:round(t.high*targetScale)},status:"under",sources:[]};map.set(m,x);}return x;};
+  MUSCLE_ORDER.forEach(row); let work=0,resistance=0,mechanical=0,cardioMinutes=0,cardioStress=0,trainingDays=0;
+  for(const day of days){if(!day)continue;const workout=day.workout;if(workout&&workout.type!=="rest"&&workout.exercises.some(e=>e.sets.some(s=>isCountedWorkingSet(s)||isRehab(s))))trainingDays++;for(const item of day.cardio??[]){const mins=Math.max(0,item.minutes??0);cardioMinutes+=mins;cardioStress+=mins*zones[validZone(item.zone) ? item.zone : 2];}if(!workout||workout.type==="rest")continue;for(const exercise of workout.exercises){const contributions=exercise.volumeContributions?.length?exercise.volumeContributions:fallback(exercise);for(const set of exercise.sets){const rehab=isRehab(set),effort=setEffortFactor(set);if(!rehab&&!effort)continue;if(!rehab){work++;resistance+=effort;mechanical+=mechanicalVolumeForSet(set);}for(const c of contributions){const direct=!!c.direct,target=row(c.muscle);let source=target.sources.find(x=>x.exerciseId===exercise.id&&x.direct===direct);if(!source){source={exerciseId:exercise.id,name:exercise.name,direct,rawDirectSets:0,directEffectiveSets:0,indirectEffectiveSets:0,stimulusSets:0,rehabSets:0,sets:0,contribution:0};target.sources.push(source);}if(rehab){if(direct){target.rehabSets++;source.rehabSets++;}continue;}const value=effort*c.weight;if(direct){target.rawDirectSets++;target.directEffectiveSets+=value;source.rawDirectSets++;source.directEffectiveSets+=value;source.sets=(source.sets??0)+1;}else{target.indirectEffectiveSets+=value;source.indirectEffectiveSets+=value;}target.stimulusSets+=value;source.stimulusSets+=value;source.contribution=(source.contribution??0)+value;}}}}
+  const rows=MUSCLE_ORDER.map(m=>{const x=row(m);x.rawDirectSets=round(x.rawDirectSets);x.directEffectiveSets=round(x.directEffectiveSets);x.indirectEffectiveSets=round(x.indirectEffectiveSets);x.stimulusSets=round(x.stimulusSets);x.rehabSets=round(x.rehabSets);x.directSets=x.rawDirectSets;x.effectiveSets=x.directEffectiveSets;x.sources=x.sources.map(s=>({...s,rawDirectSets:round(s.rawDirectSets),directEffectiveSets:round(s.directEffectiveSets),indirectEffectiveSets:round(s.indirectEffectiveSets),stimulusSets:round(s.stimulusSets),rehabSets:round(s.rehabSets),contribution:round(s.contribution??0)})).sort((a,b)=>b.stimulusSets-a.stimulusSets);x.status=volumeStatus(x.directEffectiveSets,x.target.low,x.target.high);return x;});
+  const totalDirectEffectiveSets=round(rows.reduce((n,x)=>n+x.directEffectiveSets,0)),totalIndirectEffectiveSets=round(rows.reduce((n,x)=>n+x.indirectEffectiveSets,0));
+  return {rows,totalWorkingSets:round(work),totalDirectEffectiveSets,totalIndirectEffectiveSets,resistanceRecoveryLoad:round(resistance),totalMechanicalVolume:Math.round(mechanical),cardioMinutes:Math.round(cardioMinutes),cardioStress:round(cardioStress),trainingDays,totalDirectSets:round(rows.reduce((n,x)=>n+x.directSets,0)),totalEffectiveSets:totalDirectEffectiveSets};
 }
+
+export const weeklyVolume=(days:(DayLog|undefined)[]):VolumeMap=>Object.fromEntries(computeVolumeSummary(days).rows.map(x=>[x.muscle,x.directEffectiveSets]));
+export const dateScopeDays=(data:AppData,dates:string[])=>dates.map(date=>data.days[date]);
+export function microcycleDays(data:AppData){return data.microcycle?Object.values(data.days).filter(day=>isActiveMicrocycleDay(data,day)).sort((a,b)=>a.date.localeCompare(b.date)):[];}
+export function volumeScopeDays(data:AppData,scope:VolumeScope,today:string){if(scope==="microcycle")return microcycleDays(data);const count=scope==="7d"?7:28,out:(DayLog|undefined)[]=[],start=new Date(`${today}T00:00:00`);for(let i=count-1;i>=0;i--){const d=new Date(start);d.setDate(start.getDate()-i);out.push(data.days[`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`]);}return out;}
+export function volumeTargetScale(scope:VolumeScope,data?:AppData){if(scope==="28d")return 4;return scope==="microcycle"?round(Math.max(.5,data?activeMicrocyclePattern(data).length/7:1)):1;}
+export function volumeScopeLabel(days:(DayLog|undefined)[]){const actual=days.filter((x):x is DayLog=>!!x);if(!actual.length)return"暂无记录";const dates=actual.map(x=>x.date).sort(),first=dates[0],last=dates.at(-1)!;return `${first===last?first.slice(5).replace("-","."):`${first.slice(5).replace("-",".")}–${last.slice(5).replace("-",".")}`} · ${actual.length} 天记录`;}
+export function volumeAdviceForRow(row:MuscleVolumeRow,scope:VolumeScope):VolumeAdvice{const scale=scope==="28d"?4:1,current=round(row.directEffectiveSets/scale),low=round(row.target.low/scale),high=round(row.target.high/scale),source=row.sources.find(x=>x.directEffectiveSets>0)??row.sources[0],label=scale>1?`近 ${scale} 周周均 ${current} 直接有效组，周目标 ${low}–${high}`:`当前 ${row.directEffectiveSets} 直接有效组，目标 ${row.target.low}–${row.target.high}`;if(!row.directEffectiveSets&&!row.indirectEffectiveSets)return{muscle:row.muscle,kind:"hold",priority:0,title:`${MUSCLE_LABELS[row.muscle]} 尚无训练样本`,detail:`${label}。当前没有有效工作组，系统不会仅凭空白记录要求你加量；只有把它设为明确优先肌群时，才在下一个对应训练日安排 2–3 个直接工作组。`,suggestedDirectSets:0};if(row.status==="under"){const gap=Math.max(0,low-current),sets=Math.min(4,Math.max(1,Math.ceil(gap)));return{muscle:row.muscle,kind:"add",priority:round((gap||.5)/Math.max(low,1)),title:`优先补 ${MUSCLE_LABELS[row.muscle]}`,detail:`${label}。${row.directEffectiveSets<=0?"没有直接有效组，不能把复合动作的连带刺激当作该肌群的补量。":`当前主要来自「${source?.name??"直接动作"}」，但直接刺激仍不足。`} 下一个对应训练日先增加 ${sets} 个直接工作组，再观察恢复与表现。`,suggestedDirectSets:sets,primarySource:source};}if(row.status==="over"){const excess=Math.max(0,current-high),sets=Math.min(4,Math.max(1,Math.ceil(excess)));return{muscle:row.muscle,kind:"reduce",priority:round((excess||.5)/Math.max(high,1)),title:`先降 ${MUSCLE_LABELS[row.muscle]} 容量`,detail:`${label}。优先从「${source?.name??"直接动作"}」减少 ${sets} 个工作组；连带刺激只用于恢复判断，不会替代直接目标。`,suggestedDirectSets:sets,primarySource:source};}return{muscle:row.muscle,kind:"hold",priority:0,title:`${MUSCLE_LABELS[row.muscle]} 维持当前量`,detail:`${label}，目前在目标内。总刺激 ${row.stimulusSets}（含 ${row.indirectEffectiveSets} 连带），下一次优先维持动作质量、次数进步和恢复，不因为“还有空间”机械堆组数。`,suggestedDirectSets:0,primarySource:source};}
+export const volumeActionPlan=(rows:MuscleVolumeRow[],scope:VolumeScope,limit=3)=>rows.map(row=>volumeAdviceForRow(row,scope)).filter(x=>x.kind!=="hold").sort((a,b)=>b.priority-a.priority||a.muscle.localeCompare(b.muscle)).slice(0,limit);

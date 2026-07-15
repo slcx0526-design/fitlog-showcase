@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { currentWeekKeys, formatCompact, relativeLabel } from "@/lib/date";
-import { weeklyVolume } from "@/lib/volume";
-import { CORE_MUSCLES, MUSCLE_LABELS, weeklyTargetFor, type MuscleGroup } from "@/lib/muscles";
+import { computeVolumeSummary, volumeAdviceForRow, volumeScopeDays, volumeScopeLabel, volumeTargetScale, type VolumeScope } from "@/lib/volume";
+import { MUSCLE_LABELS, type MuscleGroup } from "@/lib/muscles";
 import { typeLabel } from "@/lib/exercises";
 import NumberField from "./NumberField";
 import WeightChart from "./WeightChart";
@@ -17,7 +17,6 @@ import BodyFatEstimateCard from "./BodyFatEstimateCard";
 import BodyFatTrendChart from "./BodyFatTrendChart";
 import HistoryRow from "./HistoryRow";
 import { haptic } from "@/lib/feedback";
-import { cardioWeekSummary } from "@/lib/cardio";
 import { useToast } from "@/lib/toast";
 import type { DayLog, SetRecord, TrainingType } from "@/lib/types";
 
@@ -46,7 +45,7 @@ export default function ProgressHub({ initialTab = "body" }: { initialTab?: Tab 
       <Link href="/settings" className="press rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-muted">备份与设置</Link>
     </header>
     <div className="control-strip mb-5 grid grid-cols-3 gap-1 rounded-2xl p-1" role="tablist" aria-label="进度分类">
-      {TABS.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => change(item.id)} className={"choice-chip press h-10 text-[13px] font-semibold " + (tab === item.id ? "bg-fg text-bg shadow-sm" : "text-muted")}>{item.label}</button>)}
+      {TABS.map((item) => <button type="button" key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => change(item.id)} className={"choice-chip press h-10 text-[13px] font-semibold " + (tab === item.id ? "bg-fg text-bg shadow-sm" : "text-muted")}>{item.label}</button>)}
     </div>
     {tab === "body" && <BodyReview />}
     {tab === "training" && <TrainingReview />}
@@ -119,17 +118,62 @@ function BodyReview() {
 }
 
 function TrainingReview() {
-  const { data } = useStore();
+  const { data, setMuscleTarget, startNewMicrocycle } = useStore();
+  const today = useToday();
+  const [scope, setScope] = useState<VolumeScope>("microcycle");
+  const [expandedMuscle, setExpandedMuscle] = useState<MuscleGroup | null>(null);
   const week = currentWeekKeys();
-  const volume = weeklyVolume(week.map((date)=>data.days[date]));
-  const totalSets = Object.values(volume).reduce((sum, value)=>sum + (value ?? 0),0);
-  const cardio = cardioWeekSummary(data.days, data.cutPlan);
-  const rows = CORE_MUSCLES.map((muscle)=>({ muscle, sets: volume[muscle] ?? 0, target: weeklyTargetFor(muscle, data.profile?.trainingLevel) }));
+  const volumeDays = volumeScopeDays(data, scope, today);
+  const volume = computeVolumeSummary(volumeDays, data.profile?.trainingLevel, data.muscleTargets, volumeTargetScale(scope));
+  const scopeLabel = volumeScopeLabel(volumeDays);
+  const totalSets = volume.totalDirectSets;
   const recent = Object.entries(data.days).filter(([, day]) => { const wk=day.workout; return !!wk && (wk.type === "rest" || wk.exercises.some((exercise)=>exercise.sets.length)); }).sort(([a],[b])=>b.localeCompare(a)).slice(0,8);
   return <div className="space-y-4">
-    <section className="grid grid-cols-3 gap-2.5"><StatCard label="本周直接组" value={String(totalSets)} hint="按主肌群计" /><StatCard label="有氧" value={cardio.totalMinutes ? String(cardio.totalMinutes) : "—"} hint={`${cardio.totalMinutes} / ${cardio.targetMinutes} 分钟`} /><StatCard label="训练日" value={String(recent.filter(([date])=>week.includes(date)).length)} hint="本自然周" /></section>
+    <section className="grid grid-cols-3 gap-2.5"><StatCard label="直接组" value={String(totalSets)} hint={scope === "microcycle" ? "当前微周期" : scope === "7d" ? "最近 7 天" : "最近 28 天"} /><StatCard label="有效组" value={String(volume.totalEffectiveSets)} hint="按动作贡献" /><StatCard label="训练日" value={String(recent.filter(([date])=>week.includes(date)).length)} hint="本自然周" /></section>
     <ArchiveSummary />
-    <section className="control-card p-3.5"><div className="flex items-start justify-between gap-3"><div><p className="text-[14px] font-semibold text-fg">本周肌群容量</p><p className="mt-0.5 text-[11px] text-faint">仅统计实际完成的直接组；不是恢复分数。</p></div><Link href="/schedule" className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">计划</Link></div><div className="mt-4 space-y-3">{rows.map(({muscle,sets,target}) => { const max=Math.max(target.high,sets,1); const progress=Math.min(100,Math.round((sets/max)*100)); return <div key={muscle}><div className="mb-1 flex items-center justify-between text-[12px]"><span className="font-medium text-fg">{MUSCLE_LABELS[muscle]}</span><span className="tnum text-faint">{sets} / {target.low}–{target.high}</span></div><div className="h-2 overflow-hidden rounded-full bg-surface-2"><div className={"h-full rounded-full " + (sets >= target.low ? "bg-accent" : "bg-border-strong")} style={{width:`${progress}%`}} /></div></div>; })}</div></section>
+    <section className="control-card p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[14px] font-semibold text-fg">肌群容量处方</p>
+          <p className="mt-0.5 text-[11px] text-faint">默认看当前训练微周期；有效组按动作库贡献计算。</p>
+          <p className="tnum mt-1 text-[11px] text-muted">{scopeLabel}{scope === "28d" ? " · 目标按 4 周累计，建议按周均给出" : ""}</p>
+        </div>
+        <button type="button" onClick={() => startNewMicrocycle(today)} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">新周期</button>
+      </div>
+      <div className="control-strip mt-3 grid grid-cols-3 gap-1 rounded-2xl p-1">
+        {(["microcycle","7d","28d"] as const).map((item)=><button key={item} type="button" onClick={()=>setScope(item)} className={"choice-chip press h-9 text-[12px] font-semibold " + (scope===item ? "bg-fg text-bg" : "text-muted")}>{item==="microcycle" ? "本周期" : item==="7d" ? "近7天" : "近28天"}</button>)}
+      </div>
+      <div className="mt-4 space-y-3">
+        {volume.rows.length ? volume.rows.map((row) => {
+          const max=Math.max(row.target.high,row.effectiveSets,1);
+          const progress=Math.min(100,Math.round((row.effectiveSets/max)*100));
+          const statusLabel = row.status === "under" ? "不足" : row.status === "over" ? "偏高" : "合适";
+          const advice = volumeAdviceForRow(row, scope);
+          return <div key={row.muscle} className="rounded-xl bg-surface-2 p-2.5">
+            <button type="button" onClick={()=>setExpandedMuscle((cur)=>cur===row.muscle?null:row.muscle)} className="press flex w-full items-center justify-between gap-2 text-left">
+              <span className="font-medium text-fg">{MUSCLE_LABELS[row.muscle]}</span>
+              <span className={"tnum rounded-md px-1.5 py-0.5 text-[10px] font-semibold " + (row.status === "in" ? "bg-accent-soft text-accent" : row.status === "over" ? "bg-warn/10 text-warn" : "bg-surface text-faint")}>{statusLabel}</span>
+            </button>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-faint">
+              <span className="tnum">直接 {row.directSets} · 有效 {row.effectiveSets}</span>
+              <span className="tnum">目标 {row.target.low}–{row.target.high}</span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-surface"><div className={"h-full rounded-full " + (row.status === "in" ? "bg-accent" : "bg-border-strong")} style={{width:`${progress}%`}} /></div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{advice.detail}</p>
+            {expandedMuscle === row.muscle && <div className="mt-2 space-y-2">
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-1.5">
+                <NumberField value={row.target.low} onChange={(v)=>setMuscleTarget(row.muscle, v, row.target.high)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}目标下限`} className="number-cell h-9 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" />
+                <NumberField value={row.target.high} onChange={(v)=>setMuscleTarget(row.muscle, row.target.low, v)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}目标上限`} className="number-cell h-9 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" />
+                <span className="self-center text-[11px] text-faint">目标</span>
+              </div>
+              <div className="space-y-1">
+                {row.sources.map((source)=><p key={`${row.muscle}-${source.exerciseId}-${source.direct}`} className="tnum flex justify-between gap-2 text-[11px] text-muted"><span className="truncate">{source.name}{source.direct ? "" : " · 间接"}</span><span className="shrink-0">{source.direct ? `${source.sets}组` : ""} · {source.contribution}</span></p>)}
+              </div>
+            </div>}
+          </div>;
+        }) : <p className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-[12px] text-faint">当前范围暂无训练容量。</p>}
+      </div>
+    </section>
     <ExerciseArchive />
     <ExerciseTrendReview />
     <section><SectionTitle title="近期训练" helper="训练计划只有主动开始后才会创建实际记录" />{recent.length === 0 ? <Empty text="尚无训练记录。先从训练页开始一场会话。" href="/train" cta="开始训练" /> : <div className="control-card overflow-hidden">{recent.map(([date,day])=>{ const wk=day.workout!; const sets=wk.exercises.reduce((sum,exercise)=>sum+exercise.sets.length,0); return <Link key={date} href={`/train?date=${date}`} className="press soft-divider flex items-center gap-3 border-t px-3.5 py-3 first:border-t-0"><span className="w-12 text-[12px] font-medium text-muted">{relativeLabel(date)}</span><span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{typeLabel(wk.type)}</span><span className="tnum ml-auto text-[12px] text-muted">{wk.type === "rest" ? "休息" : `${sets} 组`}</span><span className="text-faint">›</span></Link>;})}</div>}</section>
@@ -138,10 +182,22 @@ function TrainingReview() {
 
 function ArchiveSummary() {
   const { data } = useStore();
+  const today = useToday();
   const rows = useMemo(() => {
-    const dates = Object.keys(data.days).sort();
-    const last90 = dates.slice(-90);
-    const last28 = dates.slice(-28);
+    const calendarDates = (count: number) => {
+      const [year, month, day] = today.split("-").map(Number);
+      const end = new Date(year, month - 1, day);
+      return Array.from({ length: count }, (_, index) => {
+        const current = new Date(end);
+        current.setDate(end.getDate() - (count - 1 - index));
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, "0");
+        const d = String(current.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      });
+    };
+    const last90 = calendarDates(90);
+    const last28 = calendarDates(28);
     const summarizeDates = (scope: string[]) => {
       let trainingDays = 0;
       let sets = 0;
@@ -149,11 +205,11 @@ function ArchiveSummary() {
       let nutritionDays = 0;
       for (const date of scope) {
         const day = data.days[date];
-        const daySets = day.workout?.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) ?? 0;
-        if (day.workout?.type === "rest" || daySets > 0) trainingDays += 1;
+        const daySets = day?.workout?.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) ?? 0;
+        if (day?.workout?.type === "rest" || daySets > 0) trainingDays += 1;
         sets += daySets;
-        cardio += (day.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
-        if ((day.nutrition?.calories ?? 0) > 0) nutritionDays += 1;
+        cardio += (day?.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
+        if ((day?.nutrition?.calories ?? 0) > 0) nutritionDays += 1;
       }
       return { trainingDays, sets, cardio, nutritionDays };
     };
@@ -161,7 +217,7 @@ function ArchiveSummary() {
       { label: "近 28 天", ...summarizeDates(last28) },
       { label: "近 90 天", ...summarizeDates(last90) },
     ];
-  }, [data.days]);
+  }, [data.days, today]);
 
   if (!Object.keys(data.days).length) return null;
 
@@ -169,7 +225,7 @@ function ArchiveSummary() {
     <div className="flex items-start justify-between gap-3">
       <div>
         <p className="text-[14px] font-semibold text-fg">档案摘要</p>
-        <p className="mt-0.5 text-[11px] text-faint">按已有日志统计训练、饮食和有氧记录。</p>
+        <p className="mt-0.5 text-[11px] text-faint">按真实日历窗口统计训练、饮食和有氧记录。</p>
       </div>
       <Link href="/settings" className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">导出</Link>
     </div>

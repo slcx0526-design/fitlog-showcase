@@ -1,0 +1,11 @@
+/* Progress page repair: the editable body screen owns its header and tabs. */
+.progress-shell__legacy > div > header,
+.progress-shell__legacy > div > [role="tablist"]{display:none!important}
+
+/* Never allow a broad theme selector to erase this functional save label. */
+.progress-measure-save{font-size:14px!important;line-height:1!important}
+.progress-measure-save::before{content:none!important;display:none!important}
+.progress-measure-save[data-ready="false"]{opacity:1!important}
+
+/* Pulse selected navigation previously inherited black text from the icon treatment. */
+:root[data-mode="pulse"] .app-nav .nav-item[data-active="true"] > span:last-child{color:#fff4e5!important;transform:skewX(5deg)}

@@ -1,348 +1,424 @@
 import type {
+  ActivityEnergyEntry,
   BackupData,
   BodyWeightEntry,
-  WaistEntry,
+  CardioEntry,
   CutPlan,
-  ActivityEnergyEntry,
   DayLog,
+  Exercise,
   ExercisePreset,
+  NutritionLog,
   Profile,
+  RecordMode,
+  ProgressionPrescription,
   Schedule,
+  SetRecord,
   Template,
   TemplateItem,
   TemplateSlot,
   TrainingType,
+  WaistEntry,
+  Zone,
 } from "./types";
-
-// ============================================================
-// 本地优先存储：单个 JSON blob 存于 localStorage
-// 数据量极小（每天 ~1KB），同步读写足够快、足够可靠
-// 导出 / 导入 直接复用同一份结构
-// ============================================================
+import { fromKey, todayKey, toKey } from "./date";
+import { assignHistoricalMicrocycles, defaultMicrocycle, microcyclePatternFor } from "./microcycle";
+import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
+import { normalizeExercisePrescription } from "./prescription";
 
 const KEY = "fitlog:v1";
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 10;
 
 export interface AppData {
   days: Record<string, DayLog>;
   bodyWeights: BodyWeightEntry[];
   waistEntries: WaistEntry[];
-  /** 减脂目标与日常活动基线；旧数据可为空。 */
   cutPlan?: CutPlan;
   customExercises: ExercisePreset[];
   schedule: Schedule;
-  /** 身体数据（用于心率区间推算），全部可选 */
   profile?: Profile;
-  /** 具名训练模板：推1/推2/拉1/拉2/腿（B 层） */
   templates?: Template[];
-  /** 最近一次导出 / 导入备份的时间（ISO），用于"备份感知"提醒 */
+  muscleTargets?: import("./types").MuscleTargetMap;
+  microcycle?: import("./types").MicrocycleState;
   lastBackupAt?: string;
 }
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
+const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
+const VALID_TECHNIQUES = new Set(["normal", "dropSet", "restPause", "myoReps", "cluster", "technique", "rehab"]);
+const VALID_COMPLETIONS = new Set(["completed", "partial", "skipped"]);
+const VALID_RECORD_MODES = new Set<RecordMode>(["weight", "reps", "rir", "duration", "distance"]);
 
-export function defaultSchedule(): Schedule {
-  // 合理的 PPL 默认模板，用户可在「计划」页编辑
-  return { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] };
+function parseRecordModes(input: unknown): RecordMode[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const modes = input.filter((mode): mode is RecordMode => typeof mode === "string" && VALID_RECORD_MODES.has(mode as RecordMode));
+  return modes.length ? [...new Set(modes)] : undefined;
 }
 
-export function emptyData(): AppData {
+function isDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = fromKey(value);
+  return !Number.isNaN(parsed.getTime()) && toKey(parsed) === value;
+}
+
+function parseNutrition(input: unknown): NutritionLog | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (typeof value.calories !== "number" || !Number.isFinite(value.calories) || value.calories < 0 || value.calories > 20_000) return undefined;
+  const macro = (field: "protein" | "carbs" | "fat") => typeof value[field] === "number" && Number.isFinite(value[field]) && value[field] >= 0 && value[field] <= 2_000 ? value[field] : 0;
+  return { calories: value.calories, protein: macro("protein"), carbs: macro("carbs"), fat: macro("fat") };
+}
+
+function parseCardio(input: unknown, date: string, index: number): CardioEntry | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as Record<string, unknown>;
+  if (typeof value.minutes !== "number" || !Number.isFinite(value.minutes) || value.minutes <= 0 || value.minutes > 1_440) return null;
+  const zone = value.zone === null || value.zone === undefined
+    ? null
+    : typeof value.zone === "number" && [1, 2, 3, 4, 5].includes(value.zone) ? value.zone as Zone : null;
+  const entry: CardioEntry = {
+    id: typeof value.id === "string" && value.id ? value.id : `legacy_cardio_${date.replace(/-/g, "")}_${index + 1}`,
+    mode: typeof value.mode === "string" && value.mode.trim() ? value.mode.trim().slice(0, 40) : "有氧",
+    minutes: Math.round(value.minutes),
+    zone,
+  };
+  if (typeof value.avgHR === "number" && Number.isFinite(value.avgHR) && value.avgHR >= 20 && value.avgHR <= 250) entry.avgHR = Math.round(value.avgHR);
+  if (typeof value.note === "string" && value.note.trim()) entry.note = value.note.trim().slice(0, 200);
+  if (typeof value.at === "string") entry.at = value.at;
+  return entry;
+}
+
+function uniqueByDate<T extends { date: string }>(entries: T[]) {
+  const map = new Map<string, T>();
+  for (const entry of entries) map.set(entry.date, entry);
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function parsePrescription(input: unknown): ProgressionPrescription | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (typeof value.progressionTrackId !== "string" || !value.progressionTrackId) return undefined;
+  if (value.trainingIntent !== "strength" && value.trainingIntent !== "hypertrophy" && value.trainingIntent !== "endurance" && value.trainingIntent !== "custom") return undefined;
+  const min = typeof value.targetRepMin === "number" ? Math.max(1, Math.round(value.targetRepMin)) : 8;
+  const max = typeof value.targetRepMax === "number" ? Math.max(min, Math.round(value.targetRepMax)) : 12;
   return {
-    days: {},
-    bodyWeights: [],
-    waistEntries: [],
-    customExercises: [],
-    schedule: defaultSchedule(),
+    progressionTrackId: value.progressionTrackId,
+    progressionTrackLabel: typeof value.progressionTrackLabel === "string" ? value.progressionTrackLabel : "训练轨道",
+    trainingIntent: value.trainingIntent,
+    targetRepMin: min,
+    targetRepMax: max,
+    ...(typeof value.targetRirMin === "number" ? { targetRirMin: value.targetRirMin } : {}),
+    ...(typeof value.targetRirMax === "number" ? { targetRirMax: value.targetRirMax } : {}),
+    workingSets: typeof value.workingSets === "number" ? Math.max(1, Math.round(value.workingSets)) : 3,
+    loadIncrementKg: typeof value.loadIncrementKg === "number" ? Math.max(0, value.loadIncrementKg) : 2.5,
+    progressionRule: value.progressionRule === "repsFirst" || value.progressionRule === "custom" ? value.progressionRule : "doubleProgression",
+    ...(value.performanceMode === "duration" || value.performanceMode === "distance" || value.performanceMode === "reps" ? { performanceMode: value.performanceMode } : {}),
   };
 }
 
-/** 仅在浏览器端调用 */
+function parseSet(input: unknown): SetRecord | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as Record<string, unknown>;
+  const validWeight = typeof value.weight === "number" && Number.isFinite(value.weight);
+  const validReps = typeof value.reps === "number" && Number.isFinite(value.reps);
+  const durationSeconds = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) && value.durationSeconds >= 0 ? value.durationSeconds : undefined;
+  const distanceMeters = typeof value.distanceMeters === "number" && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0 ? value.distanceMeters : undefined;
+  if ((!validWeight || !validReps) && durationSeconds == null && distanceMeters == null) return null;
+  const set: SetRecord = { weight: validWeight ? value.weight as number : 0, reps: validReps ? value.reps as number : 0 };
+  if (durationSeconds != null) set.durationSeconds = durationSeconds;
+  if (distanceMeters != null) set.distanceMeters = distanceMeters;
+  if (typeof value.rir === "number" && value.rir >= 0 && value.rir <= 10) set.rir = value.rir;
+  if (value.type === "warmup" || value.type === "working") set.type = value.type;
+  if (typeof value.completion === "string" && VALID_COMPLETIONS.has(value.completion)) set.completion = value.completion as SetRecord["completion"];
+  if (typeof value.technique === "string" && VALID_TECHNIQUES.has(value.technique)) set.technique = value.technique as SetRecord["technique"];
+  if (typeof value.at === "string") set.at = value.at;
+  return set;
+}
+
+function parseCustomExercise(input: unknown): ExercisePreset | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as ExercisePreset;
+  if (typeof value.id !== "string" || typeof value.name !== "string" || !value.name.trim()) return null;
+  const primaryMuscle = VALID_MUSCLES.has(value.primaryMuscle ?? "") ? value.primaryMuscle as MuscleGroup : undefined;
+  const configuredContributions = value.volumeContributions?.length
+    ? value.volumeContributions
+    : (value.secondaryMuscles ?? []).map((muscle) => ({ muscle, weight: 0.5, direct: false }));
+  const secondary = configuredContributions
+    .filter((item) => item && VALID_MUSCLES.has(item.muscle) && item.muscle !== primaryMuscle && typeof item.weight === "number" && Number.isFinite(item.weight))
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.muscle === item.muscle) === index)
+    .map((item) => ({ muscle: item.muscle, weight: Math.min(1, Math.max(0.1, Math.round(item.weight * 100) / 100)), direct: Boolean(item.direct) }));
+  const volumeContributions = primaryMuscle
+    ? [{ muscle: primaryMuscle, weight: 1, direct: true }, ...secondary]
+    : secondary;
+  const recordModes = parseRecordModes(value.recordModes);
+  return {
+    ...value,
+    id: value.id,
+    name: value.name.trim(),
+    isMain: Boolean(value.isMain),
+    type: "custom",
+    ...(primaryMuscle ? { primaryMuscle } : { primaryMuscle: undefined }),
+    secondaryMuscles: secondary.map((item) => item.muscle),
+    volumeContributions,
+    recordModes,
+  };
+}
+
+export function defaultSchedule(): Schedule { return { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] }; }
+export function emptyData(): AppData { return { days: {}, bodyWeights: [], waistEntries: [], customExercises: [], schedule: defaultSchedule() }; }
+
 export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return emptyData();
-    const parsed = JSON.parse(raw);
-    return normalize(parsed);
-  } catch {
-    return emptyData();
-  }
+    return raw ? normalize(JSON.parse(raw)) : emptyData();
+  } catch { return emptyData(); }
 }
 
 export function saveData(data: AppData): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(data));
-  } catch (e) {
-    // 存储满 / 隐私模式等 —— 静默失败，不阻断 UI
-    console.warn("保存失败：", e);
-  }
+  try { window.localStorage.setItem(KEY, JSON.stringify(data)); }
+  catch (error) { console.warn("保存失败：", error); }
 }
 
-/** 把任意来源数据规整成合法的 AppData，防止脏数据炸 UI */
 function normalize(input: unknown): AppData {
   const out = emptyData();
   if (!input || typeof input !== "object") return out;
   const obj = input as Record<string, unknown>;
 
   if (obj.days && typeof obj.days === "object") {
-    for (const [k, v] of Object.entries(obj.days as Record<string, unknown>)) {
-      const day = v as DayLog;
-      if (day && typeof day === "object") {
-        const next: DayLog = { ...day, date: k };
-        // v1.38：手动补充的主动活动消耗。只收可识别来源与合理数值。
-        if (Array.isArray(day.activityEnergy)) {
-          const allowed = new Set(["strength", "steps", "wearable", "other"]);
-          const entries = (day.activityEnergy as ActivityEnergyEntry[]).filter(
-            (e) =>
-              e &&
-              typeof e.id === "string" &&
-              typeof e.kcal === "number" &&
-              Number.isFinite(e.kcal) &&
-              e.kcal > 0 &&
-              e.kcal <= 3000 &&
-              allowed.has(e.source)
-          );
-          if (entries.length) next.activityEnergy = entries;
-          else delete next.activityEnergy;
-        } else {
-          delete next.activityEnergy;
-        }
-        out.days[k] = next;
+    for (const [date, rawDay] of Object.entries(obj.days as Record<string, unknown>)) {
+      if (!isDateKey(date) || !rawDay || typeof rawDay !== "object") continue;
+      const day = rawDay as DayLog;
+      const next: DayLog = { date };
+      if (day.workout && typeof day.workout === "object") {
+        const workout = day.workout;
+        const exercises = Array.isArray(workout.exercises)
+          ? workout.exercises.map((rawExercise) => {
+              const exercise = rawExercise as Exercise;
+              const sets = Array.isArray(exercise.sets) ? exercise.sets.map(parseSet).filter((set): set is SetRecord => !!set) : [];
+              const recordModes = parseRecordModes(exercise.recordModes);
+              const prescription = parsePrescription(exercise.prescription);
+              return normalizeExercisePrescription({ ...exercise, sets, recordModes, prescription });
+            })
+          : [];
+        next.workout = {
+          type: VALID_TYPES.includes(workout.type) ? workout.type : "custom",
+          ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
+          ...(typeof workout.microcycleId === "string" ? { microcycleId: workout.microcycleId } : {}),
+          ...(typeof workout.done === "boolean" ? { done: workout.done } : {}),
+          ...(workout.difficulty === "easy" || workout.difficulty === "onTarget" || workout.difficulty === "hard" ? { difficulty: workout.difficulty } : {}),
+          exercises,
+        };
       }
+      const nutrition = parseNutrition(day.nutrition);
+      if (nutrition) next.nutrition = nutrition;
+      if (Array.isArray(day.cardio)) {
+        const cardio = day.cardio.map((entry, index) => parseCardio(entry, date, index)).filter((entry): entry is CardioEntry => Boolean(entry));
+        if (cardio.length) next.cardio = cardio;
+      }
+      if (Array.isArray(day.activityEnergy)) {
+        const allowed = new Set(["strength", "steps", "wearable", "other"]);
+        const entries = (day.activityEnergy as ActivityEnergyEntry[]).filter((entry) => entry && typeof entry.id === "string" && typeof entry.kcal === "number" && Number.isFinite(entry.kcal) && entry.kcal > 0 && entry.kcal <= 3000 && allowed.has(entry.source));
+        if (entries.length) next.activityEnergy = entries;
+        else delete next.activityEnergy;
+      } else delete next.activityEnergy;
+      out.days[date] = next;
     }
   }
+
   if (Array.isArray(obj.bodyWeights)) {
-    out.bodyWeights = (obj.bodyWeights as BodyWeightEntry[]).filter(
-      (e) => e && typeof e.date === "string" && typeof e.weight === "number"
-    );
+    out.bodyWeights = uniqueByDate((obj.bodyWeights as BodyWeightEntry[]).filter((entry) => entry && isDateKey(entry.date) && typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight >= 30 && entry.weight <= 300));
   }
-  // v1.37 新增：腰围历史。旧数据没有该字段时自然保持为空。
   if (Array.isArray(obj.waistEntries)) {
-    out.waistEntries = (obj.waistEntries as WaistEntry[]).filter(
-      (e) =>
-        e &&
-        typeof e.date === "string" &&
-        typeof e.waist === "number" &&
-        Number.isFinite(e.waist) &&
-        e.waist >= 30 &&
-        e.waist <= 200
-    );
+    out.waistEntries = uniqueByDate((obj.waistEntries as WaistEntry[]).filter((entry) => entry && isDateKey(entry.date) && typeof entry.waist === "number" && Number.isFinite(entry.waist) && entry.waist >= 30 && entry.waist <= 200));
   }
-  // v1.38：减脂计划；没有则保持为空，兼容旧备份。
+
   if (obj.cutPlan && typeof obj.cutPlan === "object") {
-    const c = obj.cutPlan as Record<string, unknown>;
+    const value = obj.cutPlan as Record<string, unknown>;
     const plan: CutPlan = {};
-    if (c.baselineActivity === "low" || c.baselineActivity === "light" || c.baselineActivity === "moderate" || c.baselineActivity === "high") {
-      plan.baselineActivity = c.baselineActivity;
+    if (value.baselineActivity === "low" || value.baselineActivity === "light" || value.baselineActivity === "moderate" || value.baselineActivity === "high") plan.baselineActivity = value.baselineActivity;
+    if (typeof value.weeklyLossPct === "number" && Number.isFinite(value.weeklyLossPct) && value.weeklyLossPct >= 0.1 && value.weeklyLossPct <= 1.5) plan.weeklyLossPct = Math.round(value.weeklyLossPct * 100) / 100;
+    if (typeof value.enabled === "boolean") plan.enabled = value.enabled;
+    if (typeof value.targetBodyFatPct === "number" && Number.isFinite(value.targetBodyFatPct) && value.targetBodyFatPct >= 5 && value.targetBodyFatPct <= 45) plan.targetBodyFatPct = Math.round(value.targetBodyFatPct * 10) / 10;
+    if (typeof value.trainingVolumeScale === "number" && Number.isFinite(value.trainingVolumeScale) && value.trainingVolumeScale >= 0.5 && value.trainingVolumeScale <= 1) plan.trainingVolumeScale = Math.round(value.trainingVolumeScale * 100) / 100;
+    if (typeof value.weeklyCardioMinutes === "number" && Number.isFinite(value.weeklyCardioMinutes) && value.weeklyCardioMinutes >= 30 && value.weeklyCardioMinutes <= 420) plan.weeklyCardioMinutes = Math.round(value.weeklyCardioMinutes);
+    if (typeof value.routineCardioMinutesPerSession === "number" && Number.isFinite(value.routineCardioMinutesPerSession) && value.routineCardioMinutesPerSession > 0 && value.routineCardioMinutesPerSession <= 240) plan.routineCardioMinutesPerSession = Math.round(value.routineCardioMinutesPerSession);
+    if (typeof value.routineCardioSessionsPerWeek === "number" && Number.isFinite(value.routineCardioSessionsPerWeek) && value.routineCardioSessionsPerWeek > 0 && value.routineCardioSessionsPerWeek <= 7) plan.routineCardioSessionsPerWeek = Math.round(value.routineCardioSessionsPerWeek);
+    if (typeof value.routineCardioZone === "number" && [1, 2, 3, 4, 5].includes(value.routineCardioZone)) plan.routineCardioZone = value.routineCardioZone as Zone;
+    if (value.trainingTemplateIds && typeof value.trainingTemplateIds === "object") {
+      const rawIds = value.trainingTemplateIds as Record<string, unknown>;
+      const ids: NonNullable<CutPlan["trainingTemplateIds"]> = {};
+      for (const type of ["push", "pull", "legs"] as const) if (typeof rawIds[type] === "string" && rawIds[type]) ids[type] = rawIds[type];
+      if (Object.keys(ids).length) plan.trainingTemplateIds = ids;
     }
-    if (typeof c.weeklyLossPct === "number" && Number.isFinite(c.weeklyLossPct) && c.weeklyLossPct >= 0.1 && c.weeklyLossPct <= 1.5) {
-      plan.weeklyLossPct = Math.round(c.weeklyLossPct * 100) / 100;
-    }
-    if (typeof c.enabled === "boolean") {
-      plan.enabled = c.enabled;
-    }
-    if (typeof c.targetBodyFatPct === "number" && Number.isFinite(c.targetBodyFatPct) && c.targetBodyFatPct >= 5 && c.targetBodyFatPct <= 45) {
-      plan.targetBodyFatPct = Math.round(c.targetBodyFatPct * 10) / 10;
-    }
-    if (typeof c.trainingVolumeScale === "number" && Number.isFinite(c.trainingVolumeScale) && c.trainingVolumeScale >= 0.5 && c.trainingVolumeScale <= 1) {
-      plan.trainingVolumeScale = Math.round(c.trainingVolumeScale * 100) / 100;
-    }
-    if (typeof c.weeklyCardioMinutes === "number" && Number.isFinite(c.weeklyCardioMinutes) && c.weeklyCardioMinutes >= 30 && c.weeklyCardioMinutes <= 420) {
-      plan.weeklyCardioMinutes = Math.round(c.weeklyCardioMinutes);
-    }
-    // Legacy v1.38 field: keep it only so an imported backup loses no data.
-    if (typeof c.targetWeightKg === "number" && Number.isFinite(c.targetWeightKg) && c.targetWeightKg >= 30 && c.targetWeightKg <= 300) {
-      plan.targetWeightKg = Math.round(c.targetWeightKg * 10) / 10;
-    }
+    if (typeof value.targetWeightKg === "number" && Number.isFinite(value.targetWeightKg) && value.targetWeightKg >= 30 && value.targetWeightKg <= 300) plan.targetWeightKg = Math.round(value.targetWeightKg * 10) / 10;
     if (Object.keys(plan).length) out.cutPlan = plan;
   }
-  if (Array.isArray(obj.customExercises)) {
-    out.customExercises = (obj.customExercises as ExercisePreset[]).filter(
-      (e) => e && typeof e.id === "string" && typeof e.name === "string"
-    );
-  }
-  // schedule: 容错读取
-  if (
-    obj.schedule &&
-    typeof obj.schedule === "object" &&
-    Array.isArray((obj.schedule as Schedule).split) &&
-    (obj.schedule as Schedule).split.length === 7
-  ) {
-    out.schedule = {
-      split: (obj.schedule as Schedule).split.map((t) =>
-        VALID_TYPES.includes(t as TrainingType) ? (t as TrainingType) : ""
-      ) as (TrainingType | "")[],
-    };
-  }
-  if (typeof obj.lastBackupAt === "string") {
-    out.lastBackupAt = obj.lastBackupAt;
-  }
-  // profile: 容错读取（全部可选，仅取合理数值）
-  if (obj.profile && typeof obj.profile === "object") {
-    const p = obj.profile as Record<string, unknown>;
-    const prof: Profile = {};
-    if (p.sex === "male" || p.sex === "female") prof.sex = p.sex;
-    if (typeof p.heightCm === "number" && p.heightCm >= 120 && p.heightCm <= 230)
-      prof.heightCm = p.heightCm;
-    if (typeof p.birthYear === "number" && p.birthYear > 1900 && p.birthYear < 2100)
-      prof.birthYear = p.birthYear;
-    if (typeof p.restingHR === "number" && p.restingHR >= 20 && p.restingHR < 150)
-      prof.restingHR = p.restingHR;
-    if (typeof p.maxHR === "number" && p.maxHR > 100 && p.maxHR < 230)
-      prof.maxHR = p.maxHR;
-    if (p.trainingLevel === "beginner" || p.trainingLevel === "intermediate" || p.trainingLevel === "advanced")
-      prof.trainingLevel = p.trainingLevel;
-    if (Object.keys(prof).length) out.profile = prof;
-  }
-  // templates: 支持新格式（Template[]）+ 迁移旧格式（按槽位的对象）
-  {
-    const genId = () => "tpl_" + Math.random().toString(36).slice(2, 10);
-    const parseItem = (it: unknown): TemplateItem | null => {
-      if (!it || typeof it !== "object") return null;
-      const o = it as Record<string, unknown>;
-      if (typeof o.exerciseId !== "string" || !o.exerciseId) return null;
-      let repsLow: number;
-      let repsHigh: number;
-      if (typeof o.repsLow === "number" && typeof o.repsHigh === "number") {
-        repsLow = o.repsLow;
-        repsHigh = o.repsHigh;
-      } else if (typeof o.reps === "string") {
-        const m = o.reps.match(/(\d+)\s*[-–~]\s*(\d+)/);
-        if (m) {
-          repsLow = Number(m[1]);
-          repsHigh = Number(m[2]);
-        } else {
-          const single = parseInt(o.reps, 10);
-          repsLow = Number.isFinite(single) ? single : 8;
-          repsHigh = Number.isFinite(single) ? single : 12;
-        }
-      } else {
-        repsLow = 8;
-        repsHigh = 12;
-      }
-      repsLow = Math.min(30, Math.max(1, Math.round(repsLow)));
-      repsHigh = Math.min(40, Math.max(repsLow, Math.round(repsHigh)));
-      return {
-        exerciseId: o.exerciseId,
-        name: typeof o.name === "string" ? o.name : "",
-        sets:
-          typeof o.sets === "number" && o.sets >= 1 && o.sets <= 12
-            ? Math.round(o.sets)
-            : 3,
-        repsLow,
-        repsHigh,
-        ...(typeof o.rpe === "number" && o.rpe >= 5 && o.rpe <= 10
-          ? { rpe: o.rpe }
-          : {}),
-      };
-    };
 
-    if (Array.isArray(obj.templates)) {
-      // 新格式：Template[]
-      const list: Template[] = [];
-      for (const t of obj.templates) {
-        if (!t || typeof t !== "object") continue;
-        const o = t as Record<string, unknown>;
-        if (o.type !== "push" && o.type !== "pull" && o.type !== "legs") continue;
-        const items = Array.isArray(o.items)
-          ? (o.items.map(parseItem).filter(Boolean) as TemplateItem[])
-          : [];
-        list.push({
-          id: typeof o.id === "string" && o.id ? o.id : genId(),
-          name: typeof o.name === "string" ? o.name : "",
-          type: o.type,
-          items,
-        });
-      }
-      if (list.length) out.templates = list;
-    } else if (obj.templates && typeof obj.templates === "object") {
-      // 旧格式：按槽位的对象 → 迁移为具名 Template
-      const SLOT_META: Record<TemplateSlot, { type: TrainingType; name: string }> = {
-        push1: { type: "push", name: "推 1" },
-        push2: { type: "push", name: "推 2" },
-        pull1: { type: "pull", name: "拉 1" },
-        pull2: { type: "pull", name: "拉 2" },
-        legs1: { type: "legs", name: "腿" },
-      };
-      const src = obj.templates as Record<string, unknown>;
-      const list: Template[] = [];
-      (Object.keys(SLOT_META) as TemplateSlot[]).forEach((slot) => {
-        const arr = src[slot];
-        if (!Array.isArray(arr)) return;
-        const items = arr.map(parseItem).filter(Boolean) as TemplateItem[];
-        if (!items.length) return;
-        list.push({
-          id: genId(),
-          name: SLOT_META[slot].name,
-          type: SLOT_META[slot].type,
-          items,
-        });
-      });
-      if (list.length) out.templates = list;
+  if (Array.isArray(obj.customExercises)) out.customExercises = obj.customExercises.map(parseCustomExercise).filter((entry): entry is ExercisePreset => Boolean(entry));
+  if (obj.schedule && typeof obj.schedule === "object" && Array.isArray((obj.schedule as Schedule).split) && (obj.schedule as Schedule).split.length === 7) {
+    const rawSchedule = obj.schedule as Schedule;
+    const split = rawSchedule.split.map((type) => VALID_TYPES.includes(type as TrainingType) ? type as TrainingType : "") as (TrainingType | "")[];
+    const microcycle = Array.isArray(rawSchedule.microcycle)
+      ? rawSchedule.microcycle.flatMap((step, index) => {
+          if (!step || !VALID_TYPES.includes(step.type) || step.type === "custom") return [];
+          return [{ id: typeof step.id === "string" && step.id ? step.id : `cycle_step_${index + 1}`, type: step.type, label: typeof step.label === "string" && step.label.trim() ? step.label.trim().slice(0, 24) : step.type, ...(step.type !== "rest" && typeof step.templateId === "string" && step.templateId ? { templateId: step.templateId } : {}) }];
+        }).slice(0, 14)
+      : [];
+    out.schedule = { split, ...(microcycle.length ? { microcycle } : {}) };
+  }
+  if (typeof obj.lastBackupAt === "string") out.lastBackupAt = obj.lastBackupAt;
+
+  if (obj.profile && typeof obj.profile === "object") {
+    const value = obj.profile as Record<string, unknown>;
+    const profile: Profile = {};
+    if (value.sex === "male" || value.sex === "female") profile.sex = value.sex;
+    if (typeof value.heightCm === "number" && value.heightCm >= 120 && value.heightCm <= 230) profile.heightCm = value.heightCm;
+    if (typeof value.birthYear === "number" && value.birthYear > 1900 && value.birthYear < 2100) profile.birthYear = value.birthYear;
+    if (typeof value.restingHR === "number" && value.restingHR >= 20 && value.restingHR < 150) profile.restingHR = value.restingHR;
+    if (typeof value.maxHR === "number" && value.maxHR > 100 && value.maxHR < 230) profile.maxHR = value.maxHR;
+    if (value.trainingLevel === "beginner" || value.trainingLevel === "intermediate" || value.trainingLevel === "advanced") profile.trainingLevel = value.trainingLevel;
+    if (Object.keys(profile).length) out.profile = profile;
+  }
+
+  const templateId = () => `tpl_${Math.random().toString(36).slice(2, 10)}`;
+  const parseItem = (input: unknown): TemplateItem | null => {
+    if (!input || typeof input !== "object") return null;
+    const value = input as Record<string, unknown>;
+    if (typeof value.exerciseId !== "string" || !value.exerciseId) return null;
+    const recordModes = parseRecordModes(value.recordModes);
+    const prescription = parsePrescription(value.prescription);
+    const performanceMode = prescription?.performanceMode ?? (recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps");
+    let low = 8;
+    let high = 12;
+    if (typeof value.repsLow === "number" && typeof value.repsHigh === "number") { low = value.repsLow; high = value.repsHigh; }
+    else if (typeof value.reps === "string") {
+      const range = value.reps.match(/(\d+)\s*[-–~]\s*(\d+)/);
+      const single = parseInt(value.reps, 10);
+      low = range ? Number(range[1]) : Number.isFinite(single) ? single : 8;
+      high = range ? Number(range[2]) : Number.isFinite(single) ? single : 12;
+    }
+    const targetMax = performanceMode === "duration" ? 3_600 : performanceMode === "distance" ? 100_000 : 40;
+    low = Math.min(targetMax, Math.max(1, Math.round(low)));
+    high = Math.min(targetMax, Math.max(low, Math.round(high)));
+    return {
+      exerciseId: value.exerciseId,
+      name: typeof value.name === "string" ? value.name : "",
+      sets: typeof value.sets === "number" && value.sets >= 1 && value.sets <= 12 ? Math.round(value.sets) : 3,
+      repsLow: low,
+      repsHigh: high,
+      ...(typeof value.rpe === "number" && value.rpe >= 5 && value.rpe <= 10 ? { rpe: value.rpe } : {}),
+      ...(prescription ? { prescription } : {}),
+      ...(typeof value.progressionTrackId === "string" ? { progressionTrackId: value.progressionTrackId } : {}),
+      ...(typeof value.progressionTrackLabel === "string" ? { progressionTrackLabel: value.progressionTrackLabel } : {}),
+      ...(value.trainingIntent === "strength" || value.trainingIntent === "hypertrophy" || value.trainingIntent === "endurance" || value.trainingIntent === "custom" ? { trainingIntent: value.trainingIntent } : {}),
+      ...(typeof value.targetRirMin === "number" ? { targetRirMin: value.targetRirMin } : {}),
+      ...(typeof value.targetRirMax === "number" ? { targetRirMax: value.targetRirMax } : {}),
+      ...(typeof value.loadIncrementKg === "number" ? { loadIncrementKg: Math.max(0, value.loadIncrementKg) } : {}),
+      ...(value.progressionRule === "doubleProgression" || value.progressionRule === "repsFirst" || value.progressionRule === "custom" ? { progressionRule: value.progressionRule } : {}),
+      ...(recordModes ? { recordModes } : {}),
+    };
+  };
+
+  if (Array.isArray(obj.templates)) {
+    const templates: Template[] = [];
+    for (const rawTemplate of obj.templates) {
+      if (!rawTemplate || typeof rawTemplate !== "object") continue;
+      const value = rawTemplate as Record<string, unknown>;
+      if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
+      templates.push({ id: typeof value.id === "string" && value.id ? value.id : templateId(), name: typeof value.name === "string" ? value.name : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
+    }
+    if (templates.length) out.templates = templates;
+  } else if (obj.templates && typeof obj.templates === "object") {
+    const meta: Record<TemplateSlot, { type: TrainingType; name: string }> = { push1: { type: "push", name: "推 1" }, push2: { type: "push", name: "推 2" }, pull1: { type: "pull", name: "拉 1" }, pull2: { type: "pull", name: "拉 2" }, legs1: { type: "legs", name: "腿" } };
+    const rawTemplates = obj.templates as Record<string, unknown>;
+    const templates = (Object.keys(meta) as TemplateSlot[]).flatMap((slot) => {
+      const source = rawTemplates[slot];
+      const items = Array.isArray(source) ? source.map(parseItem).filter((item): item is TemplateItem => !!item) : [];
+      return items.length ? [{ id: templateId(), name: meta[slot].name, type: meta[slot].type, items }] : [];
+    });
+    if (templates.length) out.templates = templates;
+  }
+
+  if (obj.muscleTargets && typeof obj.muscleTargets === "object") {
+    const targets: NonNullable<AppData["muscleTargets"]> = {};
+    for (const [muscle, rawTarget] of Object.entries(obj.muscleTargets as Record<string, unknown>)) {
+      if (!VALID_MUSCLES.has(muscle)) continue;
+      if (!rawTarget || typeof rawTarget !== "object") continue;
+      const target = rawTarget as Record<string, unknown>;
+      if (typeof target.low !== "number" || typeof target.high !== "number") continue;
+      targets[muscle as keyof typeof targets] = { low: Math.max(0, Math.round(target.low)), high: Math.max(Math.round(target.low), Math.round(target.high)) };
+    }
+    if (Object.keys(targets).length) out.muscleTargets = targets;
+  }
+  if (obj.microcycle && typeof obj.microcycle === "object") {
+    const value = obj.microcycle as Record<string, unknown>;
+    if (typeof value.currentId === "string" && value.currentId && isDateKey(value.startedAt)) {
+      const steps = Array.isArray(value.steps)
+        ? value.steps.flatMap((step, index) => {
+            if (!step || typeof step !== "object") return [];
+            const item = step as Record<string, unknown>;
+            if (!VALID_TYPES.includes(item.type as TrainingType) || item.type === "custom") return [];
+            return [{ id: typeof item.id === "string" && item.id ? item.id : `cycle_step_${index + 1}`, type: item.type as TrainingType, label: typeof item.label === "string" && item.label.trim() ? item.label.trim().slice(0, 24) : String(item.type), ...(item.type !== "rest" && typeof item.templateId === "string" && item.templateId ? { templateId: item.templateId } : {}) }];
+          }).slice(0, 14)
+        : [];
+      out.microcycle = { currentId: value.currentId, startedAt: value.startedAt, index: typeof value.index === "number" ? Math.max(1, Math.round(value.index)) : 1, ...(steps.length ? { steps } : {}) };
+    }
+  }
+
+  const today = todayKey();
+  const workouts = Object.entries(out.days).filter(([, day]) => !!day.workout).sort(([a], [b]) => a.localeCompare(b));
+  if (!out.microcycle && workouts.length) {
+    const assigned = assignHistoricalMicrocycles(out.days, out.schedule, today);
+    out.days = assigned.days;
+    out.microcycle = assigned.microcycle;
+  }
+  if (!out.microcycle) out.microcycle = defaultMicrocycle(today, out.schedule);
+  if (!out.microcycle.steps?.length) out.microcycle = { ...out.microcycle, steps: microcyclePatternFor(out.schedule).map((step) => ({ ...step })) };
+  const templatesById = new Map((out.templates ?? []).map((template) => [template.id, template]));
+  const cleanStep = (step: import("./types").MicrocycleStep) => {
+    const template = step.templateId ? templatesById.get(step.templateId) : undefined;
+    if (!step.templateId || (template && template.type === step.type)) return step;
+    const { templateId: _templateId, ...rest } = step;
+    return rest;
+  };
+  if (out.schedule.microcycle) out.schedule = { ...out.schedule, microcycle: out.schedule.microcycle.map(cleanStep) };
+  if (out.microcycle.steps) out.microcycle = { ...out.microcycle, steps: out.microcycle.steps.map(cleanStep) };
+  for (const [date, day] of Object.entries(out.days)) {
+    if (!day.workout) continue;
+    const assignedToCurrentBeforeStart = day.workout.microcycleId === out.microcycle.currentId && date < out.microcycle.startedAt;
+    if (!day.workout.microcycleId || assignedToCurrentBeforeStart) {
+      const microcycleId = date >= out.microcycle.startedAt ? out.microcycle.currentId : `legacy_mc_${date.replace(/-/g, "")}`;
+      day.workout = { ...day.workout, microcycleId };
     }
   }
   return out;
 }
 
-// ---------------- 导出 / 导入 ----------------
-
 export function toBackup(data: AppData): BackupData {
-  return {
-    app: "fitlog",
-    version: SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
-    days: data.days,
-    bodyWeights: data.bodyWeights,
-    waistEntries: data.waistEntries,
-    cutPlan: data.cutPlan,
-    customExercises: data.customExercises,
-    schedule: data.schedule,
-    profile: data.profile,
-    templates: data.templates,
-  };
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: data.days, bodyWeights: data.bodyWeights, waistEntries: data.waistEntries, cutPlan: data.cutPlan, customExercises: data.customExercises, schedule: data.schedule, profile: data.profile, templates: data.templates, muscleTargets: data.muscleTargets, microcycle: data.microcycle };
 }
 
 export function downloadBackup(data: AppData): void {
-  const backup = toBackup(data);
-  const blob = new Blob([JSON.stringify(backup, null, 2)], {
-    type: "application/json",
-  });
+  const blob = new Blob([JSON.stringify(toBackup(data), null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const stamp = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `fitlog-backup-${stamp}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `fitlog-backup-${todayKey()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
 
 export function parseBackup(text: string): AppData {
   const parsed = JSON.parse(text);
-  if (!parsed || parsed.app !== "fitlog") {
-    throw new Error("文件格式不正确：不是 fitlog 备份");
-  }
+  if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
   return normalize(parsed);
 }
 
-export function parseBackupWithMeta(text: string): {
-  data: AppData;
-  exportedAt?: string;
-  version?: number;
-} {
-  const parsed = JSON.parse(text) as {
-    app?: unknown;
-    exportedAt?: unknown;
-    version?: unknown;
-  };
-  if (!parsed || parsed.app !== "fitlog") {
-    throw new Error("文件格式不正确：不是 fitlog 备份");
-  }
-  return {
-    data: normalize(parsed),
-    exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined,
-    version: typeof parsed.version === "number" ? parsed.version : undefined,
-  };
+export function parseBackupWithMeta(text: string): { data: AppData; exportedAt?: string; version?: number } {
+  const parsed = JSON.parse(text) as { app?: unknown; exportedAt?: unknown; version?: unknown };
+  if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
+  return { data: normalize(parsed), exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined, version: typeof parsed.version === "number" ? parsed.version : undefined };
 }

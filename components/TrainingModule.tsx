@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import type { SetRecord, TemplateItem, TrainingType } from "@/lib/types";
+import type { TemplateItem, TrainingType } from "@/lib/types";
 
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -39,7 +39,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
   const toast = useToast();
   const workout = getDay(date)?.workout;
   const type = workout?.type;
-  const exercises = workout?.exercises ?? [];
+  const exercises = useMemo(() => workout?.exercises ?? [], [workout?.exercises]);
   const done = workout?.done ?? false;
 
   const [pendingType, setPendingType] = useState<TrainingType | null>(null);
@@ -53,28 +53,6 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
     () => new Set(exercises.filter((e) => e.sets.length > 0).map((e) => e.id)),
     [exercises]
   );
-
-  // 本次训练里"最近录入的一组"：给没有自身历史的新动作当起点
-  // （按时间戳取最新；老数据没戳则退而取最后一个有组动作的末组）
-  const sessionLastSet = useMemo<SetRecord | null>(() => {
-    let best: SetRecord | null = null;
-    let bestAt = "";
-    for (const e of exercises) {
-      for (const s of e.sets) {
-        if (s.at && s.at >= bestAt) {
-          bestAt = s.at;
-          best = s;
-        }
-      }
-    }
-    if (best) return best;
-    for (let i = exercises.length - 1; i >= 0; i--) {
-      if (exercises[i].sets.length) {
-        return exercises[i].sets[exercises[i].sets.length - 1];
-      }
-    }
-    return null;
-  }, [exercises]);
 
   const setCount = exercises.reduce((s, e) => s + e.sets.length, 0);
   const mainCount = exercises.filter((exercise) => exercise.isMain).length;
@@ -97,6 +75,14 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
           sets: exercise.sets.length,
           repsLow,
           repsHigh: Math.max(repsLow, repsHigh),
+          ...(exercise.prescription ? { prescription: exercise.prescription } : {}),
+          ...(exercise.progressionTrackId ? { progressionTrackId: exercise.progressionTrackId } : {}),
+          ...(exercise.progressionTrackLabel ? { progressionTrackLabel: exercise.progressionTrackLabel } : {}),
+          ...(exercise.trainingIntent ? { trainingIntent: exercise.trainingIntent } : {}),
+          ...(exercise.targetRirMin != null ? { targetRirMin: exercise.targetRirMin } : {}),
+          ...(exercise.targetRirMax != null ? { targetRirMax: exercise.targetRirMax } : {}),
+          ...(exercise.loadIncrementKg != null ? { loadIncrementKg: exercise.loadIncrementKg } : {}),
+          ...(exercise.progressionRule ? { progressionRule: exercise.progressionRule } : {}),
           ...(exercise.planned?.rpe ? { rpe: exercise.planned.rpe } : {}),
         };
       });
@@ -143,7 +129,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
             <Link href="/schedule" className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">计划</Link>
           </div>
           {suggestedType && (
-            <button onClick={() => chooseType(suggestedType)} className="press mt-3 h-11 w-full rounded-xl bg-fg text-[14px] font-semibold text-bg">开始{typeLabelOf(suggestedType)}训练</button>
+            <button type="button" onClick={() => chooseType(suggestedType)} className="press mt-3 h-11 w-full rounded-xl bg-fg text-[14px] font-semibold text-bg">开始{typeLabelOf(suggestedType)}训练</button>
           )}
         </div>
       )}
@@ -153,7 +139,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
         {TYPES.map((t) => {
           const active = type === t.value;
           return (
-            <button
+            <button type="button"
               key={t.value}
               onClick={() => chooseType(t.value)}
               aria-pressed={active}
@@ -182,13 +168,13 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
             {tr("数据不会删除")}{pendingType === "rest" ? tr("，切回原类型即可见") : ""}
           </p>
           <div className="mt-2 flex gap-2">
-            <button
+            <button type="button"
               onClick={() => setPendingType(null)}
               className="press h-9 flex-1 rounded-md border border-border bg-surface text-[13px] text-fg"
             >
               {tr("取消")}
             </button>
-            <button
+            <button type="button"
               onClick={() => {
                 setWorkoutType(date, pendingType);
                 setPendingType(null);
@@ -218,8 +204,6 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
               key={ex.id}
               date={date}
               exercise={ex}
-              sessionLastSet={sessionLastSet}
-              templateId={workout?.templateId}
             />
           ))}
           {typeHasExercises(type) && (
@@ -271,7 +255,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
                   </svg>
                   {persona.trainingCompleted(mode)}
                 </span>
-                <button
+                <button type="button"
                   onClick={() => setWorkoutDone(date, false)}
                   className="press h-9 rounded-md border border-border bg-surface-2 px-3 text-[13px] font-medium text-muted active:bg-surface"
                 >
@@ -285,7 +269,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
                   <WrapFact label="主项" value={`${mainCount}`} />
                   <WrapFact label="空动作" value={`${emptyCount}`} />
                 </div>
-                <button
+                <button type="button"
                   onClick={() => {
                     setWorkoutDone(date, true);
                     if (mode !== "pulse") haptic([10, 30, 16]);
@@ -382,7 +366,7 @@ function TemplateApplyRow({
         const newCount = tpl.items.filter((it) => !addedIds.has(it.exerciseId)).length;
         const plannedSets = tpl.items.reduce((sum, item) => sum + item.sets, 0);
         return (
-          <button
+          <button type="button"
             key={tpl.id}
             onClick={() => {
               const n = applyTemplate(tpl.id, date);

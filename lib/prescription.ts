@@ -1,0 +1,438 @@
+import type {
+  DayLog,
+  Exercise,
+  ExercisePreset,
+  PerformanceMode,
+  ProgressionPrescription,
+  SessionDifficulty,
+  SetRecord,
+  TemplateItem,
+  TrainingIntent,
+  TrainingType,
+} from "./types";
+
+export type TrackHistoryKind = "same" | "other" | "legacy";
+
+export interface TrackHistoryResult {
+  date: string;
+  exercise: Exercise;
+  sets: SetRecord[];
+  kind: TrackHistoryKind;
+  sessionDifficulty?: SessionDifficulty;
+}
+
+export interface ProgressionSuggestion {
+  nextWeight: number | null;
+  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference";
+  message: string;
+  condition: string;
+}
+
+export interface TrackHistoryCollection {
+  same: TrackHistoryResult[];
+  other: TrackHistoryResult[];
+  legacy: TrackHistoryResult[];
+}
+
+export interface TrackTrend {
+  status: "insufficient" | "improving" | "stable" | "plateau" | "regressing";
+  sessionCount: number;
+  latestE1rm: number | null;
+  previousE1rm: number | null;
+  changePct: number | null;
+  message: string;
+}
+
+export interface ExerciseTrackTrendSummary {
+  key: string;
+  exerciseId: string;
+  exerciseName: string;
+  trackId: string;
+  trackLabel: string;
+  latestDate: string;
+  histories: TrackHistoryResult[];
+  trend: TrackTrend;
+}
+
+const INTENT_LABEL: Record<TrainingIntent, string> = {
+  strength: "力量",
+  hypertrophy: "增肌",
+  endurance: "耐力",
+  custom: "自定义",
+};
+
+function cleanId(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+}
+
+export function inferIntent(repsLow: number, repsHigh: number): TrainingIntent {
+  if (repsHigh <= 6) return "strength";
+  if (repsLow >= 13) return "endurance";
+  return "hypertrophy";
+}
+
+export function intentLabel(intent: TrainingIntent) {
+  return INTENT_LABEL[intent] ?? intent;
+}
+
+export function defaultTrackId(
+  exerciseId: string,
+  intent: TrainingIntent,
+  repsLow?: number,
+  repsHigh?: number,
+  workingSets?: number,
+  performanceMode: PerformanceMode = "reps"
+) {
+  const suffix =
+    repsLow != null && repsHigh != null && workingSets != null
+      ? `${performanceMode === "reps" ? "" : `${performanceMode}-`}${intent}-${workingSets}x${repsLow}-${repsHigh}`
+      : intent;
+  return `${cleanId(exerciseId)}-${suffix}`;
+}
+
+export function performanceModeFor(recordModes: ExercisePreset["recordModes"] | Exercise["recordModes"]): PerformanceMode {
+  if (recordModes?.includes("duration") && !recordModes.includes("reps")) return "duration";
+  if (recordModes?.includes("distance") && !recordModes.includes("reps")) return "distance";
+  return "reps";
+}
+
+export function hasSetPerformance(set: SetRecord) {
+  return (set.reps ?? 0) > 0 || (set.durationSeconds ?? 0) > 0 || (set.distanceMeters ?? 0) > 0;
+}
+
+export function performanceValue(set: SetRecord, mode: PerformanceMode = "reps") {
+  if (mode === "duration") return Math.max(0, set.durationSeconds ?? 0);
+  if (mode === "distance") return Math.max(0, set.distanceMeters ?? 0);
+  return Math.max(0, set.reps ?? 0);
+}
+
+export function legacyTrackId(exerciseId: string) {
+  return `legacy:${exerciseId}`;
+}
+
+export function prescriptionFromTemplateItem(
+  item: TemplateItem,
+  preset?: ExercisePreset
+): ProgressionPrescription {
+  const performanceMode = item.prescription?.performanceMode ?? performanceModeFor(item.recordModes ?? preset?.recordModes);
+  const intent = item.trainingIntent ?? item.prescription?.trainingIntent ?? inferIntent(item.repsLow, item.repsHigh);
+  const increment = item.loadIncrementKg ?? item.prescription?.loadIncrementKg ?? preset?.defaultLoadIncrementKg ?? (preset?.equipment === "bodyweight" ? 0 : 2.5);
+  const nestedDefinitionChanged = Boolean(item.prescription && (
+    item.prescription.targetRepMin !== item.repsLow ||
+    item.prescription.targetRepMax !== item.repsHigh ||
+    item.prescription.workingSets !== item.sets ||
+    item.prescription.trainingIntent !== intent ||
+    (item.prescription.performanceMode ?? "reps") !== performanceMode
+  ));
+  const trackId = !nestedDefinitionChanged
+    ? item.progressionTrackId ?? item.prescription?.progressionTrackId ?? defaultTrackId(item.exerciseId, intent, item.repsLow, item.repsHigh, item.sets, performanceMode)
+    : defaultTrackId(item.exerciseId, intent, item.repsLow, item.repsHigh, item.sets, performanceMode);
+  const unit = performanceMode === "duration" ? "秒" : performanceMode === "distance" ? "米" : "次";
+  return {
+    progressionTrackId: trackId,
+    progressionTrackLabel:
+      !nestedDefinitionChanged
+        ? item.progressionTrackLabel ?? item.prescription?.progressionTrackLabel ?? `${intentLabel(intent)} · ${item.repsLow}–${item.repsHigh} ${unit}`
+        : `${performanceMode === "reps" ? intentLabel(intent) : performanceMode === "duration" ? "时长" : "距离"} · ${item.repsLow}–${item.repsHigh} ${unit}`,
+    trainingIntent: intent,
+    targetRepMin: item.repsLow,
+    targetRepMax: item.repsHigh,
+    targetRirMin: item.targetRirMin ?? item.prescription?.targetRirMin ?? (item.rpe ? Math.max(0, Math.round(10 - item.rpe)) : 1),
+    targetRirMax: item.targetRirMax ?? item.prescription?.targetRirMax ?? 2,
+    workingSets: item.sets,
+    loadIncrementKg: increment,
+    progressionRule: item.progressionRule ?? item.prescription?.progressionRule ?? "doubleProgression",
+    performanceMode,
+  };
+}
+
+export function prescriptionForPreset(
+  preset: ExercisePreset,
+  type: TrainingType,
+  intentOverride?: TrainingIntent,
+  context?: ProgressionPrescription
+): ProgressionPrescription {
+  const performanceMode = performanceModeFor(preset.recordModes);
+  if (context && (context.performanceMode ?? "reps") === performanceMode) {
+    return {
+      ...context,
+      progressionTrackId: defaultTrackId(
+        preset.id,
+        context.trainingIntent,
+        context.targetRepMin,
+        context.targetRepMax,
+        context.workingSets,
+        performanceMode
+      ),
+    };
+  }
+  const intent: TrainingIntent = performanceMode !== "reps" ? "custom" : intentOverride ?? (type === "custom" ? "custom" : "hypertrophy");
+  const reps = performanceMode === "duration" ? [30, 60] : performanceMode === "distance" ? [20, 50] : intent === "strength" ? [4, 6] : intent === "endurance" ? [13, 20] : intent === "custom" ? [10, 15] : [8, 12];
+  const workingSets = intent === "strength" ? 4 : 3;
+  const unit = performanceMode === "duration" ? "秒" : performanceMode === "distance" ? "米" : "次";
+  return {
+    progressionTrackId: defaultTrackId(preset.id, intent, reps[0], reps[1], workingSets, performanceMode),
+    progressionTrackLabel: `${performanceMode === "reps" ? intentLabel(intent) : performanceMode === "duration" ? "时长" : "距离"} · ${reps[0]}–${reps[1]} ${unit}`,
+    trainingIntent: intent,
+    targetRepMin: reps[0],
+    targetRepMax: reps[1],
+    targetRirMin: 1,
+    targetRirMax: 2,
+    workingSets,
+    loadIncrementKg: preset.defaultLoadIncrementKg ?? (preset.equipment === "bodyweight" ? 0 : 2.5),
+    progressionRule: "doubleProgression",
+    performanceMode,
+  };
+}
+
+export function applyPrescriptionSnapshot(
+  exercise: Omit<Exercise, "sets"> & { sets?: SetRecord[] },
+  prescription: ProgressionPrescription
+): Exercise {
+  return {
+    ...exercise,
+    sets: exercise.sets ?? [],
+    prescription,
+    progressionTrackId: prescription.progressionTrackId,
+    progressionTrackLabel: prescription.progressionTrackLabel,
+    trainingIntent: prescription.trainingIntent,
+    targetRepMin: prescription.targetRepMin,
+    targetRepMax: prescription.targetRepMax,
+    targetRirMin: prescription.targetRirMin,
+    targetRirMax: prescription.targetRirMax,
+    workingSets: prescription.workingSets,
+    loadIncrementKg: prescription.loadIncrementKg,
+    progressionRule: prescription.progressionRule,
+  };
+}
+
+export function normalizeExercisePrescription(exercise: Exercise): Exercise {
+  if (exercise.progressionTrackId) {
+    return exercise.prescription
+      ? { ...exercise, prescription: { ...exercise.prescription, performanceMode: exercise.prescription.performanceMode ?? performanceModeFor(exercise.recordModes) } }
+      : exercise;
+  }
+  const trackId = legacyTrackId(exercise.id);
+  return {
+    ...exercise,
+    progressionTrackId: trackId,
+    progressionTrackLabel: "旧记录参考",
+    trainingIntent: "custom",
+    targetRepMin: exercise.planned?.repsLow,
+    targetRepMax: exercise.planned?.repsHigh,
+    prescription: exercise.prescription ? { ...exercise.prescription, performanceMode: exercise.prescription.performanceMode ?? performanceModeFor(exercise.recordModes) } : exercise.prescription,
+  };
+}
+
+/** Valid work for progression and templates. Warmups, skips and rehab exposure do not advance a strength track. */
+export function workingSets(sets: SetRecord[]) {
+  return sets.filter((set) => set.type !== "warmup" && set.completion !== "skipped" && set.technique !== "rehab" && hasSetPerformance(set));
+}
+
+export function lastValidWorkingSet(sets: SetRecord[]) {
+  const list = workingSets(sets);
+  return list.at(-1) ?? null;
+}
+
+export function bestSet(sets: SetRecord[]) {
+  const list = workingSets(sets);
+  if (!list.length) return null;
+  return list.reduce((winner, set) => {
+    const current = estimatedOneRepMax(set) ?? set.durationSeconds ?? set.distanceMeters ?? set.reps;
+    const previous = estimatedOneRepMax(winner) ?? winner.durationSeconds ?? winner.distanceMeters ?? winner.reps;
+    return current > previous ? set : winner;
+  }, list[0]);
+}
+
+export function findTrackHistories(
+  days: Record<string, DayLog>,
+  exerciseId: string,
+  beforeDate: string,
+  progressionTrackId?: string,
+  limit = 8
+): TrackHistoryCollection {
+  const dates = Object.keys(days).filter((date) => date < beforeDate).sort().reverse();
+  const result: TrackHistoryCollection = { same: [], other: [], legacy: [] };
+
+  for (const date of dates) {
+    const workout = days[date].workout;
+    // New sessions explicitly use done=false while in progress. Legacy
+    // sessions had no flag, so undefined remains eligible history.
+    if (!workout || workout.type === "rest" || workout.done === false) continue;
+    const exercise = workout.exercises.find((item) => item.id === exerciseId && workingSets(item.sets).length > 0);
+    if (!exercise) continue;
+    const normalized = normalizeExercisePrescription(exercise);
+    const track = normalized.progressionTrackId;
+    const row: TrackHistoryResult = { date, exercise: normalized, sets: workingSets(normalized.sets), kind: "other", sessionDifficulty: workout.difficulty };
+    if (progressionTrackId && track === progressionTrackId) {
+      if (result.same.length < limit) result.same.push({ ...row, kind: "same" });
+    } else if (track?.startsWith("legacy:")) {
+      if (result.legacy.length < limit) result.legacy.push({ ...row, kind: "legacy" });
+    } else if (track !== progressionTrackId) {
+      if (result.other.length < limit) result.other.push(row);
+    }
+    if (result.same.length >= limit && result.other.length >= limit && result.legacy.length >= limit) break;
+  }
+
+  return result;
+}
+
+export function findTrackHistory(
+  days: Record<string, DayLog>,
+  exerciseId: string,
+  beforeDate: string,
+  progressionTrackId?: string
+): {
+  same: TrackHistoryResult | null;
+  other: TrackHistoryResult | null;
+  legacy: TrackHistoryResult | null;
+} {
+  const history = findTrackHistories(days, exerciseId, beforeDate, progressionTrackId, 1);
+  return { same: history.same[0] ?? null, other: history.other[0] ?? null, legacy: history.legacy[0] ?? null };
+}
+
+export function estimatedOneRepMax(set: SetRecord) {
+  if (set.weight <= 0 || set.reps <= 0) return null;
+  return +(set.weight * (1 + Math.min(set.reps, 15) / 30)).toFixed(1);
+}
+
+function historyE1rm(history: TrackHistoryResult) {
+  const values = history.sets.map(estimatedOneRepMax).filter((value): value is number => value != null);
+  return values.length ? Math.max(...values) : null;
+}
+
+export function analyzeTrackTrend(histories: TrackHistoryResult[]): TrackTrend {
+  const sessions = histories
+    .map((history) => ({ history, e1rm: historyE1rm(history) }))
+    .filter((item): item is { history: TrackHistoryResult; e1rm: number } => item.e1rm != null);
+  if (sessions.length < 2) return { status: "insufficient", sessionCount: sessions.length, latestE1rm: sessions[0]?.e1rm ?? null, previousE1rm: null, changePct: null, message: "至少完成 2 次同轨道训练后判断趋势" };
+  const latest = sessions[0].e1rm;
+  const previous = sessions[1].e1rm;
+  const changePct = +(((latest - previous) / Math.max(previous, 1)) * 100).toFixed(1);
+  const recent = sessions.slice(0, 3).map((item) => item.e1rm);
+  const rangePct = recent.length >= 3 ? ((Math.max(...recent) - Math.min(...recent)) / Math.max(recent[recent.length - 1], 1)) * 100 : null;
+  if (recent.length >= 3 && recent[0] < recent[1] && recent[1] < recent[2] && changePct <= -2) return { status: "regressing", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "连续表现回落，下一次先稳住重量并检查恢复" };
+  if (recent.length >= 3 && rangePct != null && rangePct <= 1.5) return { status: "plateau", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "连续 3 次变化很小，优先补次数或调整动作顺序" };
+  if (changePct >= 1.5) return { status: "improving", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "同轨道表现正在提升，继续当前进度规则" };
+  if (changePct <= -2) return { status: "regressing", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "本次表现回落，先维持重量观察下一次" };
+  return { status: "stable", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "表现基本稳定，按目标次数继续推进" };
+}
+
+export function summarizeExerciseTrackTrends(
+  days: Record<string, DayLog>,
+  beforeDate: string,
+  limit = 6
+): ExerciseTrackTrendSummary[] {
+  const groups = new Map<string, { exerciseId: string; exerciseName: string; trackId: string; trackLabel: string; histories: TrackHistoryResult[] }>();
+  const dates = Object.keys(days).filter((date) => date < beforeDate).sort().reverse();
+  for (const date of dates) {
+    const workout = days[date].workout;
+    if (!workout || workout.type === "rest" || workout.done === false) continue;
+    for (const rawExercise of workout.exercises) {
+      const sets = workingSets(rawExercise.sets);
+      if (!sets.length) continue;
+      const exercise = normalizeExercisePrescription(rawExercise);
+      const trackId = exercise.progressionTrackId ?? legacyTrackId(exercise.id);
+      const key = `${exercise.id}::${trackId}`;
+      const group = groups.get(key) ?? {
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        trackId,
+        trackLabel: exercise.progressionTrackLabel ?? "旧记录参考",
+        histories: [],
+      };
+      if (group.histories.length < 8) group.histories.push({ date, exercise, sets, kind: trackId.startsWith("legacy:") ? "legacy" : "same" });
+      groups.set(key, group);
+    }
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({
+      key,
+      exerciseId: group.exerciseId,
+      exerciseName: group.exerciseName,
+      trackId: group.trackId,
+      trackLabel: group.trackLabel,
+      latestDate: group.histories[0]?.date ?? "",
+      histories: group.histories,
+      trend: analyzeTrackTrend(group.histories),
+    }))
+    .filter((item) => item.trend.sessionCount >= 2)
+    .sort((a, b) => b.latestDate.localeCompare(a.latestDate))
+    .slice(0, limit);
+}
+
+export function progressionSuggestion(
+  prescription: ProgressionPrescription | undefined,
+  history: TrackHistoryResult | null
+): ProgressionSuggestion {
+  if (!prescription || !history) {
+    return {
+      nextWeight: null,
+      status: "noHistory",
+      message: "当前轨道暂无历史，先记录本次表现",
+      condition: "只使用同轨道历史生成建议",
+    };
+  }
+  if ((prescription.performanceMode ?? "reps") !== "reps") {
+    const unit = prescription.performanceMode === "duration" ? "时长" : "距离";
+    return {
+      nextWeight: null,
+      status: "modeReference",
+      message: `继续记录${unit}，当前只提供同轨道历史参考`,
+      condition: `${unit}动作不会自动套用重量`,
+    };
+  }
+  const sets = workingSets(history.sets);
+  const last = lastValidWorkingSet(sets);
+  if (!last) {
+    return {
+      nextWeight: null,
+      status: "noHistory",
+      message: "当前轨道暂无有效工作组",
+      condition: "只使用有效组生成建议",
+    };
+  }
+  const counted = sets.slice(0, prescription.workingSets || sets.length);
+  if (counted.length < prescription.workingSets) {
+    const remaining = prescription.workingSets - counted.length;
+    return {
+      nextWeight: last.weight,
+      status: "finishSets",
+      message: `先完成剩余 ${remaining} 组计划工作组`,
+      condition: `完成 ${prescription.workingSets} 个有效工作组后再判断加重`,
+    };
+  }
+  const allAtTop = counted.length > 0 && counted.every((set) => set.reps >= prescription.targetRepMax);
+  const belowBottom = counted.some((set) => set.reps < prescription.targetRepMin);
+  const baseWeight = last.weight;
+  if (allAtTop && history.sessionDifficulty === "hard") {
+    return {
+      nextWeight: baseWeight,
+      status: "effortCheck",
+      message: "次数已达标，但上次整体偏吃力",
+      condition: "先用相同重量稳定完成，再决定加重",
+    };
+  }
+  if (allAtTop && prescription.loadIncrementKg > 0) {
+    return {
+      nextWeight: +(baseWeight + prescription.loadIncrementKg).toFixed(2),
+      status: "addWeight",
+      message: `下次建议加 ${prescription.loadIncrementKg}kg`,
+      condition: `工作组达到 ${prescription.targetRepMax} 次`,
+    };
+  }
+  if (belowBottom) {
+    return {
+      nextWeight: baseWeight,
+      status: "stabilize",
+      message: "先稳定完成目标下限",
+      condition: `所有工作组先达到 ${prescription.targetRepMin} 次`,
+    };
+  }
+  return {
+    nextWeight: baseWeight,
+    status: "addReps",
+    message: "保持重量，继续补次数",
+    condition: `补到 ${prescription.targetRepMax} 次后再加重`,
+  };
+}

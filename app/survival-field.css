@@ -1,0 +1,283 @@
+/* Survival is map-led and utilitarian: route, supplies, and physical notes rather than texture-only cards. */
+:root[data-mode="survival"] .survival-field-board {
+  position: relative;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(65, 84, 56, .7);
+  border-radius: 2px 14px 2px 14px;
+  background:
+    linear-gradient(90deg, rgba(83,111,73,.12) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(rgba(83,111,73,.11) 1px, transparent 1px) 0 0 / 24px 24px,
+    radial-gradient(ellipse at 88% 4%, rgba(125,148,91,.27), transparent 12rem),
+    #e7e1cd;
+  box-shadow: 4px 4px 0 rgba(67,78,53,.22), 0 12px 25px rgba(52,57,46,.16), inset 0 1px 0 rgba(255,255,248,.68);
+}
+
+:root[data-mode="survival"] .survival-field-board::before,
+:root[data-mode="survival"] .survival-field-board::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+:root[data-mode="survival"] .survival-field-board::before {
+  right: -2.2rem;
+  bottom: -2.5rem;
+  width: 10.4rem;
+  height: 10.4rem;
+  border: 1px solid rgba(83,111,73,.3);
+  border-radius: 47% 53% 44% 56% / 58% 38% 62% 42%;
+  box-shadow: 0 0 0 1.2rem rgba(83,111,73,.035), 0 0 0 2.4rem rgba(83,111,73,.025);
+}
+
+:root[data-mode="survival"] .survival-field-board::after {
+  top: 3.5rem;
+  right: 1.15rem;
+  width: 3.7rem;
+  height: 2.1rem;
+  border: 1px dashed rgba(83,111,73,.38);
+  transform: rotate(-8deg);
+}
+
+:root[data-mode="survival"] .survival-field-board__paperclip {
+  position: absolute;
+  top: -.52rem;
+  right: 1.35rem;
+  z-index: 2;
+  width: .9rem;
+  height: 1.65rem;
+  border: 2px solid rgba(78,82,71,.58);
+  border-radius: .7rem .7rem .45rem .45rem;
+  transform: rotate(11deg);
+}
+
+:root[data-mode="survival"] .survival-field-board__header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .7rem;
+  padding: .88rem .88rem .72rem;
+  border-bottom: 1px solid rgba(83,111,73,.24);
+  background: linear-gradient(102deg, rgba(255,253,237,.64), rgba(222,229,208,.22));
+}
+
+:root[data-mode="survival"] .survival-field-board__eyebrow {
+  color: #526c4a;
+  font-family: var(--font-mono);
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+
+:root[data-mode="survival"] .survival-field-board h2 {
+  margin-top: .18rem;
+  color: #2f422d;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: -.025em;
+}
+
+:root[data-mode="survival"] .survival-field-board__header p:last-child {
+  margin-top: .22rem;
+  max-width: 16rem;
+  color: #687260;
+  font-size: .64rem;
+  line-height: 1.45;
+}
+
+:root[data-mode="survival"] .survival-field-board__count {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  min-width: 2.8rem;
+  border: 1px solid rgba(83,111,73,.55);
+  border-radius: 999px;
+  padding: .28rem .46rem;
+  color: #6a7563;
+  font-family: var(--font-mono);
+  font-size: .63rem;
+  font-weight: 800;
+  text-align: center;
+  transform: rotate(1.8deg);
+  background: rgba(250,247,231,.7);
+}
+
+:root[data-mode="survival"] .survival-field-board__count b { color: #3e6139; font-size: .9rem; }
+
+:root[data-mode="survival"] .survival-field-board__map {
+  position: relative;
+  z-index: 1;
+  height: 3.55rem;
+  margin: .65rem .86rem .15rem;
+  border: 1px solid rgba(83,111,73,.27);
+  border-radius: 2px 8px 2px 8px;
+  background:
+    radial-gradient(ellipse at 20% 50%, transparent 0 22%, rgba(83,111,73,.09) 22.5% 23.5%, transparent 24% 33%, rgba(83,111,73,.07) 33.5% 34.5%, transparent 35%),
+    linear-gradient(124deg, transparent 48%, rgba(83,111,73,.23) 48.5% 49.3%, transparent 50%);
+  overflow: hidden;
+}
+
+:root[data-mode="survival"] .survival-field-board__line {
+  position: absolute;
+  top: 52%;
+  left: 10%;
+  width: 77%;
+  border-top: 2px dashed rgba(69,91,62,.66);
+  transform: rotate(-6deg);
+}
+
+:root[data-mode="survival"] .survival-field-board__pin {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  width: 1.36rem;
+  height: 1.36rem;
+  place-items: center;
+  border: 1px solid rgba(67,85,59,.58);
+  border-radius: 999px;
+  background: #ece6d5;
+  color: #64705f;
+  font-family: var(--font-mono);
+  font-size: .62rem;
+  font-weight: 900;
+  transform: translate(-50%,-50%) rotate(-7deg);
+  box-shadow: 0 1px 0 rgba(255,255,255,.6);
+}
+
+:root[data-mode="survival"] .survival-field-board__pin.is-ready { border-color: #476940; background: #55754d; color: #f7f1e4; box-shadow: 0 0 0 3px rgba(85,117,77,.12); }
+:root[data-mode="survival"] .survival-field-board__pin.is-1 { left: 14%; }
+:root[data-mode="survival"] .survival-field-board__pin.is-2 { left: 51%; top: 43%; }
+:root[data-mode="survival"] .survival-field-board__pin.is-3 { left: 86%; top: 58%; }
+
+:root[data-mode="survival"] .survival-field-board__stations {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: .42rem;
+  padding: .55rem .86rem .76rem;
+}
+
+:root[data-mode="survival"] .survival-field-board__station {
+  display: flex;
+  min-height: 7.3rem;
+  flex-direction: column;
+  border: 1px solid rgba(83,111,73,.35);
+  border-radius: 2px 9px 2px 9px;
+  background: rgba(248,245,229,.66);
+  padding: .5rem;
+  color: #3d4c3d;
+  box-shadow: 1px 2px 0 rgba(83,111,73,.1);
+}
+
+:root[data-mode="survival"] .survival-field-board__station.is-ready {
+  border-color: rgba(75,111,68,.7);
+  background: linear-gradient(135deg, rgba(214,229,202,.82), rgba(248,245,229,.64));
+}
+
+:root[data-mode="survival"] .survival-field-board__station > p { color: #738068; font-family: var(--font-mono); font-size: .5rem; font-weight: 900; letter-spacing: .09em; }
+:root[data-mode="survival"] .survival-field-board__station strong { margin-top: .26rem; overflow: hidden; color: #344633; font-size: .75rem; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-mode="survival"] .survival-field-board__station > span { margin-top: .28rem; display: -webkit-box; overflow: hidden; color: #6f7969; font-size: .55rem; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+:root[data-mode="survival"] .survival-field-board__station small { margin-top: auto; border-top: 1px dashed rgba(83,111,73,.26); padding-top: .32rem; color: #536d4c; font-size: .5rem; font-weight: 700; }
+
+:root[data-mode="survival"] .survival-field-board__next {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .48rem;
+  min-height: 2.78rem;
+  border-top: 1px solid rgba(83,111,73,.35);
+  background: linear-gradient(96deg, #4d6c45 0 72%, #3d5737 72%);
+  padding: 0 .84rem;
+  color: #f5f0df;
+}
+
+:root[data-mode="survival"] .survival-field-board__next span { font-family: var(--font-mono); font-size: .56rem; font-weight: 700; letter-spacing: .1em; opacity: .8; }
+:root[data-mode="survival"] .survival-field-board__next b { font-size: .72rem; font-weight: 900; }
+:root[data-mode="survival"] .survival-field-board__next i { font-size: 1rem; font-style: normal; }
+
+/* Map transition replaces the earlier generic note strip. */
+:root[data-mode="survival"] .survival-route-note {
+  background: rgba(231,225,204,.18);
+  animation: survivalRouteFade 360ms ease-out forwards;
+}
+
+:root[data-mode="survival"] .survival-route-note::before {
+  inset: 18% -26%;
+  border: 1px solid rgba(58,83,54,.42);
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, rgba(83,111,73,.12) 1px, transparent 1px) 0 0 / 27px 27px,
+    linear-gradient(rgba(83,111,73,.1) 1px, transparent 1px) 0 0 / 27px 27px,
+    rgba(237,232,213,.91);
+  box-shadow: 0 14px 28px rgba(43,49,37,.18);
+  transform: rotate(-4deg) translateX(-62%);
+  animation: survivalMapFold 390ms cubic-bezier(.18,.75,.2,1) forwards;
+}
+
+:root[data-mode="survival"] .survival-route-note::after {
+  content: "";
+  position: absolute;
+  top: 49%;
+  left: 16%;
+  width: 68%;
+  border-top: 2px dashed rgba(65,94,60,.68);
+  transform: rotate(-5deg) scaleX(.1);
+  transform-origin: left;
+  animation: survivalMapRoute 370ms 65ms ease-out forwards;
+}
+
+:root[data-mode="survival"] .survival-route-note span {
+  top: calc(env(safe-area-inset-top) + 18px);
+  left: 18px;
+  color: #385537;
+  font-family: var(--font-mono);
+  font-size: .63rem;
+  font-weight: 900;
+  letter-spacing: .11em;
+}
+
+:root[data-mode="survival"] .survival-field-mark {
+  border-color: rgba(56,86,50,.84);
+  background: #e9e3cf;
+  color: #3d6138;
+  box-shadow: 2px 2px 0 rgba(58,75,52,.18);
+}
+
+:root[data-mode="survival"] .survival-session-guide {
+  border-radius: 2px 14px 2px 14px;
+  background:
+    linear-gradient(90deg, rgba(83,111,73,.1) 1px, transparent 1px) 0 0 / 21px 21px,
+    linear-gradient(rgba(83,111,73,.09) 1px, transparent 1px) 0 0 / 21px 21px,
+    linear-gradient(135deg, #e9e5d4, #d4dac9 74%);
+  box-shadow: 4px 4px 0 rgba(73,83,61,.16), inset 0 1px 0 rgba(255,255,250,.7);
+}
+
+:root[data-mode="survival"] .survival-session-guide__top {
+  background: rgba(251,248,232,.42);
+  color: #506f4a;
+}
+
+:root[data-mode="survival"] .survival-session-guide__body { position: relative; }
+:root[data-mode="survival"] .survival-session-guide__body::after { content:""; position:absolute; left: .84rem; bottom: .54rem; width: 45%; border-top:1px dashed rgba(83,111,73,.35); transform:rotate(-2deg); }
+
+@keyframes survivalMapFold {
+  0% { transform: rotate(-4deg) translateX(-62%); }
+  100% { transform: rotate(-4deg) translateX(36%); }
+}
+
+@keyframes survivalMapRoute {
+  0% { transform: rotate(-5deg) scaleX(.1); opacity: 0; }
+  100% { transform: rotate(-5deg) scaleX(1); opacity: 1; }
+}
+
+@media (max-width: 360px) {
+  :root[data-mode="survival"] .survival-field-board__stations { grid-template-columns: 1fr; }
+  :root[data-mode="survival"] .survival-field-board__station { min-height: auto; }
+  :root[data-mode="survival"] .survival-field-board__station > span { display: block; }
+  :root[data-mode="survival"] .survival-field-board__station small { margin-top: .4rem; }
+}

@@ -7,21 +7,23 @@ import { useUIMode } from "@/lib/uiMode";
 import {
   WEEKDAY_LABELS,
   currentStreak,
+  dateKeyWeekdayIndex,
   getScheduledType,
-  todayWeekdayIndex,
   trainingDayCountInLast,
 } from "@/lib/schedule";
 import { usePersona } from "@/lib/copy";
-import { useI18n } from "@/lib/i18n";
-import { currentWeekKeys, formatCompact } from "@/lib/date";
+import { localeText, useI18n } from "@/lib/i18n";
+import MicrocycleEditor from "@/components/MicrocycleEditor";
+import { formatCompact, weekKeysFor } from "@/lib/date";
+import { useToday } from "@/lib/hooks";
 import {
   CORE_MUSCLES,
   MUSCLE_LABELS,
   MUSCLE_ORDER,
-  weeklyTargetFor,
   type MuscleGroup,
 } from "@/lib/muscles";
-import { volumeStatus, weeklyVolume } from "@/lib/volume";
+import { computeVolumeSummary } from "@/lib/volume";
+import { workingSets } from "@/lib/prescription";
 import type { Schedule, TrainingType } from "@/lib/types";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
@@ -37,14 +39,16 @@ export default function SchedulePage() {
   const { persona, typeName } = usePersona();
   const { loaded, data, setSchedule } = useStore();
   const { mode } = useUIMode();
+  const today = useToday();
 
-  const todayIdx = todayWeekdayIndex();
+  const todayIdx = dateKeyWeekdayIndex(today);
+  const week = useMemo(() => weekKeysFor(today), [today]);
 
   const stats = useMemo(() => {
-    const streak = currentStreak(data.days);
-    const last28 = trainingDayCountInLast(data.days, 28);
+    const streak = currentStreak(data.days, today);
+    const last28 = trainingDayCountInLast(data.days, 28, today);
     return { streak, last28 };
-  }, [data.days]);
+  }, [data.days, today]);
 
   if (!loaded) {
     return (
@@ -57,10 +61,9 @@ export default function SchedulePage() {
 
   const schedule: Schedule = data.schedule;
   const todayPlanned = getScheduledType(schedule, todayIdx);
-  const week = currentWeekKeys();
 
   function setDay(idx: number, value: TrainingType | "") {
-    const next: Schedule = { split: [...schedule.split] };
+    const next: Schedule = { ...schedule, split: [...schedule.split] };
     next.split[idx] = value;
     setSchedule(next);
   }
@@ -119,44 +122,28 @@ export default function SchedulePage() {
           {tr("每周排程")}
         </h2>
         <div className="control-card px-3 py-1">
-          {WEEKDAY_LABELS.map((label, idx) => (
-            <div
-              key={idx}
-              className={
-                "soft-divider border-t py-2 first:border-t-0 " +
-                (idx === todayIdx ? "" : "")
-              }
-            >
+          {WEEKDAY_LABELS.map((label, idx) => {
+            const canOpen = week[idx] <= today;
+            const daySummary = <>
+              <span className="shrink-0 text-[13px] font-semibold">
+                {tr(label)}
+                {idx === todayIdx && <span className="ml-1 text-[10px] uppercase">{tr("· 今")}</span>}
+              </span>
+              <span className="tnum text-[11px] text-faint">{formatCompact(week[idx], locale).md}</span>
+              {canOpen ? <DayStatus date={week[idx]} /> : <span className="ml-auto text-[10px] font-medium text-faint">{localeText(locale, "待开始", "Upcoming", "予定")}</span>}
+            </>;
+            return <div key={idx} className="soft-divider border-t py-2 first:border-t-0">
               <div className="mb-1.5 flex items-center gap-2">
-                <Link
-                  href={`/train?date=${week[idx]}`}
-                  className={
-                    "press flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 " +
-                    (idx === todayIdx ? "text-accent" : "text-fg")
-                  }
-                >
-                  <span className="shrink-0 text-[13px] font-semibold">
-                    {tr(label)}
-                    {idx === todayIdx && (
-                      <span className="ml-1 text-[10px] uppercase">
-                        {tr("· 今")}
-                      </span>
-                    )}
-                  </span>
-                  <span className="tnum text-[11px] text-faint">
-                    {formatCompact(week[idx], locale).md}
-                  </span>
-                  <DayStatus date={week[idx]} />
-                </Link>
-                <Link href={`/train?date=${week[idx]}`} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">
+                {canOpen ? <Link href={`/train?date=${week[idx]}`} className={"press flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 " + (idx === todayIdx ? "text-accent" : "text-fg")}>{daySummary}</Link> : <div className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-muted">{daySummary}</div>}
+                {canOpen && <Link href={`/train?date=${week[idx]}`} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">
                   {tr("训练")}
-                </Link>
+                </Link>}
               </div>
               <div className="control-strip grid grid-cols-5 gap-1 rounded-xl p-1">
                 {TYPE_OPTIONS.map((opt) => {
                   const active = schedule.split[idx] === opt.value;
                   return (
-                    <button
+                    <button type="button"
                       key={opt.value || "empty"}
                       onClick={() => setDay(idx, opt.value)}
                       className={
@@ -171,13 +158,15 @@ export default function SchedulePage() {
                   );
                 })}
               </div>
-            </div>
-          ))}
+            </div>;
+          })}
         </div>
         <p className="mt-1.5 px-1 text-[11px] text-faint">
           {tr("推 / 拉 / 腿 / 休 / 无规划。改动即保存,只是建议,不约束实际训练。")}
         </p>
       </section>
+
+      <MicrocycleEditor />
 
       {/* —— 训练模板入口 —— */}
       <section className="mb-5">
@@ -191,7 +180,7 @@ export default function SchedulePage() {
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold text-fg">{tr("推1 / 推2 / 拉1 / 拉2 / 腿")}</p>
             <p className="mt-0.5 text-[11px] text-faint">
-              {tr("按部位选动作 · 存目标组数×次数 · 训练页一键套用")}
+              {tr("按部位选动作 · 存目标组数与范围 · 训练页一键套用")}
             </p>
           </div>
           <TplSummary />
@@ -202,7 +191,7 @@ export default function SchedulePage() {
       </section>
 
       {/* —— 本周容量稽核 —— */}
-      <WeeklyVolumeSection />
+      <WeeklyVolumeSection week={week} />
 
       {/* —— 状态：连续 + 近 28 天 + 减载提醒 —— */}
       <section>
@@ -269,55 +258,53 @@ function Stat({
 }
 
 function TplSummary() {
-  const { tr } = useI18n();
+  const { tr, locale } = useI18n();
   const { data } = useStore();
   const n = data.templates?.length ?? 0;
   return (
     <span className="tnum shrink-0 text-[12px] text-muted">
-      {n ? tr("{n} 个模板", { n }) : tr("未设置")}
+      {n ? localeText(locale, `${n} 个模板`, `${n} ${n === 1 ? "template" : "templates"}`, `${n}テンプレート`) : tr("未设置")}
     </span>
   );
 }
 
 function DayStatus({ date }: { date: string }) {
+  const { tr } = useI18n();
   const { data } = useStore();
   const day = data.days[date];
   const workout = day?.workout;
-  const sets = workout?.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) ?? 0;
-  if (workout?.type === "rest") return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">休息</span>;
-  if (workout?.done) return <span className="ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">已完成</span>;
-  if (sets > 0) return <span className="tnum ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{sets} 组</span>;
-  if (day?.nutrition || (day?.cardio?.length ?? 0) > 0) return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">有日志</span>;
-  return <span className="ml-auto text-[10px] text-faint">未记录</span>;
+  const sets = workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
+  if (workout?.type === "rest") return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">{tr("休息")}</span>;
+  if (workout?.done && sets > 0) return <span className="ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("已完成")}</span>;
+  if (sets > 0) return <span className="tnum ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("{n} 组", { n: sets })}</span>;
+  if (day?.nutrition || (day?.cardio?.length ?? 0) > 0) return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">{tr("有日志")}</span>;
+  return <span className="ml-auto text-[10px] text-faint">{tr("未记录")}</span>;
 }
 
 // ============================================================
 // 本周容量稽核（C）：按主肌群累计本周已记录组数，对照训练水平的上下限
 // 核心肌群常驻显示（漏练也可见）；其余肌群仅在本周有量时出现
 // ============================================================
-function WeeklyVolumeSection() {
+function WeeklyVolumeSection({ week }: { week: string[] }) {
   const { tr, locale } = useI18n();
-  const { data, getDay } = useStore();
+  const { data } = useStore();
   const level = data.profile?.trainingLevel;
 
-  const week = useMemo(() => currentWeekKeys(), []);
-  const vol = useMemo(
-    () => weeklyVolume(week.map((k) => getDay(k))),
-    // getDay 依赖 data.days；data 变更即重算
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.days, week]
+  const volume = useMemo(
+    () => computeVolumeSummary(week.map((key) => data.days[key]), level, data.muscleTargets),
+    [data.days, data.muscleTargets, level, week]
   );
 
   // 要展示的肌群：核心肌群 ∪ 本周有量的其它肌群，按统一顺序排
   const shown = useMemo(() => {
     const set = new Set<MuscleGroup>(CORE_MUSCLES);
-    (Object.keys(vol) as MuscleGroup[]).forEach((m) => {
-      if ((vol[m] ?? 0) > 0) set.add(m);
+    volume.rows.forEach((row) => {
+      if (row.rawDirectSets > 0 || row.indirectEffectiveSets > 0) set.add(row.muscle);
     });
     return MUSCLE_ORDER.filter((m) => set.has(m));
-  }, [vol]);
+  }, [volume.rows]);
 
-  const totalSets = Object.values(vol).reduce((s, n) => s + (n ?? 0), 0);
+  const totalSets = volume.totalWorkingSets;
   const rangeLabel = `${formatCompact(week[0], locale).md} – ${formatCompact(week[6], locale).md}`;
 
   return (
@@ -347,9 +334,10 @@ function WeeklyVolumeSection() {
         ) : (
           <div className="space-y-2">
             {shown.map((m) => {
-              const sets = vol[m] ?? 0;
-              const target = weeklyTargetFor(m, level);
-              const status = volumeStatus(sets, target.low, target.high);
+              const row = volume.rows.find((item) => item.muscle === m)!;
+              const sets = row.directEffectiveSets;
+              const target = row.target;
+              const status = row.status;
               // 进度条：以上限为满，按状态着色
               const pct = Math.max(
                 4,
@@ -405,7 +393,7 @@ function WeeklyVolumeSection() {
         )}
 
         <p className="mt-2.5 text-[11px] leading-relaxed text-faint">
-          {tr("按主肌群计，1 组 = 1 个动作的 1 组。仅统计已打标动作，旧记录可能少算。")}
+          {localeText(locale, "与训练复盘口径一致：只比较直接有效组；连带刺激用于恢复参考。", "Matches Training Review: targets use direct effective sets; secondary stimulus is recovery context.", "トレーニング振り返りと同じ基準です。目標は直接有効セット、補助刺激は回復判断に使います。")}
         </p>
       </div>
     </section>

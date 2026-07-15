@@ -52,7 +52,7 @@ export function maxHR(
 }
 
 /** 是否用 Karvonen（需静息心率且合理） */
-function useKarvonen(profile: Profile | undefined, hrmax: number): boolean {
+function usesKarvonen(profile: Profile | undefined, hrmax: number): boolean {
   const r = profile?.restingHR;
   return !!r && r >= 30 && r < hrmax;
 }
@@ -65,7 +65,7 @@ export function zoneBpm(
   const m = maxHR(profile);
   if (!m) return null;
   const meta = zoneMeta(z);
-  if (useKarvonen(profile, m.bpm)) {
+  if (usesKarvonen(profile, m.bpm)) {
     const reserve = m.bpm - (profile!.restingHR as number);
     const base = profile!.restingHR as number;
     return {
@@ -97,7 +97,7 @@ export function methodNote(
 ): string {
   const m = maxHR(profile);
   if (!m) return tr("填入年龄即可显示你的具体心率区间");
-  const k = useKarvonen(profile, m.bpm);
+  const k = usesKarvonen(profile, m.bpm);
   if (m.source === "manual") {
     return k
       ? tr("基于实测最大心率 {bpm} + 静息心率（Karvonen）", { bpm: m.bpm })

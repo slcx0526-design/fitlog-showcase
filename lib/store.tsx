@@ -14,18 +14,21 @@ import type {
   CardioEntry,
   WaistEntry,
   ActivityEnergyEntry,
-  ActivityEnergySource,
   CutPlan,
   DayLog,
   Exercise,
   ExercisePreset,
   NutritionLog,
   Profile,
+  RecordMode,
   Schedule,
+  SessionDifficulty,
   SetRecord,
   Template,
   TemplateItem,
+  TrainingIntent,
   TrainingType,
+  VolumeContribution,
   WorkoutSession,
 } from "./types";
 import type { Equipment, MuscleGroup } from "./muscles";
@@ -39,6 +42,15 @@ import {
 import { DEFAULT_EXERCISES } from "./exercises";
 import { MAX_TEMPLATES_PER_TYPE } from "./templates";
 import { currentCutSnapshot, cutAdjustedSets, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
+import { ensureMicrocycle, microcycleForNewWorkout, microcycleForScheduleEdit, nextMicrocycle } from "./microcycle";
+import {
+  applyPrescriptionSnapshot,
+  findTrackHistory,
+  prescriptionForPreset,
+  prescriptionFromTemplateItem,
+  workingSets,
+  type TrackHistoryResult,
+} from "./prescription";
 
 interface StoreApi {
   loaded: boolean;
@@ -49,7 +61,8 @@ interface StoreApi {
   // 训练
   setWorkoutType: (date: string, type: TrainingType) => void;
   setWorkoutDone: (date: string, done: boolean) => void;
-  addExercise: (date: string, preset: ExercisePreset) => void;
+  setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => void;
+  addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => void;
   removeExercise: (date: string, exerciseId: string) => void;
   addSet: (date: string, exerciseId: string, set: SetRecord) => void;
   updateSet: (
@@ -59,6 +72,7 @@ interface StoreApi {
     set: SetRecord
   ) => void;
   removeSet: (date: string, exerciseId: string, index: number) => void;
+  setExercisePlannedLoad: (date: string, exerciseId: string, weight?: number) => void;
 
   // 营养
   setNutrition: (date: string, log: NutritionLog | undefined) => void;
@@ -94,8 +108,8 @@ interface StoreApi {
   lastSession: (
     exerciseId: string,
     beforeDate: string,
-    templateId?: string
-  ) => { date: string; sets: SetRecord[] } | null;
+    progressionTrackId?: string
+  ) => { date: string; sets: SetRecord[]; exercise?: Exercise; other?: TrackHistoryResult | null; legacy?: TrackHistoryResult | null } | null;
   lastNutrition: (beforeDate: string) => NutritionLog | null;
 
   // 体重
@@ -110,16 +124,26 @@ interface StoreApi {
     name: string,
     isMain: boolean,
     primaryMuscle?: MuscleGroup,
-    equipment?: Equipment
+    equipment?: Equipment,
+    recordModes?: RecordMode[]
   ) => ExercisePreset;
   removeCustomExercise: (id: string) => void;
   updateCustomExercise: (
     id: string,
-    patch: { name: string; primaryMuscle: MuscleGroup; equipment?: Equipment }
+    patch: {
+      name: string;
+      primaryMuscle: MuscleGroup;
+      secondaryMuscles?: MuscleGroup[];
+      volumeContributions?: VolumeContribution[];
+      equipment?: Equipment;
+      recordModes?: RecordMode[];
+    }
   ) => void;
 
   // 计划
   setSchedule: (schedule: Schedule) => void;
+  setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
+  startNewMicrocycle: (date: string) => void;
 
   // 跨天 type 查询（"上次也做了"用）
   lastWorkoutByType: (
@@ -207,15 +231,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const mutateWorkout = useCallback(
     (date: string, fn: (w: WorkoutSession) => WorkoutSession) => {
-      mutateDay(date, (day) => {
+      setData((prev) => {
+        const day = prev.days[date] ?? { date };
+        const microcycle = day.workout
+          ? ensureMicrocycle(prev, date)
+          : microcycleForNewWorkout(prev, date);
         const w: WorkoutSession = day.workout ?? {
           type: "push",
           exercises: [],
+          microcycleId: microcycle.currentId,
         };
-        return { ...day, workout: fn(w) };
+        const next = fn({ ...w, microcycleId: w.microcycleId ?? microcycle.currentId });
+        // Historical edits must preserve the session's original microcycle.
+        // Only a genuinely new workout receives the currently active cycle id.
+        const microcycleId = day.workout?.microcycleId ?? next.microcycleId ?? microcycle.currentId;
+        const nextData = {
+          ...prev,
+          microcycle,
+          days: {
+            ...prev.days,
+            [date]: {
+              ...day,
+              date,
+              workout: { ...next, microcycleId },
+            },
+          },
+        };
+        return nextData;
       });
     },
-    [mutateDay]
+    []
   );
 
   const mutateExercise = useCallback(
@@ -233,35 +278,77 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- 训练相关 API ----
   const setWorkoutType = useCallback(
     (date: string, type: TrainingType) => {
-      mutateDay(date, (day) => {
-        const w = day.workout ?? { type, exercises: [] };
-        return { ...day, workout: { ...w, type } };
+      setData((prev) => {
+        const day = prev.days[date] ?? { date };
+        const microcycle = day.workout
+          ? ensureMicrocycle(prev, date)
+          : microcycleForNewWorkout(prev, date);
+        const w = day.workout ?? { type, exercises: [], microcycleId: microcycle.currentId };
+        const nextData: AppData = {
+          ...prev,
+          microcycle,
+          days: {
+            ...prev.days,
+            [date]: { ...day, date, workout: { ...w, type, templateId: w.type === type ? w.templateId : undefined, microcycleId: w.microcycleId ?? microcycle.currentId } },
+          },
+        };
+        return nextData;
       });
     },
-    [mutateDay]
+    []
   );
 
   const setWorkoutDone = useCallback(
     (date: string, done: boolean) => {
-      mutateDay(date, (day) => {
-        if (!day.workout) return day;
-        return { ...day, workout: { ...day.workout, done } };
+      setData((prev) => {
+        const day = prev.days[date];
+        if (!day?.workout) return prev;
+        return {
+          ...prev,
+          days: {
+            ...prev.days,
+            [date]: { ...day, workout: { ...day.workout, done } },
+          },
+        };
       });
     },
-    [mutateDay]
+    []
   );
 
+  const setWorkoutDifficulty = useCallback((date: string, difficulty?: SessionDifficulty) => {
+    setData((prev) => {
+      const day = prev.days[date];
+      if (!day?.workout) return prev;
+      return {
+        ...prev,
+        days: {
+          ...prev.days,
+          [date]: { ...day, workout: { ...day.workout, difficulty } },
+        },
+      };
+    });
+  }, []);
+
   const addExercise = useCallback(
-    (date: string, preset: ExercisePreset) => {
+    (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => {
       mutateWorkout(date, (w) => {
         if (w.exercises.some((e) => e.id === preset.id)) return w; // 当天去重
-        const ex: Exercise = {
+        const context = options?.intent === "context" || !options?.intent
+          ? w.exercises.find((exercise) => exercise.prescription)?.prescription
+          : undefined;
+        const intent = options?.intent && options.intent !== "context" ? options.intent : undefined;
+        const prescription = prescriptionForPreset(preset, w.type, intent, context);
+        const ex = applyPrescriptionSnapshot({
           id: preset.id,
           name: preset.name,
           isMain: preset.isMain,
           sets: [],
           primaryMuscle: preset.primaryMuscle,
-        };
+          secondaryMuscles: preset.secondaryMuscles,
+          volumeContributions: preset.volumeContributions,
+          recordModes: preset.recordModes,
+          planned: { sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax },
+        }, prescription);
         return { ...w, exercises: [...w.exercises, ex] };
       });
     },
@@ -290,7 +377,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 ...e,
                 sets: [
                   ...e.sets,
-                  { ...set, at: set.at ?? new Date().toISOString() },
+                  { type: "working", ...set, at: set.at ?? new Date().toISOString() },
                 ],
               }
             : e
@@ -315,6 +402,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateExercise(date, exerciseId, (ex) => ({
         ...ex,
         sets: ex.sets.filter((_, i) => i !== index),
+      }));
+    },
+    [mutateExercise]
+  );
+
+  const setExercisePlannedLoad = useCallback(
+    (date: string, exerciseId: string, weight?: number) => {
+      mutateExercise(date, exerciseId, (exercise) => ({
+        ...exercise,
+        plannedLoadKg: weight != null && Number.isFinite(weight) && weight > 0
+          ? Math.round(weight * 100) / 100
+          : undefined,
       }));
     },
     [mutateExercise]
@@ -508,7 +607,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const deleteTemplate = useCallback((id: string) => {
     setData((prev) => {
       const next = (prev.templates ?? []).filter((t) => t.id !== id);
-      return { ...prev, templates: next.length ? next : undefined };
+      const clearBinding = (step: import("./types").MicrocycleStep) => step.templateId === id ? { ...step, templateId: undefined } : step;
+      const trainingTemplateIds = prev.cutPlan?.trainingTemplateIds
+        ? Object.fromEntries(Object.entries(prev.cutPlan.trainingTemplateIds).filter(([, templateId]) => templateId !== id)) as NonNullable<CutPlan["trainingTemplateIds"]>
+        : undefined;
+      return {
+        ...prev,
+        templates: next.length ? next : undefined,
+        schedule: prev.schedule.microcycle ? { ...prev.schedule, microcycle: prev.schedule.microcycle.map(clearBinding) } : prev.schedule,
+        microcycle: prev.microcycle?.steps ? { ...prev.microcycle, steps: prev.microcycle.steps.map(clearBinding) } : prev.microcycle,
+        cutPlan: prev.cutPlan ? { ...prev.cutPlan, trainingTemplateIds: trainingTemplateIds && Object.keys(trainingTemplateIds).length ? trainingTemplateIds : undefined } : prev.cutPlan,
+      };
     });
   }, []);
 
@@ -520,77 +629,80 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (id: string, date: string): number => {
       const tpl = dataRef.current.templates?.find((t) => t.id === id);
       if (!tpl || !tpl.items.length) return 0;
+      const currentExercises = dataRef.current.days[date]?.workout?.exercises ?? [];
+      const currentIds = new Set(currentExercises.filter((exercise) => workingSets(exercise.sets).length > 0).map((exercise) => exercise.id));
+      const added = tpl.items.filter((item) => !currentIds.has(item.exerciseId)).length;
       // 预设池：内置 + 自定义（拿 primaryMuscle / isMain 快照）
-      const currentData = dataRef.current;
-      const pool = [...DEFAULT_EXERCISES, ...currentData.customExercises];
-      const cutSnapshot = currentCutSnapshot(currentData.profile, currentData.bodyWeights, currentData.waistEntries);
-      const cutActive = isCutModeActive(currentData.cutPlan);
-      const cutScale = currentData.cutPlan?.trainingVolumeScale ?? suggestedCutVolumeScale(cutSnapshot?.bodyFatPercent, currentData.cutPlan?.weeklyLossPct);
-      let added = 0;
-      mutateDay(date, (day) => {
+      setData((prev) => {
+        const day = prev.days[date] ?? { date };
+        const microcycle = day.workout
+          ? ensureMicrocycle(prev, date)
+          : microcycleForNewWorkout(prev, date);
+        const pool = [...DEFAULT_EXERCISES, ...prev.customExercises];
+        const cutSnapshot = currentCutSnapshot(prev.profile, prev.bodyWeights, prev.waistEntries);
+        const cutActive = isCutModeActive(prev.cutPlan);
+        const cutScale = prev.cutPlan?.trainingVolumeScale ?? suggestedCutVolumeScale(cutSnapshot?.bodyFatPercent, prev.cutPlan?.weeklyLossPct);
         const existing = day.workout?.exercises ?? [];
         // 已记录组数的动作保留（绝不丢数据）；其余（空的、上一个模板残留的）一律替换掉
-        const kept = existing.filter((e) => e.sets.length > 0);
+        const kept = existing.filter((e) => workingSets(e.sets).length > 0);
         const keptIds = new Set(kept.map((e) => e.id));
-        const prevIds = new Set(existing.map((e) => e.id));
 
         const fresh: Exercise[] = [];
         for (const it of tpl.items) {
           if (keptIds.has(it.exerciseId)) continue; // 已保留（有记录）的不重复加
           const preset = pool.find((p) => p.id === it.exerciseId);
-          fresh.push({
+          const prescription = prescriptionFromTemplateItem(it, preset);
+          fresh.push(applyPrescriptionSnapshot({
             id: it.exerciseId,
             name: preset?.name ?? it.name ?? "动作",
             isMain: preset?.isMain ?? false,
             sets: [],
             primaryMuscle: preset?.primaryMuscle,
+            secondaryMuscles: preset?.secondaryMuscles,
+            volumeContributions: preset?.volumeContributions,
+            recordModes: it.recordModes ?? preset?.recordModes,
             // Cut mode is a temporary session overlay: templates themselves remain unchanged.
             planned: { sets: cutActive ? cutAdjustedSets(it.sets, cutScale) : it.sets, repsLow: it.repsLow, repsHigh: it.repsHigh, ...(it.rpe ? { rpe: it.rpe } : {}) },
-          });
+          }, { ...prescription, workingSets: cutActive ? cutAdjustedSets(prescription.workingSets, cutScale) : prescription.workingSets }));
         }
-        // 真正"新增"的（之前不在这天的）数量，供提示用
-        added = fresh.filter((f) => !prevIds.has(f.id)).length;
-
         return {
-          ...day,
-          // 替换为：保留的已记录动作 + 本模板的动作；并记下模板供"上次"关联
-          workout: { type: tpl.type, templateId: tpl.id, exercises: [...kept, ...fresh] },
+          ...prev,
+          microcycle,
+          days: {
+            ...prev.days,
+            [date]: {
+              ...day,
+              date,
+              // Editing an existing historical day must not move it to the current cycle.
+              workout: {
+                type: tpl.type,
+                templateId: tpl.id,
+                microcycleId: day.workout?.microcycleId ?? microcycle.currentId,
+                done: false,
+                ...(day.workout?.difficulty ? { difficulty: day.workout.difficulty } : {}),
+                exercises: [...kept, ...fresh],
+              },
+            },
+          },
         };
       });
       return added;
     },
-    [mutateDay]
+    []
   );
 
   // ---- 跨天查询 ----
   const lastSession = useCallback(
-    (exerciseId: string, beforeDate: string, templateId?: string) => {
-      const dates = Object.keys(data.days)
-        .filter((d) => d < beforeDate)
-        .sort()
-        .reverse();
-      // 在模板上下文里：严格只认「同一模板（同主导日）」的历史，
-      // 找不到就返回 null（显示「首次记录」），绝不回退去抓别的模板 / 无标记的旧数据，
-      // 从根上杜绝重量推/次数推之间「上次」互相串数据。
-      if (templateId) {
-        for (const d of dates) {
-          const w = data.days[d].workout;
-          if (w?.templateId !== templateId) continue;
-          const ex = w.exercises.find(
-            (e) => e.id === exerciseId && e.sets.length > 0
-          );
-          if (ex) return { date: d, sets: ex.sets };
-        }
-        return null;
-      }
-      // 非模板录入（直接进训练页手动加动作，无模板标记）：取任意最近一次同动作
-      for (const d of dates) {
-        const ex = data.days[d].workout?.exercises.find(
-          (e) => e.id === exerciseId && e.sets.length > 0
-        );
-        if (ex) return { date: d, sets: ex.sets };
-      }
-      return null;
+    (exerciseId: string, beforeDate: string, progressionTrackId?: string) => {
+      const history = findTrackHistory(data.days, exerciseId, beforeDate, progressionTrackId);
+      if (!history.same) return null;
+      return {
+        date: history.same.date,
+        sets: history.same.sets,
+        exercise: history.same.exercise,
+        other: history.other,
+        legacy: history.legacy,
+      };
     },
     [data.days]
   );
@@ -652,7 +764,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       name: string,
       isMain: boolean,
       primaryMuscle?: MuscleGroup,
-      equipment?: Equipment
+      equipment?: Equipment,
+      recordModes?: RecordMode[]
     ) => {
       const preset: ExercisePreset = {
         id:
@@ -663,7 +776,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         isMain,
         type: "custom",
         ...(primaryMuscle ? { primaryMuscle } : {}),
+        ...(primaryMuscle ? { volumeContributions: [{ muscle: primaryMuscle, weight: 1, direct: true }] } : {}),
         ...(equipment ? { equipment } : {}),
+        ...(recordModes?.length ? { recordModes: [...new Set(recordModes)] } : {}),
       };
       setData((prev) => ({
         ...prev,
@@ -690,10 +805,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const updateCustomExercise = useCallback(
     (
       id: string,
-      patch: { name: string; primaryMuscle: MuscleGroup; equipment?: Equipment }
+      patch: {
+        name: string;
+        primaryMuscle: MuscleGroup;
+        secondaryMuscles?: MuscleGroup[];
+        volumeContributions?: VolumeContribution[];
+        equipment?: Equipment;
+        recordModes?: RecordMode[];
+      }
     ) => {
       const name = patch.name.trim();
       if (!name) return;
+      const secondary = (patch.volumeContributions ?? [])
+        .filter((item) => item.muscle !== patch.primaryMuscle)
+        .filter((item, index, items) => items.findIndex((candidate) => candidate.muscle === item.muscle) === index)
+        .map((item) => ({
+          muscle: item.muscle,
+          weight: Math.min(1, Math.max(0.1, Math.round(item.weight * 100) / 100)),
+          direct: Boolean(item.direct),
+        }));
+      const secondaryMuscles = secondary.map((item) => item.muscle);
+      const volumeContributions: VolumeContribution[] = [
+        { muscle: patch.primaryMuscle, weight: 1, direct: true },
+        ...secondary,
+      ];
+      const recordModes = patch.recordModes?.length ? [...new Set(patch.recordModes)] : undefined;
       setData((prev) => {
         const customExercises = prev.customExercises.map((e) =>
           e.id === id
@@ -701,22 +837,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 ...e,
                 name,
                 primaryMuscle: patch.primaryMuscle,
+                secondaryMuscles,
+                volumeContributions,
                 ...(patch.equipment
                   ? { equipment: patch.equipment }
                   : { equipment: undefined }),
+                ...(recordModes
+                  ? { recordModes }
+                  : { recordModes: undefined }),
               }
             : e
         );
-        // 同步模板里的名字快照（仅名字）
+        // 自定义动作的记录方式属于未来处方，模板引用需要一起更新。
         let templates = prev.templates;
         if (templates) {
           let changed = false;
           const next = templates.map((t) => {
             let itemsChanged = false;
             const items = t.items.map((it) => {
-              if (it.exerciseId === id && it.name !== name) {
+              if (it.exerciseId === id) {
+                const mode = recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps";
+                const modeChanged = JSON.stringify(it.recordModes ?? ["weight", "reps"]) !== JSON.stringify(recordModes ?? ["weight", "reps"]);
+                if (it.name === name && !modeChanged) return it;
                 itemsChanged = true;
-                return { ...it, name };
+                return {
+                  ...it,
+                  name,
+                  recordModes,
+                  ...(modeChanged ? {
+                    repsLow: mode === "duration" ? 30 : mode === "distance" ? 20 : 8,
+                    repsHigh: mode === "duration" ? 60 : mode === "distance" ? 50 : 12,
+                    prescription: undefined,
+                    progressionTrackId: undefined,
+                    progressionTrackLabel: undefined,
+                  } : {}),
+                };
               }
               return it;
             });
@@ -736,7 +891,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- 计划 ----
   const setSchedule = useCallback((schedule: Schedule) => {
-    setData((prev) => ({ ...prev, schedule }));
+    setData((prev) => ({ ...prev, schedule, microcycle: microcycleForScheduleEdit(prev, schedule) }));
+  }, []);
+
+  const setMuscleTarget = useCallback((muscle: MuscleGroup, low: number, high: number) => {
+    setData((prev) => ({
+      ...prev,
+      muscleTargets: {
+        ...(prev.muscleTargets ?? {}),
+        [muscle]: { low: Math.max(0, Math.round(low)), high: Math.max(Math.round(low), Math.round(high)) },
+      },
+    }));
+  }, []);
+
+  const startNewMicrocycle = useCallback((date: string) => {
+    setData((prev) => ({ ...prev, microcycle: nextMicrocycle(prev.microcycle, date, prev.schedule) }));
   }, []);
 
   // ---- 跨天 type 查询 ----
@@ -751,11 +920,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (
           w &&
           w.type === type &&
-          w.exercises.some((e) => e.sets.length > 0)
+          w.done !== false &&
+          w.exercises.some((e) => workingSets(e.sets).length > 0)
         ) {
           return {
             date: d,
-            exercises: w.exercises.filter((e) => e.sets.length > 0),
+            exercises: w.exercises.filter((e) => workingSets(e.sets).length > 0),
           };
         }
       }
@@ -797,11 +967,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getDay,
       setWorkoutType,
       setWorkoutDone,
+      setWorkoutDifficulty,
       addExercise,
       removeExercise,
       addSet,
       updateSet,
       removeSet,
+      setExercisePlannedLoad,
       setNutrition,
       addCardio,
       updateCardio,
@@ -827,6 +999,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeCustomExercise,
       updateCustomExercise,
       setSchedule,
+      setMuscleTarget,
+      startNewMicrocycle,
       lastWorkoutByType,
       exportData,
       importFromText,
@@ -838,11 +1012,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getDay,
       setWorkoutType,
       setWorkoutDone,
+      setWorkoutDifficulty,
       addExercise,
       removeExercise,
       addSet,
       updateSet,
       removeSet,
+      setExercisePlannedLoad,
       setNutrition,
       addCardio,
       updateCardio,
@@ -868,6 +1044,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeCustomExercise,
       updateCustomExercise,
       setSchedule,
+      setMuscleTarget,
+      startNewMicrocycle,
       lastWorkoutByType,
       exportData,
       importFromText,

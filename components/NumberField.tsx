@@ -30,7 +30,10 @@ export default function NumberField({
   }, [value]);
 
   function clean(s: string) {
-    return s.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, "");
+    const stripped = s.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, "");
+    if (!allowDecimal) return stripped;
+    const [whole, ...decimals] = stripped.split(".");
+    return decimals.length ? `${whole}.${decimals.join("")}` : whole;
   }
 
   return (

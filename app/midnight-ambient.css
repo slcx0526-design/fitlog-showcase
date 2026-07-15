@@ -1,0 +1,98 @@
+/* Midnight's extra layer gives the blue terminal a quieter time-based rhythm. */
+.midnight-ambient-status {
+  display: none;
+}
+
+:root[data-mode="midnight"] .midnight-ambient-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.78rem;
+  overflow: hidden;
+  border: 1px solid rgba(120, 225, 243, 0.32);
+  border-radius: 3px 14px 3px 14px;
+  background: linear-gradient(108deg, rgba(95, 228, 255, 0.1), transparent 44%), rgba(4, 16, 30, 0.76);
+  box-shadow: inset 0 1px 0 rgba(206, 250, 255, 0.08), 0 8px 20px rgba(0, 0, 0, 0.2);
+  padding: 0.56rem 0.68rem;
+}
+
+:root[data-mode="midnight"] .midnight-ambient-status__moon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid rgba(142, 242, 255, 0.66);
+  border-radius: 999px;
+  color: #b5f6ff;
+  font-size: 0.8rem;
+  box-shadow: inset 0 0 14px rgba(95, 228, 255, 0.12), 0 0 16px rgba(95, 228, 255, 0.12);
+  animation: midnightAmbientBreathe 4.8s ease-in-out infinite;
+}
+
+:root[data-mode="midnight"] .midnight-ambient-status__eyebrow {
+  color: #90edff;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+:root[data-mode="midnight"] .midnight-ambient-status__summary {
+  margin-top: 0.15rem;
+  color: rgba(227, 249, 255, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+}
+
+:root[data-mode="midnight"] .midnight-ambient-status__time {
+  color: #e6fbff;
+  font-size: 1.03rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  text-shadow: 0 0 14px rgba(95, 228, 255, 0.46);
+}
+
+@keyframes midnightAmbientBreathe {
+  0%, 100% { box-shadow: inset 0 0 14px rgba(95, 228, 255, 0.12), 0 0 12px rgba(95, 228, 255, 0.08); opacity: .82; }
+  50% { box-shadow: inset 0 0 18px rgba(95, 228, 255, 0.24), 0 0 20px rgba(95, 228, 255, 0.26); opacity: 1; }
+}
+
+:root[data-mode="midnight"] .midnight-session-deck {
+  border-color: rgba(142, 240, 255, 0.7);
+  border-radius: 3px 20px 3px 20px;
+  background:
+    linear-gradient(110deg, rgba(153, 242, 255, 0.07) 0 42%, transparent 42%),
+    radial-gradient(circle at 88% 24%, rgba(95, 228, 255, 0.22), transparent 12rem),
+    linear-gradient(135deg, #081e35, #040d19 68%);
+}
+
+:root[data-mode="midnight"] .midnight-deck-stamp {
+  background: rgba(1, 7, 14, 0.36);
+  letter-spacing: 0.13em;
+}
+
+:root[data-mode="midnight"] .midnight-deck-next {
+  position: relative;
+  overflow: hidden;
+}
+
+:root[data-mode="midnight"] .midnight-deck-next::after {
+  content: "";
+  position: absolute;
+  right: -1.1rem;
+  bottom: -1.2rem;
+  width: 4.5rem;
+  height: 4.5rem;
+  border: 1px solid rgba(95, 228, 255, 0.24);
+  border-radius: 999px;
+  box-shadow: 0 0 0 0.6rem rgba(95, 228, 255, 0.035), 0 0 0 1.2rem rgba(95, 228, 255, 0.02);
+}
+
+:root[data-mode="midnight"] .midnight-deck-next > * { position: relative; z-index: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-mode="midnight"] .midnight-ambient-status__moon { animation: none !important; }
+}

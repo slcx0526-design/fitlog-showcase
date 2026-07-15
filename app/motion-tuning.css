@@ -1,0 +1,166 @@
+/* Motion tuning: each mode keeps a distinct, readable transition pace. */
+
+/* Lite — minimal paper stroke, no theatrical overlay. */
+.lite-route-cue {
+  position: fixed;
+  top: max(0px, env(safe-area-inset-top));
+  left: 10%;
+  z-index: 72;
+  width: 0;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 28%, transparent);
+  animation: liteRouteCue 380ms cubic-bezier(.2,.72,.25,1) forwards;
+}
+
+@keyframes liteRouteCue {
+  0% { width: 0; opacity: 0; }
+  22% { opacity: .86; }
+  100% { width: 80%; opacity: 0; }
+}
+
+/* Pulse — layered cut with enough dwell to read the action cue. */
+:root[data-mode="pulse"] .pulse-route-wipe {
+  inset: 0;
+  z-index: 77;
+  background: radial-gradient(circle at 20% 42%, rgba(230,36,38,.14), transparent 24rem);
+  animation: pulseRouteFadeRestored 560ms cubic-bezier(.18,.78,.2,1) forwards;
+}
+
+:root[data-mode="pulse"] .pulse-route-wipe__shadow,
+:root[data-mode="pulse"] .pulse-route-wipe__paper,
+:root[data-mode="pulse"] .pulse-route-wipe__red {
+  top: -32%;
+  bottom: -32%;
+  transform: skewX(-24deg) translateX(-220%);
+}
+
+:root[data-mode="pulse"] .pulse-route-wipe__shadow { width: 38%; left: -8%; animation: pulseRouteCutRestored 450ms cubic-bezier(.18,.82,.2,1) forwards; }
+:root[data-mode="pulse"] .pulse-route-wipe__paper { width: 26%; left: 14%; animation: pulseRouteCutRestored 470ms 28ms cubic-bezier(.18,.82,.2,1) forwards; }
+:root[data-mode="pulse"] .pulse-route-wipe__red { width: 34%; left: 40%; animation: pulseRouteCutRestored 490ms 56ms cubic-bezier(.18,.82,.2,1) forwards; }
+:root[data-mode="pulse"] .pulse-route-wipe__label {
+  top: 43%;
+  left: 10%;
+  font-size: .76rem;
+  letter-spacing: .14em;
+  animation: pulseRouteLabelRestored 500ms cubic-bezier(.2,.78,.18,1) forwards;
+}
+
+@keyframes pulseRouteCutRestored {
+  0% { transform: skewX(-24deg) translateX(-220%); }
+  100% { transform: skewX(-24deg) translateX(390%); }
+}
+
+@keyframes pulseRouteFadeRestored {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes pulseRouteLabelRestored {
+  0% { opacity: 0; transform: translateX(-20px) skewX(-7deg); }
+  20%, 68% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(16px) skewX(-7deg); }
+}
+
+:root[data-mode="pulse"] .pulse-impact::before,
+:root[data-mode="pulse"] .pulse-impact::after { animation-duration: 280ms; }
+:root[data-mode="pulse"] .pulse-impact span { animation-duration: 300ms; }
+
+/* Midnight — slower moonwater pass with the cue in the visual field, not the status-bar area. */
+:root[data-mode="midnight"] .midnight-route-scan {
+  background: radial-gradient(ellipse at 50% 42%, rgba(235,253,255,.18), transparent 58%);
+  animation: midnightRouteFadeRestored 610ms ease-out forwards;
+}
+
+:root[data-mode="midnight"] .midnight-route-scan::before {
+  inset: -36% -18%;
+  background: linear-gradient(105deg, transparent 42%, rgba(228,252,255,.08) 47%, rgba(246,254,255,.42) 50%, rgba(130,226,255,.11) 53%, transparent 58%);
+  transform: translateX(-92%);
+  animation: midnightWaterPassRestored 560ms cubic-bezier(.2,.75,.2,1) forwards;
+}
+
+:root[data-mode="midnight"] .midnight-route-scan__line {
+  top: 43%;
+  height: 1px;
+  opacity: .76;
+  animation: midnightLineRestored 500ms ease-out forwards;
+}
+
+:root[data-mode="midnight"] .midnight-route-scan__label {
+  top: 40%;
+  left: 10%;
+  right: auto;
+  font-size: .72rem;
+  letter-spacing: .1em;
+  animation: midnightLabelRestored 520ms ease-out forwards;
+}
+
+@keyframes midnightWaterPassRestored {
+  0% { transform: translateX(-92%); }
+  100% { transform: translateX(92%); }
+}
+
+@keyframes midnightLineRestored {
+  0% { transform: translateY(-10px) scaleX(.15); opacity: 0; }
+  30%, 64% { opacity: .8; }
+  100% { transform: translateY(120px) scaleX(1); opacity: 0; }
+}
+
+@keyframes midnightLabelRestored {
+  0% { opacity: 0; transform: translateY(-8px); }
+  22%, 68% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(6px); }
+}
+
+@keyframes midnightRouteFadeRestored {
+  0%, 72% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+:root[data-mode="midnight"] .midnight-tap-ripple { animation-duration: 420ms; }
+
+/* Survival — folding map remains central and the route label follows the map field. */
+:root[data-mode="survival"] .survival-route-note { animation-duration: 660ms; }
+:root[data-mode="survival"] .survival-route-note::before { animation-duration: 600ms; }
+:root[data-mode="survival"] .survival-route-note .survival-route-note__line { animation-duration: 480ms; }
+:root[data-mode="survival"] .survival-route-note .survival-route-note__label {
+  top: 42%;
+  left: 12%;
+  font-size: .72rem;
+  animation-duration: 520ms;
+}
+:root[data-mode="survival"] .survival-field-mark { animation-duration: 360ms; }
+
+/* Settings: explicit audio test is kept visually secondary but always reachable. */
+.mode-switchboard__sound-test {
+  display: flex;
+  min-height: 2.55rem;
+  width: calc(100% - 1.24rem);
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 .62rem .62rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: .55rem;
+  background: transparent;
+  padding: 0 .7rem;
+  color: var(--accent);
+  font-size: .66rem;
+  font-weight: 800;
+}
+
+.mode-switchboard__sound-test span:last-child { font-size: .82rem; }
+:root[data-mode="pulse"] .mode-switchboard__sound-test { border-radius: 999px 2px 999px 2px; }
+:root[data-mode="midnight"] .mode-switchboard__sound-test { border-radius: 999px; }
+:root[data-mode="survival"] .mode-switchboard__sound-test { border-radius: 2px 8px 2px 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lite-route-cue,
+  .pulse-route-wipe,
+  .midnight-route-scan,
+  .survival-route-note,
+  .pulse-impact,
+  .midnight-tap-ripple,
+  .survival-field-mark { display: none !important; }
+}

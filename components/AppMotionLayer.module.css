@@ -1,0 +1,165 @@
+.pulseRouteWipe {
+  position: fixed;
+  inset: 0;
+  z-index: 77;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pulseRouteWipe :global(.pulse-route-wipe__shadow),
+.pulseRouteWipe :global(.pulse-route-wipe__paper),
+.pulseRouteWipe :global(.pulse-route-wipe__red),
+.pulseRouteWipe :global(.pulse-route-wipe__label) {
+  position: absolute;
+  display: block;
+}
+
+.pulseRouteWipe :global(.pulse-route-wipe__shadow) { background: #101013; }
+.pulseRouteWipe :global(.pulse-route-wipe__paper) { background: #fff8ea; }
+.pulseRouteWipe :global(.pulse-route-wipe__red) { background: var(--accent); }
+.pulseRouteWipe :global(.pulse-route-wipe__label) {
+  z-index: 2;
+  color: #fff8ea;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-shadow: 3px 3px 0 #101013;
+}
+
+.pulseImpact {
+  position: fixed;
+  z-index: 90;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.pulseImpact::before,
+.pulseImpact::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 3.55rem;
+  height: 0.16rem;
+  content: "";
+  transform-origin: left center;
+  animation: impactSlash 280ms cubic-bezier(.18,.88,.2,1) forwards;
+}
+
+.pulseImpact::before {
+  background: var(--accent);
+  transform: rotate(-18deg) scaleX(.18);
+}
+
+.pulseImpact::after {
+  top: 0.2rem;
+  background: #fff8ea;
+  transform: rotate(32deg) scaleX(.12);
+  animation-delay: 22ms;
+}
+
+.pulseImpact span {
+  position: absolute;
+  top: -0.94rem;
+  left: 0.7rem;
+  display: block;
+  border: 1px solid #101013;
+  border-radius: 0.28rem 0.12rem 0.28rem 0.12rem;
+  background: #101013;
+  box-shadow: 2px 2px 0 var(--accent);
+  padding: 0.16rem 0.28rem;
+  color: #fff8ea;
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+  animation: impactTag 300ms ease-out forwards;
+}
+
+@keyframes impactSlash {
+  0% { opacity: 0; }
+  28% { opacity: 1; transform: rotate(var(--impact-angle, -18deg)) scaleX(1); }
+  100% { opacity: 0; transform: rotate(var(--impact-angle, -18deg)) translateX(1.4rem) scaleX(1.08); }
+}
+
+@keyframes impactTag {
+  0% { opacity: 0; transform: translate(-0.35rem, 0.2rem) scale(.92); }
+  24% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(0.45rem, -0.08rem) scale(1); }
+}
+
+.survivalRoute {
+  position: fixed;
+  inset: 0;
+  z-index: 76;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(81, 101, 69, 0.08);
+}
+
+.survivalRoute::before {
+  position: absolute;
+  top: 28%;
+  right: -12%;
+  width: 86%;
+  height: 38%;
+  border: 1px solid rgba(83, 111, 73, 0.48);
+  border-radius: 2px 12px 2px 12px;
+  background: linear-gradient(90deg, rgba(83,111,73,.13) 1px, transparent 1px) 0 0 / 1.55rem 1.55rem, linear-gradient(rgba(83,111,73,.11) 1px, transparent 1px) 0 0 / 1.55rem 1.55rem, #e9e5d5;
+  box-shadow: 0 10px 24px rgba(48, 60, 41, 0.2);
+  content: "";
+  transform: translateX(116%) rotate(5deg);
+  animation: fieldMap 400ms cubic-bezier(.18,.8,.2,1) forwards;
+}
+
+.survivalRoute :global(.survival-route-note__line) {
+  position: absolute;
+  top: 47%;
+  left: 17%;
+  width: 66%;
+  border-top: 2px dashed #55734b;
+  transform: rotate(-8deg) scaleX(.05);
+  transform-origin: left center;
+  animation: fieldRoute 300ms 90ms ease-out forwards;
+}
+
+.survivalRoute :global(.survival-route-note__label) {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 16px);
+  left: 16px;
+  color: #3d563b;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  animation: fieldLabel 360ms ease-out forwards;
+}
+
+@keyframes fieldMap {
+  0% { opacity: 0; transform: translateX(116%) rotate(5deg); }
+  26% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-24%) rotate(-3deg); }
+}
+
+@keyframes fieldRoute {
+  0% { opacity: 0; transform: rotate(-8deg) scaleX(.05); }
+  100% { opacity: .9; transform: rotate(-8deg) scaleX(1); }
+}
+
+@keyframes fieldLabel {
+  0% { opacity: 0; transform: translateX(-0.45rem); }
+  24% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(0.35rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulseRouteWipe,
+  .pulseImpact,
+  .survivalRoute { display: none; }
+}
+
+/* Production sync marker: motion source bundle refreshed. */

@@ -1,0 +1,6 @@
+/* Pulse keeps the poster-cut look, but lands before it feels like a page load. */
+.theme-route-transition--pulse{animation:routePulseShell 440ms linear forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-a{animation:routePulseSliceA 390ms cubic-bezier(.2,.86,.16,1) forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-b{animation:routePulseSliceB 400ms 14ms cubic-bezier(.2,.86,.16,1) forwards}
+.theme-route-transition--pulse .theme-route-transition__pulse-c{animation:routePulseSliceC 410ms 28ms cubic-bezier(.2,.86,.16,1) forwards}
+.theme-route-transition--pulse strong{animation:routePulseLabel 430ms ease-out forwards}

@@ -1,5 +1,6 @@
 import type { DayLog, Schedule, TrainingType } from "./types";
 import { addDaysKey, todayKey } from "./date";
+import { workingSets } from "./prescription";
 
 // 计划：0=周一 ... 6=周日
 export const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -34,7 +35,7 @@ export function isDayTrained(day: DayLog | undefined): boolean {
   const wk = day?.workout;
   if (!wk) return false;
   if (wk.type === "rest") return true;
-  return wk.exercises.some((e) => e.sets.length > 0);
+  return wk.exercises.some((exercise) => workingSets(exercise.sets).length > 0);
 }
 
 export function isDayNutritionLogged(day: DayLog | undefined): boolean {
@@ -48,14 +49,15 @@ export function isDayLogged(day: DayLog | undefined): boolean {
 /** 训练日数量（不计 rest），用于减载提示等 */
 export function trainingDayCountInLast(
   days: Record<string, DayLog>,
-  n: number
+  n: number,
+  anchorDate = todayKey()
 ): number {
   let count = 0;
-  let cursor = todayKey();
+  let cursor = anchorDate;
   for (let i = 0; i < n; i++) {
     const d = days[cursor];
     const wk = d?.workout;
-    if (wk && wk.type !== "rest" && wk.exercises.some((e) => e.sets.length > 0)) {
+    if (wk && wk.type !== "rest" && wk.exercises.some((exercise) => workingSets(exercise.sets).length > 0)) {
       count++;
     }
     cursor = addDaysKey(cursor, -1);
@@ -64,9 +66,9 @@ export function trainingDayCountInLast(
 }
 
 /** 从今天向前数：连续有任何记录（含 rest）的天数。今天没记录则从昨天开始数。 */
-export function currentStreak(days: Record<string, DayLog>): number {
+export function currentStreak(days: Record<string, DayLog>, anchorDate = todayKey()): number {
   let n = 0;
-  let cursor = todayKey();
+  let cursor = anchorDate;
   // 今天若没记录，允许从昨天起算（不打断昨晚没机会打开的情况）
   if (!isDayLogged(days[cursor])) {
     cursor = addDaysKey(cursor, -1);
