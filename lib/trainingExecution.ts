@@ -1,5 +1,6 @@
 import type { Exercise, PerformanceMode, SetRecord, WorkoutSession } from "./types";
 import {
+  hasSetPerformance,
   plannedWorkingSets,
   summarizeExerciseWork,
 } from "./trainingMetrics";
@@ -122,4 +123,30 @@ export function createNextSetDraft({
   if (performanceMode === "duration") return { ...base, durationSeconds: 0 };
   if (performanceMode === "distance") return { ...base, distanceMeters: 0 };
   return base;
+}
+
+/**
+ * Applying a planned load is an explicit user action. It may fill untouched
+ * draft rows, but it never rewrites performed, skipped, warm-up, or technique
+ * work and never overwrites a manually chosen draft load.
+ */
+export function applyExercisePlannedLoad(exercise: Exercise, weight?: number): Exercise {
+  const normalized = weight != null && Number.isFinite(weight) && weight > 0
+    ? Math.round(weight * 100) / 100
+    : undefined;
+  if (normalized == null) return { ...exercise, plannedLoadKg: undefined };
+  const previous = exercise.plannedLoadKg;
+  return {
+    ...exercise,
+    plannedLoadKg: normalized,
+    sets: exercise.sets.map((set) => {
+      const standardDraft = !hasSetPerformance(set)
+        && set.type !== "warmup"
+        && set.completion !== "skipped"
+        && (set.technique == null || set.technique === "normal");
+      const followsPreviousPlan = previous != null && Math.abs(set.weight - previous) < 0.001;
+      if (!standardDraft || (set.weight > 0 && !followsPreviousPlan)) return set;
+      return { ...set, weight: normalized };
+    }),
+  };
 }

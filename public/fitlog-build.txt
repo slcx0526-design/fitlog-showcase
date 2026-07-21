@@ -1,1 +1,1 @@
-FitLog 4.4.0 track-safe history release
+FitLog 4.5.0 explainable progression release

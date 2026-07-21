@@ -54,6 +54,7 @@ import {
 } from "./prescription";
 import { hasSetPerformance, workingSets } from "./trainingMetrics";
 import { inspectDataHealth } from "./dataHealth";
+import { applyExercisePlannedLoad } from "./trainingExecution";
 
 interface StoreApi {
   loaded: boolean;
@@ -432,12 +433,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setExercisePlannedLoad = useCallback(
     (date: string, exerciseId: string, weight?: number) => {
-      mutateExercise(date, exerciseId, (exercise) => ({
-        ...exercise,
-        plannedLoadKg: weight != null && Number.isFinite(weight) && weight > 0
-          ? Math.round(weight * 100) / 100
-          : undefined,
-      }));
+      mutateExercise(date, exerciseId, (exercise) => applyExercisePlannedLoad(exercise, weight));
     },
     [mutateExercise]
   );

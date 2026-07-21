@@ -19,6 +19,7 @@ import {
   progressionSuggestion,
   type TrackHistoryResult,
 } from "@/lib/prescription";
+import { progressionPresentation } from "@/lib/progressionPresentation";
 import { plannedWorkingSets, summarizeExerciseWork, workingSets } from "@/lib/trainingMetrics";
 import { createNextSetDraft, formatSetCredit } from "@/lib/trainingExecution";
 import NumberField from "./NumberField";
@@ -29,13 +30,28 @@ const fmt = (value: number) => String(value);
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
 
 function formatSet(set: SetRecord, mode: PerformanceMode, locale: Locale) {
-  if (mode === "duration") return `${fmt(set.durationSeconds ?? 0)} ${tx(locale, "秒", "sec", "秒")}`;
-  if (mode === "distance") return `${fmt(set.distanceMeters ?? 0)} m`;
-  return set.weight > 0 ? `${fmt(set.weight)}kg × ${set.reps}` : `${set.reps} ${tx(locale, "次", "reps", "回")}`;
+  const tags = [
+    set.completion === "partial" ? tx(locale, "部分", "Partial", "部分") : "",
+    set.technique && set.technique !== "normal" ? techniqueLabel(set.technique, locale) : "",
+  ].filter(Boolean);
+  const prefix = tags.length ? `${tags.join(" · ")} ` : "";
+  if (mode === "duration") return `${prefix}${fmt(set.durationSeconds ?? 0)} ${tx(locale, "秒", "sec", "秒")}`;
+  if (mode === "distance") return `${prefix}${fmt(set.distanceMeters ?? 0)} m`;
+  return `${prefix}${set.weight > 0 ? `${fmt(set.weight)}kg × ${set.reps}` : `${set.reps} ${tx(locale, "次", "reps", "回")}`}`;
 }
 
 function summarize(sets: SetRecord[], mode: PerformanceMode, locale: Locale) {
-  return sets.map((set) => formatSet(set, mode, locale)).join("  ");
+  return sets.map((set) => formatSet(set, mode, locale)).join(" · ");
+}
+
+function techniqueLabel(value: NonNullable<SetRecord["technique"]>, locale: Locale) {
+  if (value === "dropSet") return tx(locale, "掉重", "Drop set", "ドロップ");
+  if (value === "restPause") return "Rest-pause";
+  if (value === "myoReps") return "Myo";
+  if (value === "cluster") return tx(locale, "集群", "Cluster", "クラスター");
+  if (value === "technique") return tx(locale, "技术", "Technique", "フォーム");
+  if (value === "rehab") return tx(locale, "康复", "Rehab", "リハビリ");
+  return "";
 }
 
 export default function ExerciseCard({ date, exercise }: { date: string; exercise: Exercise }) {
@@ -53,11 +69,21 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const trackLabel = exerciseTrackLabel(exercise);
   const histories = findTrackHistories(data.days, exercise.id, date, trackId, 6);
   const previous = histories.same[0] ?? null;
-  const suggestion = progressionSuggestion(prescription, previous);
-  const trend = analyzeTrackTrend(histories.same);
   const performanceMode = prescription.performanceMode ?? performanceModeFor(exercise.recordModes);
   const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
   const currentWorking = workingSets(exercise.sets);
+  const sessionWorkout = data.days[date]?.workout;
+  const currentHistory: TrackHistoryResult | null = currentWorking.length ? {
+    date,
+    exercise,
+    sets: currentWorking,
+    kind: "same",
+    sessionDifficulty: sessionWorkout?.difficulty,
+  } : null;
+  const reviewingCompleted = Boolean(currentHistory && sessionWorkout?.done !== false);
+  const suggestion = progressionSuggestion(prescription, reviewingCompleted ? currentHistory : previous);
+  const suggestionCopy = progressionPresentation(suggestion, prescription, performanceMode, locale);
+  const trend = analyzeTrackTrend(reviewingCompleted && currentHistory ? [currentHistory, ...histories.same] : histories.same);
   const workSummary = summarizeExerciseWork(exercise);
   const plannedSets = plannedWorkingSets(exercise);
   const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
@@ -106,20 +132,6 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     toast.show(tx(locale, `本次计划负重已设为 ${suggestion.nextWeight}kg`, `Planned load set to ${suggestion.nextWeight}kg`, `今回の予定重量を ${suggestion.nextWeight}kg に設定しました`));
   }
 
-  function suggestionText() {
-    const { targetRepMin, targetRepMax, loadIncrementKg } = prescription;
-    const targetUnit = performanceMode === "duration" ? tx(locale, "秒", "sec", "秒") : performanceMode === "distance" ? "m" : tx(locale, "次", "reps", "回");
-    const prefix = tx(locale, `目标 ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `Target ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `目標 ${targetRepMin}–${targetRepMax} ${targetUnit} · `);
-    const message = suggestion.status === "noHistory" ? tx(locale, "当前轨道暂无记录，先记录本次表现", "No history on this track — log this session first", "このトラックには記録がありません。まず今回を記録してください")
-      : suggestion.status === "finishSets" ? tx(locale, "先完成计划工作组，再调整负重", "Finish planned work sets before changing load", "予定のワーキングセットを完了してから負荷を調整します")
-      : suggestion.status === "addWeight" ? tx(locale, `下次加 ${loadIncrementKg} kg`, `Add ${loadIncrementKg} kg next time`, `次回は ${loadIncrementKg} kg 増やす`)
-      : suggestion.status === "modeReference" ? tx(locale, "保留同轨道历史参考，不自动套用负重", "Same-track history is shown without auto-filling load", "同一トラック履歴のみ表示し、重量は自動入力しません")
-      : suggestion.status === "effortCheck" ? tx(locale, "次数已达标，但上次状态不适合直接加重", "Rep target met, but the last session was not ready for a load increase", "回数は達成しましたが、前回の状態ではすぐに増量しません")
-      : suggestion.status === "stabilize" ? tx(locale, "先稳定达到目标次数下限", "Reach the bottom of the rep range first", "先に目標回数の下限を安定して達成します")
-      : tx(locale, "保持重量，继续补次数", "Keep the load and build reps", "重量を維持して回数を伸ばします");
-    return `${prefix}${message}`;
-  }
-
   return <section className="control-card">
     <div className="flex items-center gap-2 px-3.5 py-3">
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press min-w-0 flex-1 text-left">
@@ -142,11 +154,25 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     </div>}
 
     <div className="border-t border-border px-3.5 py-2.5">
-      <p className="text-[11px] text-faint">{previous ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`) : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
-      <p className="mt-1 text-[10px] text-muted">{suggestionText()}</p>
-      {trend.sessionCount >= 2 && <p className="mt-1 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trend.message}</p>}
-      {acceptedWeight != null && <div className="mt-2 flex items-center justify-between rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} · <b>{acceptedWeight}kg</b></span><button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press font-semibold">{tx(locale, "清除", "Clear", "解除")}</button></div>}
-      {currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
+      <p className="text-[11px] text-faint">{reviewingCompleted && currentHistory
+        ? tx(locale, `本次完成 · ${summarize(currentHistory.sets, performanceMode, locale)}`, `Completed this session · ${summarize(currentHistory.sets, performanceMode, locale)}`, `今回完了・${summarize(currentHistory.sets, performanceMode, locale)}`)
+        : previous
+          ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`)
+          : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
+      <div className="control-strip mt-2 rounded-lg px-2.5 py-2">
+        <div className="flex items-center justify-between gap-2"><span className="text-[9px] font-semibold text-faint">{reviewingCompleted ? tx(locale, "下次建议", "Next-session suggestion", "次回の提案") : tx(locale, "本次建议", "Session suggestion", "今回の提案")}</span><span className={"tnum text-[11px] font-semibold " + (suggestionCopy.tone === "accent" ? "text-accent" : suggestionCopy.tone === "warn" ? "text-warn" : "text-fg")}>{suggestionCopy.value}</span></div>
+        <p className="mt-1 text-[10px] leading-relaxed text-muted">{suggestionCopy.summary}</p>
+        <p className="mt-1 text-[9px] leading-relaxed text-faint"><span className="font-semibold">{tx(locale, "进步条件", "Progression condition", "進行条件")}</span> · {suggestionCopy.condition}</p>
+      </div>
+      {trend.sessionCount >= 2 && <p className="mt-1.5 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trackTrendText(trend.status, locale)}</p>}
+      {reviewingCompleted && acceptedWeight != null && <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次采用负重", "Accepted load this session", "今回採用した重量")}</span><b className="tnum">{acceptedWeight}kg</b></div>}
+      {!reviewingCompleted && recordsWeight && <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent">
+        <span className="min-w-0 flex-1">{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")}</span>
+        <NumberField value={acceptedWeight ?? 0} onChange={(weight) => setExercisePlannedLoad(date, exercise.id, weight)} placeholder="—" ariaLabel={tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} allowDecimal className="number-cell tnum h-8 w-[72px] rounded-lg border border-accent/30 bg-surface px-2 text-center text-[13px] font-semibold text-fg" />
+        <span className="shrink-0">kg</span>
+        {acceptedWeight != null && <button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
+      </div>}
+      {!reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
         <div className="mt-2 space-y-2">
@@ -192,4 +218,12 @@ function formatTrendMetric(kind: "e1rm" | "reps" | "duration" | "distance" | nul
   if (kind === "duration") return `${value} ${tx(locale, "秒", "sec", "秒")}`;
   if (kind === "distance") return `${value}m`;
   return `${value} ${tx(locale, "次", "reps", "回")}`;
+}
+
+function trackTrendText(status: "insufficient" | "improving" | "stable" | "plateau" | "regressing", locale: Locale) {
+  if (status === "improving") return tx(locale, "表现提升", "Improving", "向上");
+  if (status === "regressing") return tx(locale, "近期回落，先检查恢复", "Recent decline; check recovery first", "最近低下。まず回復を確認");
+  if (status === "plateau") return tx(locale, "近期平台，先补目标表现", "Recent plateau; build the target first", "最近停滞。まず目標を積み上げる");
+  if (status === "stable") return tx(locale, "表现稳定", "Stable", "安定");
+  return tx(locale, "样本不足", "Low sample", "サンプル不足");
 }

@@ -26,7 +26,7 @@ export interface TrackHistoryResult {
 
 export interface ProgressionSuggestion {
   nextWeight: number | null;
-  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference";
+  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference" | "manualProgression" | "mixedLoads" | "missingLoad";
   message: string;
   condition: string;
 }
@@ -466,13 +466,13 @@ export function progressionSuggestion(
       condition: "只使用同轨道历史生成建议",
     };
   }
-  if ((prescription.performanceMode ?? "reps") !== "reps") {
-    const unit = prescription.performanceMode === "duration" ? "时长" : "距离";
+  const mode = prescription.performanceMode ?? performanceModeFor(history.exercise.recordModes);
+  if (prescription.progressionRule === "custom") {
     return {
       nextWeight: null,
       status: "modeReference",
-      message: `继续记录${unit}，当前只提供同轨道历史参考`,
-      condition: `${unit}动作不会自动套用重量`,
+      message: "自定义进步轨道只提供同轨道历史参考",
+      condition: "由用户手动调整处方目标",
     };
   }
   const sets = progressionSets(history.sets);
@@ -484,20 +484,66 @@ export function progressionSuggestion(
       condition: "只使用有效组生成建议",
     };
   }
-  const counted = sets.slice(0, prescription.workingSets || sets.length);
-  const last = counted.at(-1)!;
+  const plannedSetCount = prescription.workingSets || sets.length;
+  const counted = sets.slice(0, plannedSetCount);
+  const values = counted.map((set) => performanceValue(set, mode));
+  const allAtTop = counted.length > 0 && values.every((value) => value >= prescription.targetRepMax);
+  const belowBottom = values.some((value) => value < prescription.targetRepMin);
+  const roundedWeights = counted.map((set) => Math.round(set.weight * 100) / 100);
+  const positiveWeights = roundedWeights.filter((weight) => weight > 0);
+  const consistentWeight = positiveWeights.length === counted.length && new Set(positiveWeights).size === 1
+    ? positiveWeights[0]
+    : null;
   if (counted.length < prescription.workingSets) {
     const remaining = prescription.workingSets - counted.length;
     return {
-      nextWeight: last.weight,
+      nextWeight: mode === "reps" ? consistentWeight : null,
       status: "finishSets",
       message: `先完成剩余 ${remaining} 组计划工作组`,
       condition: `完成 ${prescription.workingSets} 个有效工作组后再判断加重`,
     };
   }
-  const allAtTop = counted.length > 0 && counted.every((set) => set.reps >= prescription.targetRepMax);
-  const belowBottom = counted.some((set) => set.reps < prescription.targetRepMin);
-  const baseWeight = last.weight;
+  if (mode !== "reps" || prescription.loadIncrementKg <= 0) {
+    if (belowBottom) {
+      return {
+        nextWeight: null,
+        status: "stabilize",
+        message: "先稳定完成目标下限",
+        condition: `所有工作组先达到 ${prescription.targetRepMin}`,
+      };
+    }
+    if (allAtTop) {
+      return {
+        nextWeight: null,
+        status: "manualProgression",
+        message: "已经达到当前处方上限",
+        condition: "下一步由用户选择更难变式、外部负重或新的处方目标",
+      };
+    }
+    return {
+      nextWeight: null,
+      status: "addReps",
+      message: "保持当前方式，继续补目标表现",
+      condition: `所有工作组达到 ${prescription.targetRepMax}`,
+    };
+  }
+  if (positiveWeights.length !== counted.length) {
+    return {
+      nextWeight: null,
+      status: "missingLoad",
+      message: "上次计划组缺少完整负重",
+      condition: "每个标准工作组记录实际负重后再生成建议",
+    };
+  }
+  if (consistentWeight == null) {
+    return {
+      nextWeight: null,
+      status: "mixedLoads",
+      message: "上次计划组使用了不同负重",
+      condition: "先明确同一基准负重，再判断是否加重",
+    };
+  }
+  const baseWeight = consistentWeight;
   if (allAtTop && history.sessionDifficulty === "hard") {
     return {
       nextWeight: baseWeight,

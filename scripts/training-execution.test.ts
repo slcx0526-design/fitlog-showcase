@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  applyExercisePlannedLoad,
   createNextSetDraft,
   formatSetCredit,
   summarizeSessionExecution,
@@ -49,6 +50,22 @@ const bodyweight = createNextSetDraft({
 });
 assert.equal(bodyweight.weight, 0, "A valid zero-load bodyweight set must remain zero-load");
 assert.equal(bodyweight.reps, 0);
+
+const loadDrafts: Exercise = {
+  ...exercise("load-plan", 3, [
+    { weight: 0, reps: 0, type: "working" },
+    { weight: 80, reps: 0, type: "working" },
+    { weight: 77.5, reps: 0, type: "working" },
+    { weight: 40, reps: 10, type: "warmup" },
+    { weight: 0, reps: 0, type: "working", completion: "skipped" },
+  ]),
+  plannedLoadKg: 80,
+};
+const revisedLoadDrafts = applyExercisePlannedLoad(loadDrafts, 82.5);
+assert.equal(revisedLoadDrafts.plannedLoadKg, 82.5);
+assert.deepEqual(revisedLoadDrafts.sets.map((set) => set.weight), [82.5, 82.5, 77.5, 40, 0], "Only untouched standard drafts should follow the accepted load");
+assert.equal(applyExercisePlannedLoad(revisedLoadDrafts).plannedLoadKg, undefined);
+assert.deepEqual(applyExercisePlannedLoad(revisedLoadDrafts).sets, revisedLoadDrafts.sets, "Clearing planning context must not erase draft loads");
 
 const duration = createNextSetDraft({
   performanceMode: "duration",

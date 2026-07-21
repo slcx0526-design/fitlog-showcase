@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
 import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
+import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
 import {
   setCompletionCredit,
@@ -78,6 +79,86 @@ const plannedSetProgression = progressionSuggestion({
 });
 assert.equal(plannedSetProgression.status, "addWeight");
 assert.equal(plannedSetProgression.nextWeight, 82.5, "Extra back-off sets must not become the load baseline");
+const mixedLoadProgression = progressionSuggestion({
+  progressionTrackId: "bench-hypertrophy",
+  progressionTrackLabel: "增肌 · 8–10 次",
+  trainingIntent: "hypertrophy",
+  targetRepMin: 8,
+  targetRepMax: 10,
+  workingSets: 2,
+  loadIncrementKg: 2.5,
+  progressionRule: "doubleProgression",
+}, {
+  date: "2026-07-03",
+  kind: "same",
+  exercise,
+  sets: [{ weight: 80, reps: 10 }, { weight: 77.5, reps: 10 }],
+});
+assert.equal(mixedLoadProgression.status, "mixedLoads");
+assert.equal(mixedLoadProgression.nextWeight, null, "Mixed planned loads must not produce an arbitrary baseline");
+const mixedLoadCopy = progressionPresentation(mixedLoadProgression, {
+  progressionTrackId: "bench-hypertrophy",
+  progressionTrackLabel: "增肌 · 8–10 次",
+  trainingIntent: "hypertrophy",
+  targetRepMin: 8,
+  targetRepMax: 10,
+  workingSets: 2,
+  loadIncrementKg: 2.5,
+  progressionRule: "doubleProgression",
+}, "reps", "en");
+assert.equal(mixedLoadCopy.value, "Choose baseline");
+assert.match(mixedLoadCopy.summary, /mixed loads/i, "Presentation must explain why no baseline was chosen");
+assert.equal(mixedLoadCopy.tone, "warn");
+const missingLoadProgression = progressionSuggestion({
+  progressionTrackId: "bench-hypertrophy",
+  progressionTrackLabel: "增肌 · 8–10 次",
+  trainingIntent: "hypertrophy",
+  targetRepMin: 8,
+  targetRepMax: 10,
+  workingSets: 2,
+  loadIncrementKg: 2.5,
+  progressionRule: "doubleProgression",
+}, {
+  date: "2026-07-04",
+  kind: "same",
+  exercise,
+  sets: [{ weight: 80, reps: 10 }, { weight: 0, reps: 10 }],
+});
+assert.equal(missingLoadProgression.status, "missingLoad");
+assert.equal(missingLoadProgression.nextWeight, null, "Missing load data must never become a load recommendation");
+const bodyweightProgression = progressionSuggestion({
+  progressionTrackId: "pullup-reps",
+  progressionTrackLabel: "增肌 · 8–10 次",
+  trainingIntent: "hypertrophy",
+  targetRepMin: 8,
+  targetRepMax: 10,
+  workingSets: 2,
+  loadIncrementKg: 0,
+  progressionRule: "repsFirst",
+}, {
+  date: "2026-07-04",
+  kind: "same",
+  exercise: { ...exercise, id: "pullup", name: "引体向上", recordModes: ["reps"] },
+  sets: [{ weight: 0, reps: 10 }, { weight: 0, reps: 10 }],
+});
+assert.equal(bodyweightProgression.status, "manualProgression", "Zero-increment tracks should offer a manual next step at the ceiling");
+const durationProgression = progressionSuggestion({
+  progressionTrackId: "plank-duration",
+  progressionTrackLabel: "时长 · 30–60 秒",
+  trainingIntent: "custom",
+  targetRepMin: 30,
+  targetRepMax: 60,
+  workingSets: 2,
+  loadIncrementKg: 0,
+  progressionRule: "doubleProgression",
+  performanceMode: "duration",
+}, {
+  date: "2026-07-04",
+  kind: "same",
+  exercise: { ...exercise, id: "plank", name: "平板支撑", recordModes: ["duration"] },
+  sets: [{ weight: 0, reps: 0, durationSeconds: 60 }, { weight: 0, reps: 0, durationSeconds: 60 }],
+});
+assert.equal(durationProgression.status, "manualProgression", "Duration tracks should recognize their own target ceiling");
 const exerciseSummary = summarizeExerciseWork(exercise);
 assert.equal(exerciseSummary.workingSets, 3);
 assert.equal(exerciseSummary.completionCredits, 2.5);

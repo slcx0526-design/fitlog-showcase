@@ -14,7 +14,14 @@ import {
   type ExerciseTrackArchiveRow,
   type ExerciseTrackArchiveSession,
 } from "@/lib/trainingHistory";
-import type { TrackPerformanceMetric, TrackTrend } from "@/lib/prescription";
+import {
+  exercisePrescription,
+  performanceModeFor,
+  progressionSuggestion,
+  type TrackPerformanceMetric,
+  type TrackTrend,
+} from "@/lib/prescription";
+import { progressionPresentation } from "@/lib/progressionPresentation";
 import { shiftDate } from "@/lib/weight";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
@@ -88,6 +95,16 @@ export default function ExerciseHistoryArchive() {
 }
 
 function SelectedTrack({ row, locale, tr }: { row: ExerciseTrackArchiveRow; locale: Locale; tr: (value: string) => string }) {
+  const latest = row.sessions[0];
+  const prescription = latest ? exercisePrescription(latest.exercise) : null;
+  const suggestion = latest && prescription
+    ? progressionPresentation(
+      progressionSuggestion(prescription, latest.history),
+      prescription,
+      prescription.performanceMode ?? performanceModeFor(latest.exercise.recordModes),
+      locale,
+    )
+    : null;
   return <div className="mt-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -102,6 +119,14 @@ function SelectedTrack({ row, locale, tr }: { row: ExerciseTrackArchiveRow; loca
       <MiniStat label={tx(locale, "最佳表现", "Best", "ベスト")} value={formatMetric(row.bestMetric, locale)} />
     </div>
     <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] leading-relaxed text-muted">{trendCopy(row.trend, locale)}</p>
+    {suggestion && <div className="control-strip mt-2 rounded-lg px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[9px] font-semibold text-faint">{tx(locale, "下一次建议", "Next-session suggestion", "次回の提案")}</span>
+        <span className={"tnum text-[11px] font-semibold " + (suggestion.tone === "accent" ? "text-accent" : suggestion.tone === "warn" ? "text-warn" : "text-fg")}>{suggestion.value}</span>
+      </div>
+      <p className="mt-1 text-[10px] leading-relaxed text-muted">{suggestion.summary}</p>
+      <p className="mt-1 text-[9px] leading-relaxed text-faint"><span className="font-semibold">{tx(locale, "进步条件", "Progression condition", "進行条件")}</span> · {suggestion.condition}</p>
+    </div>}
     <div className="control-strip mt-2 overflow-hidden rounded-xl">
       {row.sessions.slice(0, 6).map((session) => <SessionRow key={`${row.key}-${session.date}`} session={session} locale={locale} />)}
     </div>
