@@ -51,7 +51,9 @@ export function buildTemplateAdjustmentProposal(data: AppData, action: Adjustabl
 
   if (action.kind === "reduceVolume" || action.kind === "addVolume") {
     if (!action.sourceExerciseId) return null;
-    const template = rankTemplates(data, templates.filter((item) => item.items.some((entry) => entry.exerciseId === action.sourceExerciseId)))[0];
+    const candidates = templates.filter((item) => item.items.some((entry) => entry.exerciseId === action.sourceExerciseId));
+    const template = (action.templateId ? candidates.find((item) => item.id === action.templateId) : undefined)
+      ?? rankTemplates(data, candidates)[0];
     if (!template) return null;
     const source = template.items.find((item) => item.exerciseId === action.sourceExerciseId);
     if (!source) return null;
@@ -66,8 +68,7 @@ export function buildTemplateAdjustmentProposal(data: AppData, action: Adjustabl
     return proposal(template, nextItems, [{ exerciseId: source.exerciseId, exerciseName: source.name, fromSets: source.sets, toSets }]);
   }
 
-  const template = rankTemplates(data, templates)
-    .find((item) => item.items.some((entry) => entry.sets > 1));
+  const template = templates.find((item) => item.id === action.templateId);
   if (!template) return null;
   const presets = new Map([...DEFAULT_EXERCISES, ...data.customExercises].map((item) => [item.id, item]));
   const source = [...template.items]

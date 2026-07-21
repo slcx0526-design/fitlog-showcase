@@ -24,6 +24,7 @@ import {
 } from "@/lib/muscles";
 import { computeVolumeSummary } from "@/lib/volume";
 import { workingSets } from "@/lib/trainingMetrics";
+import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
@@ -49,6 +50,7 @@ export default function SchedulePage() {
     const last28 = trainingDayCountInLast(data.days, 28, today);
     return { streak, last28 };
   }, [data.days, today]);
+  const analysis = useMemo(() => buildTrainingAnalysis(data, today), [data, today]);
 
   if (!loaded) {
     return (
@@ -67,9 +69,6 @@ export default function SchedulePage() {
     next.split[idx] = value;
     setSchedule(next);
   }
-
-  // 减载提示：近 28 天 ≥18 天训练（≈每周 4.5 次）视作高负荷
-  const heavyLoad = stats.last28 >= 18;
 
   return (
     <div>
@@ -210,7 +209,7 @@ export default function SchedulePage() {
             unit={mode === "lite" ? "TRAINING" : tr("次训练")}
           />
         </div>
-        {heavyLoad ? (
+        {analysis.recovery.active ? (
           <p className="mt-2 flex items-center gap-2 rounded-md border border-warn-soft bg-warn-soft px-3 py-2 text-[12px] text-warn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
               <path
@@ -222,12 +221,14 @@ export default function SchedulePage() {
               />
             </svg>
             <span>
-              {tr("近 4 周训练 {n} 天,可考虑安排减载(信息提示,不强制)", { n: stats.last28 })}
+              {localeText(locale, `恢复优先：${analysis.recovery.regressingExercises} 个动作持续回落，最近 ${analysis.load.difficultySamples} 次难度记录中 ${analysis.load.hardSessions} 次吃力。`, `Recovery first: ${analysis.recovery.regressingExercises} exercises are regressing and ${analysis.load.hardSessions} of ${analysis.load.difficultySamples} recent sessions felt hard.`, `回復優先：${analysis.recovery.regressingExercises} 種目が低下し、直近 ${analysis.load.difficultySamples} 回中 ${analysis.load.hardSessions} 回がきつい状態です。`)}
             </span>
           </p>
         ) : (
           <p className="mt-2 px-1 text-[11px] text-faint">
-            {tr("近 4 周训练 {n} 天 —— 仅作参考,不做训练建议", { n: stats.last28 })}
+            {analysis.load.difficultySamples
+              ? localeText(locale, `最近 ${analysis.load.difficultySamples} 次难度记录中 ${analysis.load.hardSessions} 次吃力；未同时出现多动作回落或多肌群超量，不自动要求减载。`, `${analysis.load.hardSessions} of ${analysis.load.difficultySamples} recent sessions felt hard; without multi-exercise regression or broad excess volume, no deload is prescribed.`, `直近 ${analysis.load.difficultySamples} 回中 ${analysis.load.hardSessions} 回がきついものの、複数種目の低下や広範な超過がないため減量週は提案しません。`)
+              : localeText(locale, "训练次数只作事实展示；完成训练时记录整体感受后，系统才会结合表现与容量判断恢复。", "Session count is factual only. Log overall effort after workouts so recovery can be judged with performance and volume.", "回数は事実表示のみです。終了時の全体負荷を記録すると、パフォーマンスと容量を合わせて回復を判断します。")}
           </p>
         )}
       </section>

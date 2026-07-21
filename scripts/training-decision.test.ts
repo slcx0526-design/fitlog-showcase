@@ -54,11 +54,14 @@ const unfinishedDays = {
   "2026-07-06": bench("2026-07-06", 1),
   "2026-07-09": bench("2026-07-09", 1),
 };
-const adherence = recentPlanAdherence(app(unfinishedDays), TODAY);
+Object.values(unfinishedDays).forEach((day) => { day.workout!.templateId = "tpl_bench"; });
+const unfinishedData = app(unfinishedDays);
+unfinishedData.templates = [{ id: "tpl_bench", name: "卧推模板", type: "push", items: [{ exerciseId: "bench", name: "平板杠铃卧推", sets: 4, repsLow: 8, repsHigh: 12, prescription }] }];
+const adherence = recentPlanAdherence(unfinishedData, TODAY);
 assert.equal(adherence.sessions, 3);
 assert.equal(adherence.completionPct, 25);
 assert.equal(adherence.averageMissingSets, 3);
-const simplify = buildTrainingDecision(app(unfinishedDays), TODAY, "review").actions[0];
+const simplify = buildTrainingDecision(unfinishedData, TODAY, "review").actions[0];
 assert.equal(simplify.kind, "simplifyPlan");
 
 const active = bench(TODAY, 2, 80, false);
@@ -125,7 +128,7 @@ const lateDays: Record<string, DayLog> = {
   "2026-07-05": cycleDay("2026-07-05", "push"),
 };
 const lateDecision = buildTrainingDecision(app(lateDays), "2026-07-06", "review");
-assert.equal(lateDecision.actions.some((action) => action.kind === "addVolume"), true);
+assert.equal(lateDecision.actions.some((action) => action.kind === "addVolume"), false, "Missing remaining-template coverage must not produce a speculative add-volume action");
 
 const regressionDays: Record<string, DayLog> = {
   "2026-07-01": bench("2026-07-01", 4, 100),

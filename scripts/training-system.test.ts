@@ -299,7 +299,7 @@ const adjustmentData: AppData = {
   ...microData,
   templates: [{ id: "tpl_push", name: "推力量", type: "push", items: [{ exerciseId: "incline", name: "上斜杠铃卧推", sets: 4, repsLow: 4, repsHigh: 6 }] }],
 };
-const adjustment = buildTemplateAdjustmentProposal(adjustmentData, { kind: "reduceVolume", priority: 1, href: "/templates", muscle: "chest", current: 18, targetHigh: 16, suggestedSets: 2, source: "上斜杠铃卧推", sourceExerciseId: "incline" });
+const adjustment = buildTemplateAdjustmentProposal(adjustmentData, { kind: "reduceVolume", priority: 1, href: "/templates", muscle: "chest", basis: "actual", current: 18, projected: 18, targetHigh: 16, suggestedSets: 2, source: "上斜杠铃卧推", sourceExerciseId: "incline" });
 assert.equal(adjustment?.changes[0].fromSets, 4);
 assert.equal(adjustment?.changes[0].toSets, 2);
 assert.equal(adjustment?.nextItems[0].sets, 2);

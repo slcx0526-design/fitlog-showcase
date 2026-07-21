@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { TemplateItem, TrainingType } from "@/lib/types";
 import { useStore } from "@/lib/store";
@@ -38,6 +38,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const difficulty = workout?.difficulty ?? "onTarget";
   const [nextType, setNextType] = useState<TrainingType | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const finishConfirmationRef = useRef<HTMLDivElement>(null);
   const execution = useMemo(() => summarizeSessionExecution(workout), [workout]);
   const effectiveSets = execution.workingSets;
   const completedSets = execution.completionCredits;
@@ -47,6 +48,14 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const lockedIds = useMemo(() => new Set(exercises.filter((exercise) => hasEntry(exercise.sets)).map((exercise) => exercise.id)), [exercises]);
   const plannedSets = execution.plannedSets;
   const setUnit = tx(locale, "组", "sets", "セット");
+
+  useEffect(() => {
+    if (!confirmFinish) return;
+    const frame = window.requestAnimationFrame(() => {
+      finishConfirmationRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [confirmFinish]);
 
   function selectType(next: TrainingType) {
     if (next === type) return;
@@ -122,7 +131,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       {effectiveSets > 0 && (done
         ? <button type="button" onClick={() => { setWorkoutDone(date, false); setConfirmFinish(false); }} className="press flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface text-[14px] font-semibold text-muted">{tx(locale, `继续训练 · 已完成 ${formatSetCredit(completedSets)} 组`, `Resume workout · ${formatSetCredit(completedSets)} sets`, `トレーニングを続ける · ${formatSetCredit(completedSets)}セット完了`)}</button>
         : confirmFinish
-          ? <div className="rounded-xl border border-warn/40 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `计划还差 ${formatSetCredit(execution.remainingSets)} 组，仍然结束？`, `${formatSetCredit(execution.remainingSets)} planned sets remain. Finish anyway?`, `予定まであと ${formatSetCredit(execution.remainingSets)} セットです。終了しますか？`)}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmFinish(false)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "继续记录", "Keep logging", "記録を続ける")}</button><button type="button" onClick={finishWorkout} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "仍然结束", "Finish anyway", "終了する")}</button></div></div>
+          ? <div ref={finishConfirmationRef} className="mb-20 scroll-mb-24 rounded-xl border border-warn/40 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `计划还差 ${formatSetCredit(execution.remainingSets)} 组，仍然结束？`, `${formatSetCredit(execution.remainingSets)} planned sets remain. Finish anyway?`, `予定まであと ${formatSetCredit(execution.remainingSets)} セットです。終了しますか？`)}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmFinish(false)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "继续记录", "Keep logging", "記録を続ける")}</button><button type="button" onClick={finishWorkout} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "仍然结束", "Finish anyway", "終了する")}</button></div></div>
           : <button type="button" onClick={() => execution.needsFinishConfirmation ? setConfirmFinish(true) : finishWorkout()} className="press flex h-12 w-full items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{tx(locale, `结束训练 · 完成 ${formatSetCredit(completedSets)} 组`, `Finish workout · ${formatSetCredit(completedSets)} sets complete`, `トレーニングを終了 · ${formatSetCredit(completedSets)}セット完了`)}</button>)}
     </div>}
   </section>;

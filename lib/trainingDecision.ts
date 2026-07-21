@@ -1,143 +1,147 @@
 import type { AppData } from "./storage";
 import type { TrainingType } from "./types";
 import type { MuscleGroup } from "./muscles";
-import { DEFAULT_CUT_VOLUME_SCALE, isCutModeActive } from "./cutMode";
 import { currentMicrocycleProgress, microcycleStepHref, shouldAdvanceMicrocycle } from "./microcycle";
-import { summarizeExerciseTrackTrends } from "./prescription";
-import { isHistoryEligibleWorkout, summarizeWorkoutWork } from "./trainingMetrics";
-import { shiftDate } from "./weight";
-import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "./volume";
+import { exercisePrescription, progressionSuggestion, type ProgressionSuggestion } from "./prescription";
+import { summarizeWorkoutWork } from "./trainingMetrics";
+import {
+  buildTrainingAnalysis,
+  recentPlanAdherence,
+  type TrainingAnalysisConfidence,
+} from "./trainingAnalysis";
 
-export type TrainingDecisionConfidence = "starter" | "building" | "ready";
+export type TrainingDecisionConfidence = TrainingAnalysisConfidence;
+export { recentPlanAdherence };
 
 type DecisionBase = { priority: number; href: string };
 
 export type TrainingDecisionAction =
   | (DecisionBase & { kind: "continueSession"; setCount: number })
+  | (DecisionBase & { kind: "reviewUnclosed"; date: string; setCount: number })
+  | (DecisionBase & { kind: "recoveryPriority"; hardSessions: number; difficultySamples: number; regressingExercises: number; sessions7d: number; overTargetMuscles: number })
   | (DecisionBase & { kind: "cycleComplete"; completed: number; total: number })
   | (DecisionBase & { kind: "nextStep"; type: TrainingType; label: string; completed: number; total: number })
   | (DecisionBase & { kind: "recoveryStep"; label: string; completed: number; total: number })
-  | (DecisionBase & { kind: "simplifyPlan"; completionPct: number; sessions: number; averageMissingSets: number })
-  | (DecisionBase & { kind: "reduceVolume"; muscle: MuscleGroup; current: number; targetHigh: number; suggestedSets: number; source?: string; sourceExerciseId?: string })
-  | (DecisionBase & { kind: "addVolume"; muscle: MuscleGroup; current: number; targetLow: number; suggestedSets: number; source?: string; sourceExerciseId?: string })
-  | (DecisionBase & { kind: "trackRegression" | "trackPlateau"; exerciseName: string; trackLabel: string; changePct: number | null; sessions: number })
+  | (DecisionBase & { kind: "simplifyPlan"; templateId: string; templateName: string; completionPct: number; sessions: number; averageMissingSets: number })
+  | (DecisionBase & { kind: "reduceVolume"; muscle: MuscleGroup; basis: "actual" | "projected"; current: number; projected: number; targetHigh: number; suggestedSets: number; source?: string; sourceExerciseId?: string; templateId?: string })
+  | (DecisionBase & { kind: "addVolume"; muscle: MuscleGroup; current: number; projected: number; targetLow: number; suggestedSets: number; source?: string; sourceExerciseId?: string; templateId?: string })
+  | (DecisionBase & { kind: "trackRegression" | "trackPlateau"; exerciseName: string; trackLabel: string; changePct: number | null; sessions: number; progressionStatus?: ProgressionSuggestion["status"] })
   | (DecisionBase & { kind: "buildHistory"; sessions: number })
-  | (DecisionBase & { kind: "maintain"; sessions: number; completed: number; total: number });
-
-export interface PlanAdherenceSummary {
-  sessions: number;
-  plannedSets: number;
-  completedSets: number;
-  completionPct: number | null;
-  averageMissingSets: number;
-}
+  | (DecisionBase & { kind: "maintain"; sessions: number; completed: number; total: number; improvingTracks: number });
 
 export interface TrainingDecision {
   confidence: TrainingDecisionConfidence;
   evidence: {
+    sessions7d: number;
     sessions28d: number;
     plannedSessions: number;
+    difficultySamples: number;
+    hardSessions: number;
     trendTracks: number;
+    improvingTracks: number;
+    plateauTracks: number;
+    regressingTracks: number;
     cycleCompleted: number;
     cycleTotal: number;
+    projectionComplete: boolean;
+    coveredRemainingSteps: number;
+    remainingTrainingSteps: number;
   };
   actions: TrainingDecisionAction[];
 }
 
-export function recentPlanAdherence(data: AppData, today: string, limit = 4): PlanAdherenceSummary {
-  const start = shiftDate(today, -27);
-  const sessions = Object.entries(data.days)
-    .filter(([date, day]) => date >= start && date <= today && isHistoryEligibleWorkout(day.workout, date, today))
-    .sort(([a], [b]) => b.localeCompare(a))
-    .flatMap(([, day]) => {
-      const summary = summarizeWorkoutWork(day.workout);
-      return summary.plannedSets
-        ? [{ planned: summary.plannedSets, completed: summary.completionCredits }]
-        : [];
-    })
-    .slice(0, limit);
-  const totalPlanned = sessions.reduce((sum, session) => sum + session.planned, 0);
-  const totalCompleted = sessions.reduce((sum, session) => sum + session.completed, 0);
+function strongestVolumeCorrection(
+  analysis: ReturnType<typeof buildTrainingAnalysis>,
+  allowAdd: boolean,
+): TrainingDecisionAction | null {
+  const over = analysis.cycle.rows
+    .filter((row) => row.status === "over" || row.status === "projectedOver")
+    .filter((row) => row.current > 0 || row.remaining > 0)
+    .sort((a, b) => {
+      const aExcess = (a.status === "over" ? a.current : a.projected) - a.target.high;
+      const bExcess = (b.status === "over" ? b.current : b.projected) - b.target.high;
+      return bExcess / Math.max(b.target.high, 1) - aExcess / Math.max(a.target.high, 1);
+    })[0];
+  if (over) {
+    const basis = over.status === "over" ? "actual" : "projected";
+    const measured = basis === "actual" ? over.current : over.projected;
+    const excess = Math.max(1, Math.ceil(measured - over.target.high));
+    const source = basis === "actual" ? over.actualSource : over.plannedSource ?? over.actualSource;
+    return {
+      kind: "reduceVolume",
+      priority: basis === "actual" ? 92 : 72,
+      href: "/progress?tab=training",
+      muscle: over.muscle,
+      basis,
+      current: over.current,
+      projected: over.projected,
+      targetHigh: over.target.high,
+      suggestedSets: Math.min(4, excess),
+      source: source?.name,
+      sourceExerciseId: source?.exerciseId,
+      templateId: source?.templateId,
+    };
+  }
+
+  if (!allowAdd || !analysis.cycle.projectionComplete || analysis.cycle.ratio < 0.7) return null;
+  const under = analysis.cycle.rows
+    .filter((row) => row.status === "under" && row.projected > 0)
+    .sort((a, b) => (
+      (b.target.low - b.projected) / Math.max(b.target.low, 1)
+      - (a.target.low - a.projected) / Math.max(a.target.low, 1)
+    ))[0];
+  if (!under) return null;
+  const gap = Math.max(1, Math.ceil(under.target.low - under.projected));
+  const source = under.plannedSource ?? under.actualSource;
   return {
-    sessions: sessions.length,
-    plannedSets: totalPlanned,
-    completedSets: Math.round(totalCompleted * 10) / 10,
-    completionPct: totalPlanned ? Math.round((totalCompleted / totalPlanned) * 100) : null,
-    averageMissingSets: sessions.length ? Math.max(0, Math.round((totalPlanned - totalCompleted) / sessions.length)) : 0,
+    kind: "addVolume",
+    priority: 58,
+    href: "/schedule",
+    muscle: under.muscle,
+    current: under.current,
+    projected: under.projected,
+    targetLow: under.target.low,
+    suggestedSets: Math.min(4, gap),
+    source: source?.name,
+    sourceExerciseId: source?.exerciseId,
+    templateId: source?.templateId,
   };
 }
 
-function recentTrainingSessions(data: AppData, today: string) {
-  const start = shiftDate(today, -27);
-  return Object.entries(data.days).filter(([date, day]) =>
-    date >= start && date <= today && isHistoryEligibleWorkout(day.workout, date, today)
-  ).length;
-}
-
-function targetScale(data: AppData) {
-  const cutScale = isCutModeActive(data.cutPlan)
-    ? data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE
-    : 1;
-  return volumeTargetScale("microcycle", data) * cutScale;
-}
-
-function correctionActions(data: AppData, cycleRatio: number, cycleComplete: boolean): TrainingDecisionAction[] {
-  const volume = computeVolumeSummary(
-    microcycleDays(data),
-    data.profile?.trainingLevel,
-    data.muscleTargets,
-    targetScale(data),
-  );
-  const over = volume.rows
-    .filter((row) => row.directEffectiveSets > row.target.high && row.directEffectiveSets > 0)
-    .sort((a, b) => (b.directEffectiveSets - b.target.high) / Math.max(b.target.high, 1) - (a.directEffectiveSets - a.target.high) / Math.max(a.target.high, 1))[0];
-  const under = (cycleComplete || cycleRatio >= 0.7)
-    ? volume.rows
-      .filter((row) => row.directEffectiveSets > 0 && row.directEffectiveSets < row.target.low)
-      .sort((a, b) => (b.target.low - b.directEffectiveSets) / Math.max(b.target.low, 1) - (a.target.low - a.directEffectiveSets) / Math.max(a.target.low, 1))[0]
-    : undefined;
-  const actions: TrainingDecisionAction[] = [];
-  if (over) {
-    const excess = Math.max(1, Math.ceil(over.directEffectiveSets - over.target.high));
-    actions.push({
-      kind: "reduceVolume",
-      priority: 92,
+function trendAction(analysis: ReturnType<typeof buildTrainingAnalysis>): TrainingDecisionAction | null {
+  const regressing = analysis.trends.find((item) => item.trend.status === "regressing");
+  if (regressing) {
+    return {
+      kind: "trackRegression",
+      priority: 86,
       href: "/progress?tab=training",
-      muscle: over.muscle,
-      current: over.directEffectiveSets,
-      targetHigh: over.target.high,
-      suggestedSets: Math.min(4, excess),
-      source: over.sources.find((source) => source.directEffectiveSets > 0)?.name,
-      sourceExerciseId: over.sources.find((source) => source.directEffectiveSets > 0)?.exerciseId,
-    });
+      exerciseName: regressing.exerciseName,
+      trackLabel: regressing.trackLabel,
+      changePct: regressing.trend.changePct,
+      sessions: regressing.trend.sessionCount,
+    };
   }
-  if (under) {
-    const gap = Math.max(1, Math.ceil(under.target.low - under.directEffectiveSets));
-    actions.push({
-      kind: "addVolume",
-      priority: 58,
-      href: "/schedule",
-      muscle: under.muscle,
-      current: under.directEffectiveSets,
-      targetLow: under.target.low,
-      suggestedSets: Math.min(4, gap),
-      source: under.sources.find((source) => source.directEffectiveSets > 0)?.name,
-      sourceExerciseId: under.sources.find((source) => source.directEffectiveSets > 0)?.exerciseId,
-    });
-  }
-  return actions;
+  const plateau = analysis.trends.find((item) => item.trend.status === "plateau");
+  if (!plateau) return null;
+  const latest = plateau.histories[0];
+  return {
+    kind: "trackPlateau",
+    priority: 62,
+    href: "/progress?tab=training",
+    exerciseName: plateau.exerciseName,
+    trackLabel: plateau.trackLabel,
+    changePct: plateau.trend.changePct,
+    sessions: plateau.trend.sessionCount,
+    progressionStatus: latest
+      ? progressionSuggestion(exercisePrescription(latest.exercise), latest).status
+      : undefined,
+  };
 }
 
 export function buildTrainingDecision(data: AppData, today: string, context: "home" | "review" = "review"): TrainingDecision {
-  const sessions28d = recentTrainingSessions(data, today);
-  const adherence = recentPlanAdherence(data, today);
-  const trendStart = shiftDate(today, -27);
-  const trends = summarizeExerciseTrackTrends(data.days, shiftDate(today, 1), 12).filter((item) => item.latestDate >= trendStart);
+  const analysis = buildTrainingAnalysis(data, today);
   const cycle = currentMicrocycleProgress(data, today);
-  const cycleTotal = cycle.pattern.length;
-  const cycleRatio = cycleTotal ? cycle.completed / cycleTotal : 0;
   const cycleComplete = shouldAdvanceMicrocycle(data, today);
-  const confidence: TrainingDecisionConfidence = sessions28d < 2 ? "starter" : sessions28d < 6 || trends.length === 0 ? "building" : "ready";
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
   const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
@@ -147,70 +151,106 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
     actions.push({ kind: "continueSession", priority: 120, href: "/train", setCount: todaySets });
   }
 
-  // Do not issue plan-changing advice from a volume snapshot while today's
-  // session is still being recorded. Finish it first, then reassess.
-  if (!activeSession) {
-    if (adherence.sessions >= 3 && adherence.completionPct != null && adherence.completionPct < 75) {
+  if (!activeSession && analysis.unclosed) {
+    actions.push({
+      kind: "reviewUnclosed",
+      priority: 116,
+      href: `/train?date=${analysis.unclosed.date}`,
+      date: analysis.unclosed.date,
+      setCount: analysis.unclosed.setCount,
+    });
+  }
+
+  // Plan-changing advice waits until active or recently unclosed work has been
+  // confirmed. Reference-only sessions remain visible elsewhere in the app.
+  if (!activeSession && !analysis.unclosed) {
+    if (analysis.recovery.active) {
       actions.push({
-        kind: "simplifyPlan",
-        priority: 100,
-        href: "/templates",
-        completionPct: adherence.completionPct,
-        sessions: adherence.sessions,
-        averageMissingSets: Math.max(1, adherence.averageMissingSets),
+        kind: "recoveryPriority",
+        priority: 108,
+        href: "/schedule",
+        hardSessions: analysis.load.hardSessions,
+        difficultySamples: analysis.load.difficultySamples,
+        regressingExercises: analysis.recovery.regressingExercises,
+        sessions7d: analysis.load.sessions7d,
+        overTargetMuscles: analysis.recovery.overTargetMuscles,
       });
     }
 
-    if (sessions28d > 0) actions.push(...correctionActions(data, cycleRatio, cycleComplete));
+    if (analysis.weakTemplate) {
+      actions.push({
+        kind: "simplifyPlan",
+        priority: analysis.recovery.active ? 96 : 100,
+        href: "/templates",
+        templateId: analysis.weakTemplate.templateId,
+        templateName: analysis.weakTemplate.templateName,
+        completionPct: analysis.weakTemplate.completionPct!,
+        sessions: analysis.weakTemplate.sessions,
+        averageMissingSets: Math.max(1, Math.ceil(analysis.weakTemplate.averageMissingSets)),
+      });
+    }
 
-    const regressing = trends.find((item) => item.trend.status === "regressing");
-    const plateau = trends.find((item) => item.trend.status === "plateau");
-    if (regressing) {
-      actions.push({
-        kind: "trackRegression",
-        priority: 86,
-        href: "/progress?tab=training",
-        exerciseName: regressing.exerciseName,
-        trackLabel: regressing.trackLabel,
-        changePct: regressing.trend.changePct,
-        sessions: regressing.trend.sessionCount,
-      });
-    } else if (plateau) {
-      actions.push({
-        kind: "trackPlateau",
-        priority: 62,
-        href: "/progress?tab=training",
-        exerciseName: plateau.exerciseName,
-        trackLabel: plateau.trackLabel,
-        changePct: plateau.trend.changePct,
-        sessions: plateau.trend.sessionCount,
-      });
+    if (analysis.load.sessions28d > 0) {
+      const volumeAction = strongestVolumeCorrection(
+        analysis,
+        !analysis.recovery.active && !analysis.weakTemplate && analysis.regressingTracks === 0,
+      );
+      if (volumeAction) actions.push(volumeAction);
+    }
+
+    if (!analysis.recovery.active) {
+      const action = trendAction(analysis);
+      if (action) actions.push(action);
     }
 
     if (cycleComplete) {
-      actions.push({ kind: "cycleComplete", priority: 76, href: "/train", completed: cycle.completed, total: cycleTotal });
+      actions.push({ kind: "cycleComplete", priority: 76, href: "/train", completed: cycle.completed, total: cycle.pattern.length });
     } else if (!todayWorkout && cycle.next) {
       actions.push(cycle.next.type === "rest"
-        ? { kind: "recoveryStep", priority: 44, href: "/train?start=rest", label: cycle.next.label, completed: cycle.completed, total: cycleTotal }
-        : { kind: "nextStep", priority: 46, href: microcycleStepHref(cycle.next), type: cycle.next.type, label: cycle.next.label, completed: cycle.completed, total: cycleTotal });
+        ? { kind: "recoveryStep", priority: 44, href: "/train?start=rest", label: cycle.next.label, completed: cycle.completed, total: cycle.pattern.length }
+        : { kind: "nextStep", priority: 46, href: microcycleStepHref(cycle.next), type: cycle.next.type, label: cycle.next.label, completed: cycle.completed, total: cycle.pattern.length });
     }
 
-    const corrective = actions.some((action) => ["simplifyPlan", "reduceVolume", "addVolume", "trackRegression", "trackPlateau"].includes(action.kind));
-    if (!corrective && sessions28d < 2) {
-      actions.push({ kind: "buildHistory", priority: 52, href: "/train", sessions: sessions28d });
-    } else if (!corrective && sessions28d >= 2) {
-      actions.push({ kind: "maintain", priority: 38, href: "/progress?tab=training", sessions: sessions28d, completed: cycle.completed, total: cycleTotal });
+    const corrective = actions.some((action) => [
+      "recoveryPriority",
+      "simplifyPlan",
+      "reduceVolume",
+      "addVolume",
+      "trackRegression",
+      "trackPlateau",
+    ].includes(action.kind));
+    if (!corrective && analysis.load.sessions28d < 2) {
+      actions.push({ kind: "buildHistory", priority: 52, href: "/train", sessions: analysis.load.sessions28d });
+    } else if (!corrective && analysis.load.sessions28d >= 2) {
+      actions.push({
+        kind: "maintain",
+        priority: 38,
+        href: "/progress?tab=training",
+        sessions: analysis.load.sessions28d,
+        completed: cycle.completed,
+        total: cycle.pattern.length,
+        improvingTracks: analysis.improvingTracks,
+      });
     }
   }
 
   return {
-    confidence,
+    confidence: analysis.confidence,
     evidence: {
-      sessions28d,
-      plannedSessions: adherence.sessions,
-      trendTracks: trends.length,
-      cycleCompleted: cycle.completed,
-      cycleTotal,
+      sessions7d: analysis.load.sessions7d,
+      sessions28d: analysis.load.sessions28d,
+      plannedSessions: analysis.adherence.sessions,
+      difficultySamples: analysis.load.difficultySamples,
+      hardSessions: analysis.load.hardSessions,
+      trendTracks: analysis.trends.length,
+      improvingTracks: analysis.improvingTracks,
+      plateauTracks: analysis.plateauTracks,
+      regressingTracks: analysis.regressingTracks,
+      cycleCompleted: analysis.cycle.completed,
+      cycleTotal: analysis.cycle.total,
+      projectionComplete: analysis.cycle.projectionComplete,
+      coveredRemainingSteps: analysis.cycle.coveredTrainingSteps,
+      remainingTrainingSteps: analysis.cycle.remainingTrainingSteps,
     },
     actions: actions.sort((a, b) => b.priority - a.priority).slice(0, context === "home" ? 2 : 4),
   };

@@ -176,3 +176,16 @@ export function isHistoryEligibleWorkout(
       (workout.done !== false || isPastUnclosedWorkout(workout, workoutDate, referenceDate))
   );
 }
+
+/**
+ * Evidence that may change a future plan must come from a confirmed session.
+ * Legacy records without a `done` flag remain valid, while an explicit false
+ * stays reference-only until the user closes that workout.
+ */
+export function isDecisionEligibleWorkout(workout?: WorkoutSession) {
+  return Boolean(
+    workout &&
+      workout.done !== false &&
+      hasRecordedTrainingWork(workout)
+  );
+}

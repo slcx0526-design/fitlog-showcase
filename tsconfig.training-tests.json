@@ -20,6 +20,7 @@
     "lib/cutMode.ts",
     "lib/cutCoach.ts",
     "lib/trainingDecision.ts",
+    "lib/trainingAnalysis.ts",
     "lib/trainingMetrics.ts",
     "lib/trainingExecution.ts",
     "lib/trainingHistory.ts",
@@ -31,6 +32,7 @@
     "scripts/training-system.test.ts",
     "scripts/training-regression.test.ts",
     "scripts/training-decision.test.ts",
+    "scripts/training-analysis.test.ts",
     "scripts/cut-system.test.ts"
   ]
 }

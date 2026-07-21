@@ -1,1 +1,1 @@
-FitLog 5.0.0 training foundation release
+FitLog 6.0.0 constraint-aware training analysis release

@@ -5,12 +5,15 @@ import { useStore } from "@/lib/store";
 import { formatCompact } from "@/lib/date";
 import { useI18n, type Locale } from "@/lib/i18n";
 import {
+  exercisePrescription,
+  progressionSuggestion,
   summarizeExerciseTrackTrends,
   trackPerformanceMetric,
   type TrackHistoryResult,
   type TrackPerformanceMetric,
   type TrackTrend,
 } from "@/lib/prescription";
+import { progressionPresentation } from "@/lib/progressionPresentation";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
 
@@ -42,6 +45,7 @@ export default function ExerciseTrendReview() {
         </summary>
         <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
           <p className="text-[10px] leading-relaxed text-muted">{trendMessage(item.trend, locale)}</p>
+          <TrackNextStep history={item.histories[0]} locale={locale} />
           <div className="mt-2 space-y-1">
             {item.histories.slice(0, 4).map((history) => <HistoryPoint key={`${item.key}-${history.date}`} history={history} locale={locale} />)}
           </div>
@@ -49,6 +53,19 @@ export default function ExerciseTrendReview() {
       </details>)}
     </div>
   </section>;
+}
+
+function TrackNextStep({ history, locale }: { history: TrackHistoryResult; locale: Locale }) {
+  const prescription = exercisePrescription(history.exercise);
+  const suggestion = progressionSuggestion(prescription, history);
+  const presentation = progressionPresentation(suggestion, prescription, prescription.performanceMode ?? "reps", locale);
+  return <div className="mt-2 border-t border-border/70 pt-2">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0"><p className="text-[9px] font-semibold uppercase text-faint">{tx(locale, "处方下一步", "Prescription next step", "処方の次の一手")}</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted">{presentation.summary}</p></div>
+      <span className="tnum shrink-0 text-[11px] font-semibold text-fg">{presentation.value}</span>
+    </div>
+    <p className="mt-1 text-[9px] leading-relaxed text-faint">{tx(locale, "触发条件：", "Condition: ", "条件：")}{presentation.condition}</p>
+  </div>;
 }
 
 function sessionMetric(history: TrackHistoryResult) {
@@ -77,7 +94,14 @@ function HistoryPoint({ history, locale }: { history: TrackHistoryResult; locale
       : set.weight > 0
         ? `${set.weight}kg × ${set.reps}`
         : `${set.reps} ${tx(locale, "次", "reps", "回")}`;
-  return <p className="tnum flex items-center justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(history.date, locale).md}</span><span className="min-w-0 truncate text-right">{result}{metric?.kind === "e1rm" ? ` · e1RM ${metric.value}kg` : ""}</span></p>;
+  const effort = history.sessionDifficulty === "hard"
+    ? tx(locale, "吃力", "Hard", "きつい")
+    : history.sessionDifficulty === "easy"
+      ? tx(locale, "轻松", "Easy", "余裕")
+      : history.sessionDifficulty === "onTarget"
+        ? tx(locale, "合适", "On target", "適正")
+        : null;
+  return <p className="tnum flex items-center justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(history.date, locale).md}{effort ? ` · ${effort}` : ""}</span><span className="min-w-0 truncate text-right">{result}{metric?.kind === "e1rm" ? ` · e1RM ${metric.value}kg` : ""}</span></p>;
 }
 
 function metricName(kind: TrackTrend["metricKind"], locale: Locale) {
