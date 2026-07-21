@@ -1,1 +1,1 @@
-FitLog 4.2.0 canonical training data release
+FitLog 4.3.0 workout execution release

@@ -1,21 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
-import { pulseFeedback } from "@/lib/feedback";
-import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
-
-function workSets(sets: Parameters<typeof workingSets>[0]) {
-  return workingSets(sets).length;
-}
-
-function timeLeft(seconds: number) {
-  const value = Math.max(0, seconds);
-  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
-}
+import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
+import { formatRestTime, useRestTimer } from "@/lib/restTimer";
 
 /** A quieter workout companion with actual next-action and recovery state. */
 export default function SurvivalSessionGuide() {
@@ -23,77 +14,46 @@ export default function SurvivalSessionGuide() {
   const today = useToday();
   const { mode } = useUIMode();
   const { data } = useStore();
-  const [restUntil, setRestUntil] = useState<number | null>(null);
-  const [clock, setClock] = useState(() => Date.now());
+  const rest = useRestTimer();
 
   const workout = data.days[today]?.workout;
-  const current = useMemo(() => {
-    const exercises = workout?.exercises ?? [];
-    const done = exercises.reduce((count, exercise) => count + workSets(exercise.sets), 0);
-    const planned = exercises.reduce((count, exercise) => count + plannedWorkingSets(exercise), 0);
-    const next = exercises.find((exercise) => {
-      const target = plannedWorkingSets(exercise);
-      return target > 0 && workSets(exercise.sets) < target;
-    }) ?? exercises.find((exercise) => workSets(exercise.sets) === 0) ?? exercises[0];
-    const nextDone = next ? workSets(next.sets) : 0;
-    const nextTarget = next ? plannedWorkingSets(next) : 0;
-    return { done, planned, next, nextDone, nextTarget };
-  }, [workout]);
+  const current = useMemo(() => summarizeSessionExecution(workout), [workout]);
 
-  useEffect(() => {
-    if (!restUntil) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 250);
-    return () => window.clearInterval(timer);
-  }, [restUntil]);
-
-  const restSeconds = restUntil ? Math.max(0, Math.ceil((restUntil - clock) / 1000)) : 0;
-  useEffect(() => {
-    if (restUntil && restSeconds === 0) {
-      setRestUntil(null);
-      pulseFeedback("finish");
-    }
-  }, [restUntil, restSeconds]);
-
-  if (mode !== "survival" || !pathname.startsWith("/train") || !workout || workout.type === "rest") return null;
-
-  const startRest = (seconds: number) => {
-    setClock(Date.now());
-    setRestUntil(Date.now() + seconds * 1000);
-    pulseFeedback("start");
-  };
+  if (mode !== "survival" || !pathname.startsWith("/train") || !workout || workout.type === "rest" || workout.done) return null;
 
   return (
-    <section className="survival-session-guide mb-3" aria-label="训练野外指引">
+    <section className="survival-session-guide mb-3" aria-label="训练野外指引" data-no-pulse>
       <div className="survival-session-guide__top">
         <span>ROUTE CARD</span>
-        <span className="tnum">{current.done}{current.planned ? ` / ${current.planned}` : ""} SETS</span>
+        <span className="tnum">{formatSetCredit(current.completionCredits)}{current.plannedSets ? ` / ${current.plannedSets}` : ""} SETS</span>
       </div>
       <div className="survival-session-guide__body">
         <div className="min-w-0">
           <p className="survival-session-guide__eyebrow">NEXT CHECKPOINT</p>
-          <p className="truncate survival-session-guide__exercise">{current.next?.name ?? "添加第一个动作"}</p>
+          <p className="truncate survival-session-guide__exercise">{current.next?.exercise.name ?? (current.rows.length ? "本次计划已完成" : "添加第一个动作")}</p>
           <p className="tnum survival-session-guide__meta">
-            {current.next && current.nextTarget > 0
-              ? `工作组 ${Math.min(current.nextDone + 1, current.nextTarget)} / ${current.nextTarget}`
-              : "准备开始今天的行动"}
+            {current.next && current.next.plannedSets > 0
+              ? `已完成 ${formatSetCredit(current.next.creditedSets)} / ${current.next.plannedSets} 工作组`
+              : current.rows.length ? "今天的训练路线已经完成" : "准备开始今天的行动"}
           </p>
         </div>
         <div className="survival-session-guide__rest">
-          {restUntil ? (
-            <button type="button" onClick={() => setRestUntil(null)} data-pulse-feedback="confirm" className="survival-session-guide__rest-main">
-              <span className="tnum">{timeLeft(restSeconds)}</span>
-              <small>继续行动</small>
-            </button>
+          {rest.isRunning ? (
+            <div className="survival-session-guide__rest-options">
+              <button type="button" onClick={() => rest.adjust(-15)} aria-label="减少 15 秒">-15</button>
+              <button type="button" onClick={() => rest.stop()} className="survival-session-guide__rest-main"><span className="tnum">{formatRestTime(rest.secondsLeft)}</span><small>继续</small></button>
+              <button type="button" onClick={() => rest.adjust(15)} aria-label="增加 15 秒">+15</button>
+            </div>
           ) : (
             <div className="survival-session-guide__rest-options">
               {[60, 90, 120].map((seconds) => (
-                <button key={seconds} type="button" onClick={() => startRest(seconds)} data-pulse-feedback="start">{seconds}s</button>
+                <button key={seconds} type="button" onClick={() => rest.start(seconds)}>{seconds}s</button>
               ))}
             </div>
           )}
         </div>
       </div>
-      <div className="survival-session-guide__track"><span style={{ width: `${current.planned ? Math.min(100, Math.round((current.done / current.planned) * 100)) : 6}%` }} /></div>
+      <div className="survival-session-guide__track"><span style={{ width: `${current.completionPct ?? 6}%` }} /></div>
     </section>
   );
 }

@@ -17,6 +17,7 @@ import SessionVolumePlan from "@/components/SessionVolumePlan";
 import PulseSessionConsole from "@/components/PulseSessionConsole";
 import MidnightSessionDeck from "@/components/MidnightSessionDeck";
 import SurvivalSessionGuide from "@/components/SurvivalSessionGuide";
+import LiteSessionGuide from "@/components/LiteSessionGuide";
 
 const START_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 
@@ -58,7 +59,7 @@ function TrainInner() {
       <div className="mb-2 flex items-center justify-between"><Link href={isPast ? "/progress?tab=log" : "/"} className="press flex items-center gap-1 text-[13px] font-semibold text-muted"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{isPast ? t("日志", "Log", "ログ") : t("今天", "Today", "今日")}</Link><div className="flex items-center gap-2"><Link href="/schedule" className="press rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-semibold text-muted">{t("计划", "Plan", "プラン")}</Link><Link href="/templates" className="press rounded-lg border border-border bg-surface px-2 py-1 text-[11px] font-semibold text-muted">{t("模板", "Templates", "テンプレート")}</Link></div></div>
       <div className="control-card p-3.5"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">{isPast ? t("历史训练", "PAST SESSION", "過去のセッション") : t("训练", "TRAINING", "トレーニング")}</p><div className="mt-1 flex items-end justify-between gap-3"><div><h1 className="text-[25px] font-bold tracking-tight text-fg">{title}</h1><p className="tnum mt-1 text-[11px] text-faint">{formatDisplay(date, locale)}</p></div>{done ? <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent">{t("已完成", "Completed", "完了")}</span> : isActive ? <span className="flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent"><span className="active-dot h-1.5 w-1.5 rounded-full bg-accent" />{t("进行中", "In progress", "進行中")}</span> : null}</div>{!workout && !isPast && scheduled && <p className="mt-3 border-t border-border/70 pt-2.5 text-[11px] text-muted">{t(`今日建议：${typeName[scheduled](mode)}。计划不会自动写入训练日志。`, `Suggested today: ${typeName[scheduled](mode)}. This will not be written to your workout log automatically.`, `今日の提案：${typeName[scheduled](mode)}。トレーニングログには自動で保存されません。`)}</p>}</div>
     </header>
-    {!isPast && (mode === "pulse" ? <PulseSessionConsole /> : mode === "midnight" ? <MidnightSessionDeck /> : mode === "survival" ? <SurvivalSessionGuide /> : null)}
+    {!isPast && (mode === "pulse" ? <PulseSessionConsole /> : mode === "midnight" ? <MidnightSessionDeck /> : mode === "survival" ? <SurvivalSessionGuide /> : <LiteSessionGuide />)}
     <SessionVolumePlan date={date} templateId={workout?.templateId} exercises={workout?.exercises ?? []} />
     <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />
   </div>;

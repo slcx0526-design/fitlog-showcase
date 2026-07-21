@@ -19,7 +19,8 @@ import {
   progressionSuggestion,
   type TrackHistoryResult,
 } from "@/lib/prescription";
-import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
+import { plannedWorkingSets, summarizeExerciseWork, workingSets } from "@/lib/trainingMetrics";
+import { createNextSetDraft, formatSetCredit } from "@/lib/trainingExecution";
 import NumberField from "./NumberField";
 import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
@@ -46,6 +47,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const [open, setOpen] = useState(true);
   const [options, setOptions] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pendingFocus, setPendingFocus] = useState<{ index: number; field: "weight" | "performance" } | null>(null);
   const prescription = exercisePrescription(exercise);
   const trackId = exerciseTrackId(exercise);
   const trackLabel = exerciseTrackLabel(exercise);
@@ -56,11 +58,11 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const performanceMode = prescription.performanceMode ?? performanceModeFor(exercise.recordModes);
   const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
   const currentWorking = workingSets(exercise.sets);
+  const workSummary = summarizeExerciseWork(exercise);
   const plannedSets = plannedWorkingSets(exercise);
-  const carry = lastProgressionSet(exercise.sets) ?? (previous ? lastProgressionSet(previous.sets) : null);
+  const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
+  const carry = currentLoad ?? (recordsWeight && previous ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
-  const entryWeight = acceptedWeight ?? carry?.weight ?? 0;
-  const entryReps = acceptedWeight != null ? 0 : carry?.reps ?? 0;
   const setUnit = tx(locale, "组", "sets", "セット");
   const repUnit = tx(locale, "次", "reps", "回");
 
@@ -70,16 +72,32 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   }
 
   function add(blank = false) {
-    const set: SetRecord = performanceMode === "duration"
-      ? { weight: 0, reps: 0, durationSeconds: blank ? 0 : carry?.durationSeconds ?? 0 }
-      : performanceMode === "distance"
-        ? { weight: 0, reps: 0, distanceMeters: blank ? 0 : carry?.distanceMeters ?? 0 }
-        : { weight: blank ? 0 : entryWeight, reps: blank ? 0 : entryReps };
-    addSet(date, exercise.id, { ...set, type: "working", completion: "completed", technique: "normal" });
-    if (set.weight > 0 && set.reps === 0) toast.show(tx(locale, "已填入建议负重，请记录真实次数", "Suggested load added — enter actual reps", "推奨重量を入力しました。実際の回数を記録してください"));
-    else toast.show(!blank && currentWorking.length > 0 ? `${formatSet(set, performanceMode, locale)} ${persona.setComplete(mode)}` : persona.setAdded(mode));
+    const set = createNextSetDraft({
+      performanceMode,
+      recordsWeight,
+      carry,
+      plannedLoadKg: acceptedWeight,
+      blank,
+    });
+    const index = exercise.sets.length;
+    setPendingFocus({ index, field: recordsWeight && set.weight <= 0 ? "weight" : "performance" });
+    addSet(date, exercise.id, set);
+    if (set.weight > 0) toast.show(tx(locale, `已带入 ${set.weight}kg，请记录本组实际表现`, `${set.weight}kg carried forward — enter this set's result`, `${set.weight}kg を引き継ぎました。このセットの実績を入力してください`));
+    else toast.show(persona.setAdded(mode));
     if (mode === "pulse") pulseFeedback("confirm");
     else haptic(8);
+  }
+
+  function addAfterPerformance(index: number, value: number) {
+    if (value <= 0 || index !== exercise.sets.length - 1) return;
+    const sets = exercise.sets.map((set, currentIndex) => {
+      if (currentIndex !== index) return set;
+      if (performanceMode === "duration") return { ...set, durationSeconds: value };
+      if (performanceMode === "distance") return { ...set, distanceMeters: value };
+      return { ...set, reps: value };
+    });
+    const projected = summarizeExerciseWork({ ...exercise, sets });
+    if (plannedSets <= 0 || projected.completionCredits < plannedSets) add();
   }
 
   function acceptSuggestion() {
@@ -110,7 +128,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
           {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
           <Chip label={tr(trackLabel)} accent />
           <Chip label={tx(locale, `计划 ${plannedSets} 组`, `Plan ${plannedSets} sets`, `予定 ${plannedSets} セット`)} />
-          {currentWorking.length > 0 && <span className="tnum text-faint">{currentWorking.length} {setUnit}</span>}
+          {workSummary.completionCredits > 0 && <span className="tnum text-faint">{formatSetCredit(workSummary.completionCredits)} {setUnit}</span>}
         </div>
       </button>
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press grid h-9 w-9 place-items-center text-faint" aria-label={open ? tx(locale, "收起动作", "Collapse exercise", "種目を折りたたむ") : tx(locale, "展开动作", "Expand exercise", "種目を展開する")}>⌄</button>
@@ -142,10 +160,10 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     {open && <div className="px-3.5 pb-3 pt-1">
       {exercise.sets.map((set, index) => <div key={set.at ?? `legacy-set-${index}`} className="soft-divider flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0">
         <span className="tnum w-5 text-center text-[12px] text-faint">{index + 1}</span>
-        {recordsWeight && <><NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} allowDecimal className="number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">kg ×</span></>}
-        {performanceMode === "reps" && <><NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} className="number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{repUnit}</span></>}
-        {performanceMode === "duration" && <><NumberField value={set.durationSeconds ?? 0} onChange={(durationSeconds) => patch(index, { durationSeconds })} ariaLabel={tx(locale, `第${index + 1}组时长`, `Set ${index + 1} duration`, `セット${index + 1}の時間`)} className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{tx(locale, "秒", "sec", "秒")}</span></>}
-        {performanceMode === "distance" && <><NumberField value={set.distanceMeters ?? 0} onChange={(distanceMeters) => patch(index, { distanceMeters })} ariaLabel={tx(locale, `第${index + 1}组距离`, `Set ${index + 1} distance`, `セット${index + 1}の距離`)} allowDecimal className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">m</span></>}
+        {recordsWeight && <><NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} onEnter={() => setPendingFocus({ index, field: "performance" })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "weight"} enterKeyHint="next" className="number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">kg ×</span></>}
+        {performanceMode === "reps" && <><NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{repUnit}</span></>}
+        {performanceMode === "duration" && <><NumberField value={set.durationSeconds ?? 0} onChange={(durationSeconds) => patch(index, { durationSeconds })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组时长`, `Set ${index + 1} duration`, `セット${index + 1}の時間`)} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{tx(locale, "秒", "sec", "秒")}</span></>}
+        {performanceMode === "distance" && <><NumberField value={set.distanceMeters ?? 0} onChange={(distanceMeters) => patch(index, { distanceMeters })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组距离`, `Set ${index + 1} distance`, `セット${index + 1}の距離`)} allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">m</span></>}
         {set.completion === "partial" && <Chip label={tx(locale, "部分", "Partial", "部分")} />}
         {set.completion === "skipped" && <Chip label={tx(locale, "跳过", "Skipped", "スキップ")} />}
         {set.technique && set.technique !== "normal" && <Chip label={set.technique === "rehab" ? tx(locale, "康复", "Rehab", "リハビリ") : set.technique} />}
@@ -153,8 +171,8 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
         <button type="button" onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} className="press h-9 w-9 text-faint hover:text-accent" aria-label={tx(locale, "删除组", "Delete set", "セットを削除")}>−</button>
         {options === index && <SetCapacityOptions set={set} onChange={(value) => patch(index, value)} />}
       </div>)}
-      <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `按建议添加 ${acceptedWeight}kg`, `Add suggested ${acceptedWeight}kg`, `推奨 ${acceptedWeight}kg を追加`) : carry ? tx(locale, `沿用 ${formatSet(carry, performanceMode, locale)}`, `Repeat ${formatSet(carry, performanceMode, locale)}`, `${formatSet(carry, performanceMode, locale)} を引き継ぐ`) : tx(locale, "添加工作组", "Add working set", "ワーキングセットを追加")}</button>
-      {(carry || acceptedWeight != null) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
+      <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>
+      {recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
     </div>}
   </section>;
 }

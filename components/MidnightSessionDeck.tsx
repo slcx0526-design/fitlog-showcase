@@ -1,21 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
-import { pulseFeedback } from "@/lib/feedback";
-import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
-
-function workingSetCount(sets: Parameters<typeof workingSets>[0]) {
-  return workingSets(sets).length;
-}
-
-function timeCode(seconds: number) {
-  const safe = Math.max(0, seconds);
-  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
-}
+import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
+import { formatRestTime, useRestTimer } from "@/lib/restTimer";
 
 /**
  * Midnight is a moonlit schedule deck: calm blue-white hierarchy, immediate
@@ -26,62 +17,24 @@ export default function MidnightSessionDeck() {
   const today = useToday();
   const { mode } = useUIMode();
   const { data } = useStore();
-  const [restEndsAt, setRestEndsAt] = useState<number | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  const rest = useRestTimer();
 
   const workout = data.days[today]?.workout;
-  const session = useMemo(() => {
-    const exercises = workout?.exercises ?? [];
-    const total = exercises.reduce((sum, exercise) => sum + workingSetCount(exercise.sets), 0);
-    const planned = exercises.reduce((sum, exercise) => sum + plannedWorkingSets(exercise), 0);
-    const active = exercises.find((exercise) => {
-      const target = plannedWorkingSets(exercise);
-      return target > 0 && workingSetCount(exercise.sets) < target;
-    }) ?? exercises.find((exercise) => workingSetCount(exercise.sets) === 0) ?? exercises[0];
-    const activeTarget = active ? plannedWorkingSets(active) : 0;
-    const activeDone = active ? workingSetCount(active.sets) : 0;
-    return { total, planned, active, activeTarget, activeDone };
-  }, [workout]);
+  const session = useMemo(() => summarizeSessionExecution(workout), [workout]);
 
-  useEffect(() => {
-    if (!restEndsAt) return;
-    const tick = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(tick);
-  }, [restEndsAt]);
+  if (mode !== "midnight" || !pathname.startsWith("/train") || !workout || workout.type === "rest" || workout.done) return null;
 
-  const secondsLeft = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - now) / 1000)) : 0;
-  useEffect(() => {
-    if (restEndsAt && secondsLeft === 0) {
-      setRestEndsAt(null);
-      pulseFeedback("finish");
-    }
-  }, [restEndsAt, secondsLeft]);
-
-  if (mode !== "midnight" || !pathname.startsWith("/train") || !workout || workout.type === "rest") return null;
-
-  const taskText = session.active ? session.active.name : "添加第一个动作";
-  const taskMeta = session.active && session.activeTarget > 0
-    ? `第 ${Math.min(session.activeDone + 1, session.activeTarget)} / ${session.activeTarget} 个工作组`
-    : "准备开始今天的训练时段";
-
-  const startRest = (seconds: number) => {
-    setNow(Date.now());
-    setRestEndsAt(Date.now() + seconds * 1000);
-    pulseFeedback("start");
-  };
-
-  const adjustRest = (seconds: number) => {
-    setNow(Date.now());
-    setRestEndsAt((current) => Math.max(Date.now(), current ?? Date.now()) + seconds * 1000);
-    pulseFeedback("tap");
-  };
+  const taskText = session.next ? session.next.exercise.name : session.rows.length ? "本次计划已完成" : "添加第一个动作";
+  const taskMeta = session.next && session.next.plannedSets > 0
+    ? `已完成 ${formatSetCredit(session.next.creditedSets)} / ${session.next.plannedSets} 个工作组`
+    : session.rows.length ? "今天的训练计划已经完成" : "准备开始今天的训练时段";
 
   return (
-    <section className="midnight-session-deck mb-3" aria-label="午夜训练日程">
+    <section className="midnight-session-deck mb-3" aria-label="午夜训练日程" data-no-pulse>
       <div className="midnight-deck-stamp">
         <span className="midnight-deck-orbit" aria-hidden="true" />
         <span>MOONLIGHT SESSION</span>
-        <span className="tnum ml-auto">{session.total}{session.planned ? ` / ${session.planned}` : ""} SETS</span>
+        <span className="tnum ml-auto">{formatSetCredit(session.completionCredits)}{session.plannedSets ? ` / ${session.plannedSets}` : ""} SETS</span>
       </div>
       <div className="midnight-deck-grid">
         <div className="min-w-0 midnight-deck-next">
@@ -91,19 +44,19 @@ export default function MidnightSessionDeck() {
         </div>
         <div className="midnight-deck-rest">
           <p className="midnight-deck-label">BREAK TIME</p>
-          {restEndsAt ? (
+          {rest.isRunning ? (
             <div className="flex items-center justify-between gap-2">
-              <button type="button" onClick={() => adjustRest(-15)} data-pulse-feedback="tap" className="midnight-rest-adjust" aria-label="减少 15 秒">−15</button>
-              <button type="button" onClick={() => setRestEndsAt(null)} data-pulse-feedback="confirm" className="midnight-rest-core">
-                <span className="tnum text-[20px] font-bold">{timeCode(secondsLeft)}</span>
+              <button type="button" onClick={() => rest.adjust(-15)} className="midnight-rest-adjust" aria-label="减少 15 秒">-15</button>
+              <button type="button" onClick={() => rest.stop()} className="midnight-rest-core">
+                <span className="tnum text-[20px] font-bold">{formatRestTime(rest.secondsLeft)}</span>
                 <span>RESUME</span>
               </button>
-              <button type="button" onClick={() => adjustRest(15)} data-pulse-feedback="tap" className="midnight-rest-adjust" aria-label="增加 15 秒">+15</button>
+              <button type="button" onClick={() => rest.adjust(15)} className="midnight-rest-adjust" aria-label="增加 15 秒">+15</button>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-1.5">
               {[60, 90, 120].map((seconds) => (
-                <button key={seconds} type="button" onClick={() => startRest(seconds)} data-pulse-feedback="start" className="midnight-rest-preset">
+                <button key={seconds} type="button" onClick={() => rest.start(seconds)} className="midnight-rest-preset">
                   {seconds}s
                 </button>
               ))}
@@ -111,8 +64,8 @@ export default function MidnightSessionDeck() {
           )}
         </div>
       </div>
-      <div className="midnight-deck-track" aria-label={session.planned ? `今日训练进度 ${Math.round(Math.min(1, session.total / session.planned) * 100)}%` : "今日有效工作组"}>
-        <span style={{ width: `${session.planned ? Math.min(100, Math.round((session.total / session.planned) * 100)) : 8}%` }} />
+      <div className="midnight-deck-track" aria-label={session.completionPct != null ? `今日训练进度 ${session.completionPct}%` : "今日有效工作组"}>
+        <span style={{ width: `${session.completionPct ?? 8}%` }} />
       </div>
     </section>
   );

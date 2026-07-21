@@ -293,7 +293,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           microcycle,
           days: {
             ...prev.days,
-            [date]: { ...day, date, workout: { ...w, type, templateId: w.type === type ? w.templateId : undefined, microcycleId: w.microcycleId ?? microcycle.currentId } },
+            [date]: {
+              ...day,
+              date,
+              workout: {
+                ...w,
+                type,
+                templateId: w.type === type ? w.templateId : undefined,
+                microcycleId: w.microcycleId ?? microcycle.currentId,
+                ...(w.type === type ? {} : { done: false }),
+              },
+            },
           },
         };
         return nextData;
@@ -352,7 +362,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           volumeContributions: preset.volumeContributions,
           recordModes: preset.recordModes,
         }, prescription);
-        return { ...w, exercises: [...w.exercises, ex] };
+        return { ...w, done: false, exercises: [...w.exercises, ex] };
       });
     },
     [mutateWorkout]
@@ -362,6 +372,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, exerciseId: string) => {
       mutateWorkout(date, (w) => ({
         ...w,
+        done: false,
         exercises: w.exercises.filter((e) => e.id !== exerciseId),
       }));
     },
@@ -392,22 +403,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateSet = useCallback(
     (date: string, exerciseId: string, index: number, set: SetRecord) => {
-      mutateExercise(date, exerciseId, (ex) => ({
-        ...ex,
-        sets: ex.sets.map((s, i) => (i === index ? set : s)),
+      mutateWorkout(date, (workout) => ({
+        ...workout,
+        done: false,
+        exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
+          ? { ...exercise, sets: exercise.sets.map((current, currentIndex) => currentIndex === index ? set : current) }
+          : exercise),
       }));
     },
-    [mutateExercise]
+    [mutateWorkout]
   );
 
   const removeSet = useCallback(
     (date: string, exerciseId: string, index: number) => {
-      mutateExercise(date, exerciseId, (ex) => ({
-        ...ex,
-        sets: ex.sets.filter((_, i) => i !== index),
+      mutateWorkout(date, (workout) => ({
+        ...workout,
+        done: false,
+        exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
+          ? { ...exercise, sets: exercise.sets.filter((_, currentIndex) => currentIndex !== index) }
+          : exercise),
       }));
     },
-    [mutateExercise]
+    [mutateWorkout]
   );
 
   const setExercisePlannedLoad = useCallback(
