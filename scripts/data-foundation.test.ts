@@ -189,6 +189,7 @@ const raw = {
   days: {
     "2026-07-01": {
       date: "2026-07-01",
+      recovery: { sleepHours: 7.5, sleepQuality: 4, energy: 4, soreness: 2, stress: 2, at: "2026-07-01T08:00:00.000Z" },
       workout: {
         type: "push",
         done: true,
@@ -262,6 +263,7 @@ assert.equal(normalized.templates?.[0].items[0].primaryMuscle, "upperChest");
 assert.equal(normalized.templates?.[0].items[0].isMain, true);
 assert.ok(normalized.templates?.[0].items[0].volumeContributions?.some((item) => item.muscle === "upperChest" && item.direct));
 assert.equal(normalized.bodyWeights.length, 1);
+assert.deepEqual(normalized.days["2026-07-01"].recovery, { sleepHours: 7.5, sleepQuality: 4, energy: 4, soreness: 2, stress: 2, at: "2026-07-01T08:00:00.000Z" });
 assert.deepEqual(normalized.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(new Set(normalized.customExercises.map((item) => item.id)).size, 2);
 assert.equal(new Set((normalized.templates ?? []).map((item) => item.id)).size, 2);
@@ -270,11 +272,12 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 13);
+assert.equal(backup.version, 14);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
-assert.ok(backup.mesocycle, "Schema 13 backups include mesocycle state");
+assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");
+assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 14 backups preserve recovery check-ins");
 
 const legacyPlannedLoad = normalizeData({
   days: {

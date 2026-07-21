@@ -21,6 +21,7 @@ import type {
   NutritionLog,
   Profile,
   RecordMode,
+  RecoveryCheckIn,
   MicrocycleState,
   Schedule,
   SessionDifficulty,
@@ -99,6 +100,9 @@ interface StoreApi {
 
   // 营养
   setNutrition: (date: string, log: NutritionLog | undefined) => void;
+
+  // 每日恢复状态
+  setRecovery: (date: string, log: RecoveryCheckIn | undefined) => void;
 
   // 有氧
   addCardio: (date: string, entry: Omit<CardioEntry, "id" | "at">) => void;
@@ -521,6 +525,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setNutrition = useCallback(
     (date: string, log: NutritionLog | undefined) => {
       mutateDay(date, (day) => ({ ...day, nutrition: log }));
+    },
+    [mutateDay]
+  );
+
+  const setRecovery = useCallback(
+    (date: string, log: RecoveryCheckIn | undefined) => {
+      mutateDay(date, (day) => ({ ...day, recovery: log }));
     },
     [mutateDay]
   );
@@ -1177,6 +1188,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeSet,
       setExercisePlannedLoad,
       setNutrition,
+      setRecovery,
       addCardio,
       updateCardio,
       removeCardio,
@@ -1227,6 +1239,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeSet,
       setExercisePlannedLoad,
       setNutrition,
+      setRecovery,
       addCardio,
       updateCardio,
       removeCardio,

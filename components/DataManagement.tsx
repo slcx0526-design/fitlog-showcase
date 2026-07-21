@@ -22,6 +22,7 @@ export default function DataManagement() {
     dayCount: number;
     bodyWeightCount: number;
     waistCount: number;
+    recoveryCount: number;
     templateCount: number;
     exportedAt?: string;
     version?: number;
@@ -37,7 +38,7 @@ export default function DataManagement() {
   const filledDayCount = Object.values(data.days).filter((day) => {
     const sets = day.workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
     const cardioMinutes = (day.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
-    return sets > 0 || day.workout?.type === "rest" || (day.nutrition?.calories ?? 0) > 0 || cardioMinutes > 0;
+    return sets > 0 || day.workout?.type === "rest" || (day.nutrition?.calories ?? 0) > 0 || cardioMinutes > 0 || Boolean(day.recovery);
   }).length;
 
   function flash(kind: "ok" | "err", text: string) {
@@ -65,6 +66,7 @@ export default function DataManagement() {
         dayCount: Object.keys(preview.data.days).length,
         bodyWeightCount: preview.data.bodyWeights.length,
         waistCount: preview.data.waistEntries.length,
+        recoveryCount: Object.values(preview.data.days).filter((day) => Boolean(day.recovery)).length,
         templateCount: preview.data.templates?.length ?? 0,
         exportedAt: preview.exportedAt,
         version: preview.version,
@@ -92,8 +94,9 @@ export default function DataManagement() {
       </h2>
 
       <div className="control-card space-y-2 p-3">
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           <ArchiveMetric label={tr("日志")} value={String(filledDayCount)} />
+          <ArchiveMetric label={tr("状态")} value={String(Object.values(data.days).filter((day) => Boolean(day.recovery)).length)} />
           <ArchiveMetric label={tr("体重")} value={String(data.bodyWeights.length)} />
           <ArchiveMetric label={tr("腰围")} value={String(data.waistEntries.length)} />
           <ArchiveMetric label={tr("模板")} value={String(data.templates?.length ?? 0)} />
@@ -251,11 +254,12 @@ export default function DataManagement() {
             <p className="tnum mt-0.5 px-1 text-[12px] text-accent/80">
               {tr("当前 {a} 天记录 → 替换为备份的 {b} 天", { a: currentDayCount, b: pendingImport.dayCount })}
             </p>
-            <div className="mt-2 grid grid-cols-4 gap-1.5">
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
               <ImportMetric label={tr("版本")} value={pendingImport.version ? `v${pendingImport.version}` : "—"} />
               <ImportMetric label={tr("体重")} value={String(pendingImport.bodyWeightCount)} />
               <ImportMetric label={tr("腰围")} value={String(pendingImport.waistCount)} />
               <ImportMetric label={tr("模板")} value={String(pendingImport.templateCount)} />
+              <ImportMetric label={tr("状态")} value={String(pendingImport.recoveryCount)} />
             </div>
             {pendingImport.exportedAt && (
               <p className="tnum mt-1.5 px-1 text-[11px] text-accent/70">
@@ -403,7 +407,7 @@ function downloadBodyCsv(data: AppData) {
 }
 
 function downloadDailyCsv(data: AppData) {
-  const rows: (string | number | undefined | null)[][] = [["date", "calories", "protein", "carbs", "fat", "cardio_minutes", "cardio_modes"]];
+  const rows: (string | number | undefined | null)[][] = [["date", "calories", "protein", "carbs", "fat", "cardio_minutes", "cardio_modes", "sleep_hours", "sleep_quality", "energy", "soreness", "stress", "recovery_logged_at"]];
   Object.keys(data.days).sort().forEach((date) => {
     const day = data.days[date];
     rows.push([
@@ -414,6 +418,12 @@ function downloadDailyCsv(data: AppData) {
       day.nutrition?.fat,
       (day.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0),
       (day.cardio ?? []).map((entry) => entry.mode).join(" / "),
+      day.recovery?.sleepHours,
+      day.recovery?.sleepQuality,
+      day.recovery?.energy,
+      day.recovery?.soreness,
+      day.recovery?.stress,
+      day.recovery?.at,
     ]);
   });
   downloadCsv(`fitlog-daily-${dateStamp()}.csv`, rows);

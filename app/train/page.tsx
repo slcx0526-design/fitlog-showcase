@@ -20,6 +20,7 @@ import MidnightSessionDeck from "@/components/MidnightSessionDeck";
 import SurvivalSessionGuide from "@/components/SurvivalSessionGuide";
 import LiteSessionGuide from "@/components/LiteSessionGuide";
 import CycleReviewPanel from "@/components/CycleReviewPanel";
+import IntegratedCoachBrief from "@/components/IntegratedCoachBrief";
 
 const START_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 
@@ -76,6 +77,7 @@ function TrainInner() {
       </div>
       <CycleReviewPanel />
     </div> : <>
+      {!isPast && <IntegratedCoachBrief compact showAction={false} />}
       {!isPast && (mode === "pulse" ? <PulseSessionConsole /> : mode === "midnight" ? <MidnightSessionDeck /> : mode === "survival" ? <SurvivalSessionGuide /> : <LiteSessionGuide />)}
       <SessionVolumePlan date={date} workout={workout} />
       <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />

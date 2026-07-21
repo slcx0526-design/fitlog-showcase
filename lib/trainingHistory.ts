@@ -89,7 +89,8 @@ export function dayHasLogContent(day: DayLog | undefined) {
     day.nutrition.calories > 0 || day.nutrition.protein > 0 || day.nutrition.carbs > 0 || day.nutrition.fat > 0
   ));
   const hasCardio = Boolean(day.cardio?.some((entry) => entry.minutes > 0));
-  return hasWorkout || hasNutrition || hasCardio;
+  const hasRecovery = Boolean(day.recovery);
+  return hasWorkout || hasNutrition || hasCardio || hasRecovery;
 }
 
 export function daySearchText(day: DayLog | undefined) {
@@ -117,7 +118,10 @@ export function daySearchText(day: DayLog | undefined) {
   const nutritionText = day.nutrition
     ? [day.nutrition.calories, day.nutrition.protein, day.nutrition.carbs, day.nutrition.fat]
     : [];
-  return [day.date, ...workoutText, ...cardioText, ...nutritionText]
+  const recoveryText = day.recovery
+    ? ["recovery 状态 恢复", day.recovery.sleepHours, day.recovery.sleepQuality, day.recovery.energy, day.recovery.soreness, day.recovery.stress]
+    : [];
+  return [day.date, ...workoutText, ...cardioText, ...nutritionText, ...recoveryText]
     .filter((value) => value != null)
     .join(" ")
     .toLowerCase();

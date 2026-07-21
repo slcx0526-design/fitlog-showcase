@@ -14,6 +14,8 @@ import type {
   RecordMode,
   ProgressionPlanSnapshot,
   ProgressionPrescription,
+  RecoveryCheckIn,
+  RecoveryRating,
   Schedule,
   SetRecord,
   Template,
@@ -35,7 +37,7 @@ export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -109,6 +111,33 @@ function parseNutrition(input: unknown): NutritionLog | undefined {
   if (typeof value.calories !== "number" || !Number.isFinite(value.calories) || value.calories < 0 || value.calories > 20_000) return undefined;
   const macro = (field: "protein" | "carbs" | "fat") => typeof value[field] === "number" && Number.isFinite(value[field]) && value[field] >= 0 && value[field] <= 2_000 ? value[field] : 0;
   return { calories: value.calories, protein: macro("protein"), carbs: macro("carbs"), fat: macro("fat") };
+}
+
+function parseRecoveryRating(input: unknown): RecoveryRating | undefined {
+  return typeof input === "number" && Number.isInteger(input) && input >= 1 && input <= 5
+    ? input as RecoveryRating
+    : undefined;
+}
+
+function parseRecovery(input: unknown): RecoveryCheckIn | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  const sleepHours = typeof value.sleepHours === "number" && Number.isFinite(value.sleepHours) && value.sleepHours >= 0.5 && value.sleepHours <= 16
+    ? Math.round(value.sleepHours * 10) / 10
+    : undefined;
+  const sleepQuality = parseRecoveryRating(value.sleepQuality);
+  const energy = parseRecoveryRating(value.energy);
+  const soreness = parseRecoveryRating(value.soreness);
+  const stress = parseRecoveryRating(value.stress);
+  if (sleepHours == null && sleepQuality == null && energy == null && soreness == null && stress == null) return undefined;
+  return {
+    ...(sleepHours != null ? { sleepHours } : {}),
+    ...(sleepQuality != null ? { sleepQuality } : {}),
+    ...(energy != null ? { energy } : {}),
+    ...(soreness != null ? { soreness } : {}),
+    ...(stress != null ? { stress } : {}),
+    ...(typeof value.at === "string" && value.at ? { at: value.at } : {}),
+  };
 }
 
 function parseCardio(input: unknown, date: string, index: number): CardioEntry | null {
@@ -323,6 +352,8 @@ export function normalizeData(input: unknown): AppData {
       }
       const nutrition = parseNutrition(day.nutrition);
       if (nutrition) next.nutrition = nutrition;
+      const recovery = parseRecovery(day.recovery);
+      if (recovery) next.recovery = recovery;
       if (Array.isArray(day.cardio)) {
         const cardio = day.cardio.map((entry, index) => parseCardio(entry, date, index)).filter((entry): entry is CardioEntry => Boolean(entry));
         if (cardio.length) next.cardio = cardio;

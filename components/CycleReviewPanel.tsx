@@ -65,6 +65,10 @@ export default function CycleReviewPanel() {
           <Evidence label={tx(locale, "建议结果", "Suggestion outcomes", "提案結果")} value={review.evidence.suggestionOutcomes ? `${review.evidence.achievedSuggestions}/${review.evidence.suggestionOutcomes}` : "—"} />
           <Evidence label={tx(locale, "整体吃力", "Hard sessions", "きつい回")} value={`${review.evidence.hardSessions}/${review.evidence.difficultySamples}`} />
           <Evidence label={tx(locale, "持续回落", "Regressing", "継続低下")} value={String(review.evidence.regressingExercises)} />
+          {review.evidence.recoveryCheckIns > 0 && <>
+            <Evidence label={tx(locale, "状态记录", "Recovery logs", "状態記録")} value={`${review.evidence.recoveryCheckIns}/7`} />
+            <Evidence label={tx(locale, "状态指数", "Recovery score", "状態指数")} value={review.evidence.recoveryScore == null ? "—" : String(review.evidence.recoveryScore)} />
+          </>}
         </div>
 
         <div className="mt-3 rounded-lg bg-surface-2 p-2.5">

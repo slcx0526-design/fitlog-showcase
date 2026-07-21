@@ -12,6 +12,7 @@ import {
 } from "./microcycle";
 import { normalizeTemplateItemPrescription } from "./prescription";
 import { evaluateProgressionOutcome } from "./trainingExecution";
+import { summarizeRecovery } from "./recovery";
 import { buildTrainingAnalysis } from "./trainingAnalysis";
 import {
   buildTrainingDecision,
@@ -44,6 +45,8 @@ export interface CycleReviewEvidence {
   partialSuggestions: number;
   missedSuggestions: number;
   queuedTemplateChanges: number;
+  recoveryCheckIns: number;
+  recoveryScore: number | null;
 }
 
 export interface CycleReview {
@@ -147,6 +150,7 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
   const id = `cycle-review:${sourceMicrocycleId}`;
   const progress = currentMicrocycleProgress(data, today);
   const analysis = buildTrainingAnalysis(data, today);
+  const recovery = summarizeRecovery(data.days, today);
   const outcomes = cycleSuggestionOutcomes(data, sourceMicrocycleId);
   const alreadyApplied = data.lastCycleReview?.id === id;
   const ready = Boolean(
@@ -155,17 +159,23 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
       && !analysis.unclosed
       && !alreadyApplied,
   );
+  const subjectiveRecoverySupport = recovery.sustainedLow && (
+    analysis.load.hardSessions >= 2
+    || analysis.recovery.regressingExercises > 0
+    || analysis.recovery.overTargetMuscles > 0
+  );
+  const recoveryActive = analysis.recovery.active || subjectiveRecoverySupport;
   const recommendedPhase: TrainingCyclePhase = sourcePhase === "deload"
     ? "build"
-    : analysis.recovery.active ? "deload" : "build";
+    : recoveryActive ? "deload" : "build";
   const recommendationReason = sourcePhase === "deload"
     ? "deloadComplete"
-    : analysis.recovery.active ? "recoveryEvidence" : "continueBuild";
+    : recoveryActive ? "recoveryEvidence" : "continueBuild";
 
   let changes: CycleReviewTemplateChange[] = [];
   if (ready && sourcePhase !== "deload") {
     const decision = buildTrainingDecision(data, today, "review");
-    const suppressAdditions = analysis.recovery.active
+    const suppressAdditions = recoveryActive
       || Boolean(analysis.weakTemplate)
       || (outcomes.missed >= 2 && outcomes.missed > outcomes.achieved);
     const actions = decision.actions
@@ -196,6 +206,8 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
       partialSuggestions: outcomes.partial,
       missedSuggestions: outcomes.missed,
       queuedTemplateChanges: queuedTemplateChangeCount(data),
+      recoveryCheckIns: recovery.scoredDays7d,
+      recoveryScore: recovery.average7d,
     },
   };
 }

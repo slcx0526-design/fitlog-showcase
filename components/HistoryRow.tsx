@@ -12,6 +12,7 @@ import { workoutLogState, type WorkoutLogState } from "@/lib/trainingHistory";
 import { zoneMeta } from "@/lib/hr";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
+import { scoreRecoveryCheckIn } from "@/lib/recovery";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
@@ -51,6 +52,8 @@ export default function HistoryRow({ date, day }: { date: string; day: DayLog | 
   const cardio = day?.cardio ?? [];
   const cardioMin = cardio.reduce((sum, entry) => sum + entry.minutes, 0);
   const hasCardio = cardioMin > 0;
+  const recoveryScore = scoreRecoveryCheckIn(day?.recovery, date);
+  const hasRecovery = Boolean(day?.recovery);
   const visibleExercises = workout?.exercises.filter((exercise) => exercise.sets.some(hasSetPerformance)) ?? [];
   const { md } = formatCompact(date, locale);
 
@@ -61,7 +64,7 @@ export default function HistoryRow({ date, day }: { date: string; day: DayLog | 
         {isRest ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">{tx(locale, "休息", "Rest", "休息")}</span> : hasTrainingWork ? <>
           <span className="shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{tr(typeLabel(workout!.type))}</span>
           <span className="tnum min-w-0 truncate text-[11px] text-faint">{execution.plannedSets ? `${formatSetCredit(execution.planCredits)}/${execution.plannedSets}` : formatSetCredit(execution.completionCredits)} {tx(locale, "组", "sets", "セット")}</span>
-        </> : hasWorkout ? <span className="truncate text-[12px] text-faint">{tx(locale, "训练草稿", "Workout draft", "トレーニング下書き")}</span> : <span className="tnum truncate text-[11px] text-muted">{[hasCardio ? tx(locale, `有氧 ${cardioMin}′`, `Cardio ${cardioMin}′`, `有酸素 ${cardioMin}′`) : "", hasNutrition ? `${kcal} kcal` : ""].filter(Boolean).join(" · ")}</span>}
+        </> : hasWorkout ? <span className="truncate text-[12px] text-faint">{tx(locale, "训练草稿", "Workout draft", "トレーニング下書き")}</span> : <span className="tnum truncate text-[11px] text-muted">{[hasCardio ? tx(locale, `有氧 ${cardioMin}′`, `Cardio ${cardioMin}′`, `有酸素 ${cardioMin}′`) : "", hasNutrition ? `${kcal} kcal` : "", recoveryScore ? tx(locale, `状态 ${recoveryScore.score}`, `Recovery ${recoveryScore.score}`, `状態 ${recoveryScore.score}`) : ""].filter(Boolean).join(" · ")}</span>}
         {(hasNutrition || hasCardio) && <span className="tnum ml-auto hidden shrink-0 items-center gap-2 text-[11px] text-muted min-[420px]:flex">{hasCardio && <span>{tx(locale, `有氧 ${cardioMin}′`, `Cardio ${cardioMin}′`, `有酸素 ${cardioMin}′`)}</span>}{hasNutrition && <span>{kcal} kcal</span>}</span>}
       </div>
       {state && <StateBadge state={state} locale={locale} />}
@@ -85,6 +88,7 @@ export default function HistoryRow({ date, day }: { date: string; day: DayLog | 
         </div>) : <p className="text-[11px] text-faint">{tx(locale, "还没有有效组记录。", "No valid set has been logged yet.", "有効なセット記録はまだありません。")}</p>}
       </div>}
       {hasNutrition && day?.nutrition && <div className="control-strip tnum flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-3 py-2 text-[12px]"><span className="text-fg">{day.nutrition.calories} kcal</span><span className="text-muted">P {day.nutrition.protein}</span><span className="text-muted">C {day.nutrition.carbs}</span><span className="text-muted">F {day.nutrition.fat}</span></div>}
+      {hasRecovery && day?.recovery && <div className="control-strip flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-3 py-2 text-[11px]"><span className="font-semibold text-fg">{tx(locale, "状态", "Recovery", "状態")} {recoveryScore?.score ?? "—"}</span>{day.recovery.sleepHours != null && <span className="tnum text-muted">{tx(locale, "睡眠", "Sleep", "睡眠")} {day.recovery.sleepHours}h</span>}{day.recovery.energy != null && <span className="tnum text-muted">{tx(locale, "精力", "Energy", "活力")} {day.recovery.energy}/5</span>}{day.recovery.soreness != null && <span className="tnum text-muted">{tx(locale, "酸痛", "Soreness", "筋肉痛")} {day.recovery.soreness}/5</span>}{day.recovery.stress != null && <span className="tnum text-muted">{tx(locale, "压力", "Stress", "ストレス")} {day.recovery.stress}/5</span>}</div>}
       {hasCardio && <div className="control-strip space-y-1.5 rounded-xl p-3">{cardio.map((entry) => <div key={entry.id} className="soft-divider flex flex-wrap items-baseline gap-2 border-t pt-1.5 first:border-t-0 first:pt-0"><span className="text-[13px] text-fg">{tr(entry.mode)}</span><span className="tnum text-[12px] text-muted">{entry.minutes}′</span>{entry.zone && <span className="tnum rounded bg-accent-soft px-1.5 text-[11px] font-bold text-accent">Z{entry.zone} {tr(zoneMeta(entry.zone).zh)}</span>}{entry.avgHR && <span className="tnum ml-auto text-[11px] text-faint">{entry.avgHR} bpm</span>}{entry.note && <p className="w-full break-words text-[10px] text-faint">{entry.note}</p>}</div>)}</div>}
       <div className="grid grid-cols-3 gap-2"><EditLink href={`/train?date=${date}`} label={tx(locale, isRest || hasTrainingWork ? "改训练" : "补记训练", isRest || hasTrainingWork ? "Edit training" : "Add training", isRest || hasTrainingWork ? "トレーニング編集" : "トレーニング追記")} /><EditLink href={`/nutrition?date=${date}`} label={tx(locale, hasNutrition ? "改饮食" : "补记饮食", hasNutrition ? "Edit nutrition" : "Add nutrition", hasNutrition ? "食事編集" : "食事追記")} /><EditLink href={`/cardio?date=${date}`} label={tx(locale, hasCardio ? "改有氧" : "补记有氧", hasCardio ? "Edit cardio" : "Add cardio", hasCardio ? "有酸素編集" : "有酸素追記")} /></div>
     </div>}

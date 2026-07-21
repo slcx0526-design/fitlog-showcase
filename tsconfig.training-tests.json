@@ -21,6 +21,8 @@
     "lib/cutCoach.ts",
     "lib/trainingDecision.ts",
     "lib/trainingAnalysis.ts",
+    "lib/recovery.ts",
+    "lib/integratedCoach.ts",
     "lib/trainingMetrics.ts",
     "lib/trainingExecution.ts",
     "lib/cyclePlanning.ts",
@@ -35,6 +37,7 @@
     "scripts/training-regression.test.ts",
     "scripts/training-decision.test.ts",
     "scripts/training-analysis.test.ts",
+    "scripts/integrated-coach.test.ts",
     "scripts/cut-system.test.ts"
   ]
 }

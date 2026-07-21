@@ -9,6 +9,7 @@ export type TrainingIntent = "strength" | "hypertrophy" | "endurance" | "custom"
 export type RecordMode = "weight" | "reps" | "rir" | "duration" | "distance";
 export type PerformanceMode = Extract<RecordMode, "reps" | "duration" | "distance">;
 export type SessionDifficulty = "easy" | "onTarget" | "hard";
+export type RecoveryRating = 1 | 2 | 3 | 4 | 5;
 export type ProgressionRule = "doubleProgression" | "repsFirst" | "custom";
 export type ProgressionSuggestionStatus =
   | "addWeight"
@@ -251,6 +252,16 @@ export interface NutritionLog {
   fat: number;
 }
 
+/** Optional subjective signals. Missing fields stay unknown and never count as poor recovery. */
+export interface RecoveryCheckIn {
+  sleepHours?: number;
+  sleepQuality?: RecoveryRating;
+  energy?: RecoveryRating;
+  soreness?: RecoveryRating;
+  stress?: RecoveryRating;
+  at?: string;
+}
+
 /** 心率区间 1–5（Z1 恢复 … Z5 最大） */
 export type Zone = 1 | 2 | 3 | 4 | 5;
 
@@ -277,6 +288,7 @@ export interface DayLog {
   date: string;
   workout?: WorkoutSession;
   nutrition?: NutritionLog;
+  recovery?: RecoveryCheckIn;
   cardio?: CardioEntry[];
   activityEnergy?: ActivityEnergyEntry[];
 }

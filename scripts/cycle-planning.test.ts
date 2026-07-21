@@ -109,6 +109,24 @@ assert.equal(review.changes[0].exerciseId, "bench");
 assert.equal(review.changes[0].fromSets, 4);
 assert.ok(review.changes[0].toSets < 4);
 
+const oneLowCheckInReview = buildCycleReview({
+  ...data,
+  days: { "2026-07-20": { ...data.days["2026-07-20"], recovery: { sleepQuality: 1, energy: 1, soreness: 5, stress: 5 } } },
+}, "2026-07-20");
+assert.equal(oneLowCheckInReview.recommendedPhase, "build", "One low check-in must not switch the whole next cycle to recovery");
+
+const recoverySupportedReview = buildCycleReview({
+  ...data,
+  days: {
+    "2026-07-18": { date: "2026-07-18", recovery: { sleepQuality: 1, energy: 1, soreness: 5, stress: 5 } },
+    "2026-07-19": { date: "2026-07-19", recovery: { sleepQuality: 1, energy: 1, soreness: 5, stress: 5 } },
+    "2026-07-20": { ...data.days["2026-07-20"], recovery: { sleepQuality: 1, energy: 1, soreness: 5, stress: 5 } },
+  },
+}, "2026-07-20");
+assert.equal(recoverySupportedReview.recommendedPhase, "deload", "Sustained low check-ins need a training-side signal before supporting a recovery cycle");
+assert.equal(recoverySupportedReview.evidence.recoveryCheckIns, 3);
+assert.equal(recoverySupportedReview.evidence.recoveryScore, 0);
+
 const alreadyQueuedData: AppData = {
   ...data,
   templates: [{

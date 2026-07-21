@@ -16,6 +16,7 @@ import WeeklyAverageCard from "./WeeklyAverageCard";
 import BodyFatEstimateCard from "./BodyFatEstimateCard";
 import BodyFatTrendChart from "./BodyFatTrendChart";
 import HistoryRow from "./HistoryRow";
+import IntegratedCoachBrief from "./IntegratedCoachBrief";
 import { haptic } from "@/lib/feedback";
 import { useToast } from "@/lib/toast";
 import type { DayLog, SetRecord, TrainingType } from "@/lib/types";
@@ -129,6 +130,7 @@ function TrainingReview() {
   const totalSets = volume.totalDirectSets;
   const recent = Object.entries(data.days).filter(([, day]) => { const wk=day.workout; return !!wk && (wk.type === "rest" || wk.exercises.some((exercise)=>exercise.sets.length)); }).sort(([a],[b])=>b.localeCompare(a)).slice(0,8);
   return <div className="space-y-4">
+    <IntegratedCoachBrief />
     <section className="grid grid-cols-3 gap-2.5"><StatCard label="直接组" value={String(totalSets)} hint={scope === "microcycle" ? "当前微周期" : scope === "7d" ? "最近 7 天" : "最近 28 天"} /><StatCard label="有效组" value={String(volume.totalEffectiveSets)} hint="按动作贡献" /><StatCard label="训练日" value={String(recent.filter(([date])=>week.includes(date)).length)} hint="本自然周" /></section>
     <ArchiveSummary />
     <section className="control-card p-3.5">
@@ -453,7 +455,8 @@ function dayMatchesQuery(day: DayLog | undefined, query: string) {
   const workoutText = day.workout?.exercises.map((exercise) => `${exercise.name} ${exercise.sets.map((set)=>`${set.weight} ${set.reps}`).join(" ")}`).join(" ") ?? "";
   const cardioText = (day.cardio ?? []).map((entry) => `${entry.mode} ${entry.note ?? ""}`).join(" ");
   const nutritionText = day.nutrition ? `${day.nutrition.calories} ${day.nutrition.protein} ${day.nutrition.carbs} ${day.nutrition.fat}` : "";
-  return `${workoutText} ${cardioText} ${nutritionText}`.toLowerCase().includes(query);
+  const recoveryText = day.recovery ? `状态 恢复 ${day.recovery.sleepHours ?? ""} ${day.recovery.sleepQuality ?? ""} ${day.recovery.energy ?? ""} ${day.recovery.soreness ?? ""} ${day.recovery.stress ?? ""}` : "";
+  return `${workoutText} ${cardioText} ${nutritionText} ${recoveryText}`.toLowerCase().includes(query);
 }
 
 function MetricInput({label,unit,value,onChange,placeholder}:{label:string;unit:string;value:number;onChange:(value:number)=>void;placeholder:string}) { return <label><span className="mb-1 block text-[11px] font-medium text-faint">{label} · {unit}</span><NumberField value={value} onChange={onChange} placeholder={placeholder} ariaLabel={label} allowDecimal className="tnum h-12 w-full rounded-xl border border-border bg-surface-2 px-3 text-center text-[17px] font-semibold text-fg outline-none focus:border-accent" /></label>; }

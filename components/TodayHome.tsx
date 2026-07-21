@@ -18,7 +18,8 @@ import MorningCheckIn from "./MorningCheckIn";
 import PulseDailyBrief from "./PulseDailyBrief";
 import MidnightAmbientStatus from "./MidnightAmbientStatus";
 import SurvivalFieldBoard from "./SurvivalFieldBoard";
-import TrainingDecisionBrief from "./TrainingDecisionBrief";
+import IntegratedCoachBrief from "./IntegratedCoachBrief";
+import RecoveryCheckInCard from "./RecoveryCheckInCard";
 
 type Translate = (zh: string, params?: Record<string, string | number>) => string;
 
@@ -65,12 +66,14 @@ export default function TodayHome() {
 
     {mode === "pulse" ? <PulseDailyBrief /> : mode === "survival" ? <SurvivalFieldBoard /> : <><MidnightAmbientStatus /><MorningCheckIn date={today} /></>}
 
+    <RecoveryCheckInCard date={today} />
+
     <section className={"action-card lite-card mb-3 overflow-hidden rounded-2xl border p-4 shadow-sm " + (workout && !workout.done && workout.type !== "rest" ? "border-accent bg-accent-soft" : "border-border bg-surface")}>
       <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">PRIMARY</p><h2 className="mt-1 text-[25px] font-bold tracking-tight text-fg">{activeType ? tr(typeLabel(activeType)) : tr("训练")}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workout?.done, setCount, !!activeType)}</p></div><span className={"grid h-10 w-10 place-items-center rounded-xl " + (workout?.done ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
       <Link href={workoutHref} className="press mt-4 flex h-12 items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
     </section>
 
-    <TrainingDecisionBrief compact />
+    <IntegratedCoachBrief compact />
 
     <section className="grid grid-cols-2 gap-3">
       <Link href="/nutrition" className="metric-sheen press rounded-2xl border border-border bg-surface p-3.5 shadow-sm"><div className="flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tr("饮食")}</span><MiniArrow /></div><p className="tnum mt-3 text-[24px] font-bold text-fg">{calories || "—"}<span className="ml-1 text-[11px] font-medium text-faint">kcal</span></p><p className="mt-1 text-[11px] text-muted">{calorieDetail}</p></Link>
