@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 
 type BriefStep = { label: string; detail: string; done: boolean; href: string; cta: string };
 

@@ -10,6 +10,9 @@ import type {
   TrainingIntent,
   TrainingType,
 } from "./types";
+import { progressionSets, workingSets } from "./trainingMetrics";
+
+export { hasSetPerformance, progressionSets, workingSets } from "./trainingMetrics";
 
 export type TrackHistoryKind = "same" | "other" | "legacy";
 
@@ -94,10 +97,6 @@ export function performanceModeFor(recordModes: ExercisePreset["recordModes"] | 
   if (recordModes?.includes("duration") && !recordModes.includes("reps")) return "duration";
   if (recordModes?.includes("distance") && !recordModes.includes("reps")) return "distance";
   return "reps";
-}
-
-export function hasSetPerformance(set: SetRecord) {
-  return (set.reps ?? 0) > 0 || (set.durationSeconds ?? 0) > 0 || (set.distanceMeters ?? 0) > 0;
 }
 
 export function performanceValue(set: SetRecord, mode: PerformanceMode = "reps") {
@@ -189,44 +188,83 @@ export function applyPrescriptionSnapshot(
   exercise: Omit<Exercise, "sets"> & { sets?: SetRecord[] },
   prescription: ProgressionPrescription
 ): Exercise {
+  const {
+    planned: _planned,
+    basePlannedSets: _basePlannedSets,
+    progressionTrackId: _progressionTrackId,
+    progressionTrackLabel: _progressionTrackLabel,
+    trainingIntent: _trainingIntent,
+    targetRepMin: _targetRepMin,
+    targetRepMax: _targetRepMax,
+    targetRirMin: _targetRirMin,
+    targetRirMax: _targetRirMax,
+    workingSets: _workingSets,
+    loadIncrementKg: _loadIncrementKg,
+    progressionRule: _progressionRule,
+    ...canonical
+  } = exercise;
   return {
-    ...exercise,
+    ...canonical,
     sets: exercise.sets ?? [],
     prescription,
-    progressionTrackId: prescription.progressionTrackId,
-    progressionTrackLabel: prescription.progressionTrackLabel,
-    trainingIntent: prescription.trainingIntent,
-    targetRepMin: prescription.targetRepMin,
-    targetRepMax: prescription.targetRepMax,
-    targetRirMin: prescription.targetRirMin,
-    targetRirMax: prescription.targetRirMax,
-    workingSets: prescription.workingSets,
-    loadIncrementKg: prescription.loadIncrementKg,
-    progressionRule: prescription.progressionRule,
   };
+}
+
+export function exercisePrescription(exercise: Exercise): ProgressionPrescription {
+  const mode = exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes);
+  if (exercise.prescription) {
+    return { ...exercise.prescription, performanceMode: mode };
+  }
+  const trackId = exercise.progressionTrackId ?? legacyTrackId(exercise.id);
+  const intent = exercise.trainingIntent ?? "custom";
+  const targetRepMin = Math.max(1, Math.round(exercise.targetRepMin ?? exercise.planned?.repsLow ?? 8));
+  const targetRepMax = Math.max(targetRepMin, Math.round(exercise.targetRepMax ?? exercise.planned?.repsHigh ?? 12));
+  return {
+    progressionTrackId: trackId,
+    progressionTrackLabel: exercise.progressionTrackLabel ?? (trackId.startsWith("legacy:") ? "旧记录参考" : `${intentLabel(intent)} · ${targetRepMin}–${targetRepMax} 次`),
+    trainingIntent: intent,
+    targetRepMin,
+    targetRepMax,
+    ...(typeof exercise.targetRirMin === "number" ? { targetRirMin: exercise.targetRirMin } : {}),
+    ...(typeof exercise.targetRirMax === "number" ? { targetRirMax: exercise.targetRirMax } : {}),
+    workingSets: Math.max(
+      1,
+      Math.round((exercise.workingSets ?? exercise.planned?.sets ?? workingSets(exercise.sets).length) || 1)
+    ),
+    loadIncrementKg: Math.max(0, exercise.loadIncrementKg ?? (trackId.startsWith("legacy:") ? 0 : 2.5)),
+    progressionRule: exercise.progressionRule ?? (trackId.startsWith("legacy:") ? "custom" : "doubleProgression"),
+    performanceMode: mode,
+  };
+}
+
+export function exerciseTrackId(exercise: Exercise) {
+  return exercisePrescription(exercise).progressionTrackId;
+}
+
+export function exerciseTrackLabel(exercise: Exercise) {
+  return exercisePrescription(exercise).progressionTrackLabel;
 }
 
 export function normalizeExercisePrescription(exercise: Exercise): Exercise {
-  if (exercise.progressionTrackId) {
-    return exercise.prescription
-      ? { ...exercise, prescription: { ...exercise.prescription, performanceMode: exercise.prescription.performanceMode ?? performanceModeFor(exercise.recordModes) } }
-      : exercise;
-  }
-  const trackId = legacyTrackId(exercise.id);
-  return {
-    ...exercise,
-    progressionTrackId: trackId,
-    progressionTrackLabel: "旧记录参考",
-    trainingIntent: "custom",
-    targetRepMin: exercise.planned?.repsLow,
-    targetRepMax: exercise.planned?.repsHigh,
-    prescription: exercise.prescription ? { ...exercise.prescription, performanceMode: exercise.prescription.performanceMode ?? performanceModeFor(exercise.recordModes) } : exercise.prescription,
-  };
+  return applyPrescriptionSnapshot(exercise, exercisePrescription(exercise));
 }
 
-/** Valid work for progression and templates. Warmups, skips and rehab exposure do not advance a strength track. */
-export function workingSets(sets: SetRecord[]) {
-  return sets.filter((set) => set.type !== "warmup" && set.completion !== "skipped" && set.technique !== "rehab" && hasSetPerformance(set));
+export function normalizeTemplateItemPrescription(
+  item: TemplateItem,
+  preset?: ExercisePreset
+): TemplateItem {
+  const prescription = prescriptionFromTemplateItem(item, preset);
+  const {
+    progressionTrackId: _progressionTrackId,
+    progressionTrackLabel: _progressionTrackLabel,
+    trainingIntent: _trainingIntent,
+    targetRirMin: _targetRirMin,
+    targetRirMax: _targetRirMax,
+    loadIncrementKg: _loadIncrementKg,
+    progressionRule: _progressionRule,
+    ...canonical
+  } = item;
+  return { ...canonical, prescription };
 }
 
 export function lastValidWorkingSet(sets: SetRecord[]) {
@@ -234,8 +272,13 @@ export function lastValidWorkingSet(sets: SetRecord[]) {
   return list.at(-1) ?? null;
 }
 
+export function lastProgressionSet(sets: SetRecord[]) {
+  const list = progressionSets(sets);
+  return list.at(-1) ?? null;
+}
+
 export function bestSet(sets: SetRecord[]) {
-  const list = workingSets(sets);
+  const list = progressionSets(sets);
   if (!list.length) return null;
   return list.reduce((winner, set) => {
     const current = estimatedOneRepMax(set) ?? set.durationSeconds ?? set.distanceMeters ?? set.reps;
@@ -262,7 +305,7 @@ export function findTrackHistories(
     const exercise = workout.exercises.find((item) => item.id === exerciseId && workingSets(item.sets).length > 0);
     if (!exercise) continue;
     const normalized = normalizeExercisePrescription(exercise);
-    const track = normalized.progressionTrackId;
+    const track = exerciseTrackId(normalized);
     const row: TrackHistoryResult = { date, exercise: normalized, sets: workingSets(normalized.sets), kind: "other", sessionDifficulty: workout.difficulty };
     if (progressionTrackId && track === progressionTrackId) {
       if (result.same.length < limit) result.same.push({ ...row, kind: "same" });
@@ -297,7 +340,7 @@ export function estimatedOneRepMax(set: SetRecord) {
 }
 
 function historyE1rm(history: TrackHistoryResult) {
-  const values = history.sets.map(estimatedOneRepMax).filter((value): value is number => value != null);
+  const values = progressionSets(history.sets).map(estimatedOneRepMax).filter((value): value is number => value != null);
   return values.length ? Math.max(...values) : null;
 }
 
@@ -332,13 +375,13 @@ export function summarizeExerciseTrackTrends(
       const sets = workingSets(rawExercise.sets);
       if (!sets.length) continue;
       const exercise = normalizeExercisePrescription(rawExercise);
-      const trackId = exercise.progressionTrackId ?? legacyTrackId(exercise.id);
+      const trackId = exerciseTrackId(exercise);
       const key = `${exercise.id}::${trackId}`;
       const group = groups.get(key) ?? {
         exerciseId: exercise.id,
         exerciseName: exercise.name,
         trackId,
-        trackLabel: exercise.progressionTrackLabel ?? "旧记录参考",
+        trackLabel: exerciseTrackLabel(exercise),
         histories: [],
       };
       if (group.histories.length < 8) group.histories.push({ date, exercise, sets, kind: trackId.startsWith("legacy:") ? "legacy" : "same" });
@@ -382,9 +425,8 @@ export function progressionSuggestion(
       condition: `${unit}动作不会自动套用重量`,
     };
   }
-  const sets = workingSets(history.sets);
-  const last = lastValidWorkingSet(sets);
-  if (!last) {
+  const sets = progressionSets(history.sets);
+  if (!sets.length) {
     return {
       nextWeight: null,
       status: "noHistory",
@@ -393,6 +435,7 @@ export function progressionSuggestion(
     };
   }
   const counted = sets.slice(0, prescription.workingSets || sets.length);
+  const last = counted.at(-1)!;
   if (counted.length < prescription.workingSets) {
     const remaining = prescription.workingSets - counted.length;
     return {

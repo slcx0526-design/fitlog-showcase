@@ -10,13 +10,16 @@ import { useI18n, type Locale } from "@/lib/i18n";
 import { formatCompact } from "@/lib/date";
 import {
   analyzeTrackTrend,
+  exercisePrescription,
+  exerciseTrackId,
+  exerciseTrackLabel,
   findTrackHistories,
-  lastValidWorkingSet,
+  lastProgressionSet,
   performanceModeFor,
   progressionSuggestion,
-  workingSets,
   type TrackHistoryResult,
 } from "@/lib/prescription";
+import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 import NumberField from "./NumberField";
 import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
@@ -43,14 +46,18 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const [open, setOpen] = useState(true);
   const [options, setOptions] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const histories = findTrackHistories(data.days, exercise.id, date, exercise.progressionTrackId, 6);
+  const prescription = exercisePrescription(exercise);
+  const trackId = exerciseTrackId(exercise);
+  const trackLabel = exerciseTrackLabel(exercise);
+  const histories = findTrackHistories(data.days, exercise.id, date, trackId, 6);
   const previous = histories.same[0] ?? null;
-  const suggestion = progressionSuggestion(exercise.prescription, previous);
+  const suggestion = progressionSuggestion(prescription, previous);
   const trend = analyzeTrackTrend(histories.same);
-  const performanceMode = exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes);
+  const performanceMode = prescription.performanceMode ?? performanceModeFor(exercise.recordModes);
   const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
   const currentWorking = workingSets(exercise.sets);
-  const carry = lastValidWorkingSet(exercise.sets) ?? previous?.sets.at(-1) ?? null;
+  const plannedSets = plannedWorkingSets(exercise);
+  const carry = lastProgressionSet(exercise.sets) ?? (previous ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
   const entryWeight = acceptedWeight ?? carry?.weight ?? 0;
   const entryReps = acceptedWeight != null ? 0 : carry?.reps ?? 0;
@@ -82,8 +89,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   }
 
   function suggestionText() {
-    if (!exercise.prescription) return "";
-    const { targetRepMin, targetRepMax, loadIncrementKg } = exercise.prescription;
+    const { targetRepMin, targetRepMax, loadIncrementKg } = prescription;
     const targetUnit = performanceMode === "duration" ? tx(locale, "秒", "sec", "秒") : performanceMode === "distance" ? "m" : tx(locale, "次", "reps", "回");
     const prefix = tx(locale, `目标 ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `Target ${targetRepMin}–${targetRepMax} ${targetUnit} · `, `目標 ${targetRepMin}–${targetRepMax} ${targetUnit} · `);
     const message = suggestion.status === "noHistory" ? tx(locale, "当前轨道暂无记录，先记录本次表现", "No history on this track — log this session first", "このトラックには記録がありません。まず今回を記録してください")
@@ -102,8 +108,8 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
         <p className="truncate text-[15px] font-semibold text-fg">{tr(exercise.name)}</p>
         <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
           {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
-          {exercise.progressionTrackLabel && <Chip label={tr(exercise.progressionTrackLabel)} accent />}
-          {exercise.planned && <Chip label={tx(locale, `计划 ${exercise.planned.sets} 组`, `Plan ${exercise.planned.sets} sets`, `予定 ${exercise.planned.sets} セット`)} />}
+          <Chip label={tr(trackLabel)} accent />
+          <Chip label={tx(locale, `计划 ${plannedSets} 组`, `Plan ${plannedSets} sets`, `予定 ${plannedSets} セット`)} />
           {currentWorking.length > 0 && <span className="tnum text-faint">{currentWorking.length} {setUnit}</span>}
         </div>
       </button>
@@ -119,7 +125,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
 
     <div className="border-t border-border px-3.5 py-2.5">
       <p className="text-[11px] text-faint">{previous ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`) : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
-      {exercise.prescription && <p className="mt-1 text-[10px] text-muted">{suggestionText()}</p>}
+      <p className="mt-1 text-[10px] text-muted">{suggestionText()}</p>
       {trend.sessionCount >= 2 && <p className="mt-1 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {trend.latestE1rm != null ? `e1RM ${trend.latestE1rm}kg` : "—"} · {trend.message}</p>}
       {acceptedWeight != null && <div className="mt-2 flex items-center justify-between rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} · <b>{acceptedWeight}kg</b></span><button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press font-semibold">{tx(locale, "清除", "Clear", "解除")}</button></div>}
       {currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
@@ -155,7 +161,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
 
 function HistoryRows({ title, rows, locale, showTrack = false }: { title: string; rows: TrackHistoryResult[]; locale: Locale; showTrack?: boolean }) {
   if (!rows.length) return null;
-  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${row.exercise.progressionTrackId}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack && row.exercise.progressionTrackLabel ? ` · ${row.exercise.progressionTrackLabel}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, row.exercise.prescription?.performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
+  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${exerciseTrackId(row.exercise)}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack ? ` · ${exerciseTrackLabel(row.exercise)}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, exercisePrescription(row.exercise).performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
 }
 
 function Chip({ label, accent = false }: { label: string; accent?: boolean }) {

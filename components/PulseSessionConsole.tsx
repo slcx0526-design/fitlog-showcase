@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
 import { pulseFeedback } from "@/lib/feedback";
-import { workingSets } from "@/lib/prescription";
+import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 
 function validWorkingSets(sets: Parameters<typeof workingSets>[0]) { return workingSets(sets).length; }
 function mmss(seconds: number) { const safe = Math.max(0, seconds); return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`; }
@@ -16,9 +16,9 @@ export default function PulseSessionConsole() {
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null); const [now, setNow] = useState(() => Date.now());
   const workout = data.days[today]?.workout;
   const summary = useMemo(() => {
-    const exercises = workout?.exercises ?? []; const completed = exercises.reduce((sum, exercise) => sum + validWorkingSets(exercise.sets), 0); const planned = exercises.reduce((sum, exercise) => sum + (exercise.planned?.sets ?? exercise.workingSets ?? 0), 0);
-    const next = exercises.find((exercise) => { const goal = exercise.planned?.sets ?? exercise.workingSets ?? 0; return goal > 0 && validWorkingSets(exercise.sets) < goal; }) ?? exercises.find((exercise) => validWorkingSets(exercise.sets) === 0) ?? exercises[0];
-    return { completed, planned, next, nextGoal: next?.planned?.sets ?? next?.workingSets ?? 0, nextDone: next ? validWorkingSets(next.sets) : 0 };
+    const exercises = workout?.exercises ?? []; const completed = exercises.reduce((sum, exercise) => sum + validWorkingSets(exercise.sets), 0); const planned = exercises.reduce((sum, exercise) => sum + plannedWorkingSets(exercise), 0);
+    const next = exercises.find((exercise) => { const goal = plannedWorkingSets(exercise); return goal > 0 && validWorkingSets(exercise.sets) < goal; }) ?? exercises.find((exercise) => validWorkingSets(exercise.sets) === 0) ?? exercises[0];
+    return { completed, planned, next, nextGoal: next ? plannedWorkingSets(next) : 0, nextDone: next ? validWorkingSets(next.sets) : 0 };
   }, [workout]);
   useEffect(() => { if (!restEndsAt) return; const tick = window.setInterval(() => setNow(Date.now()), 250); return () => window.clearInterval(tick); }, [restEndsAt]);
   const restSeconds = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - now) / 1000)) : 0;

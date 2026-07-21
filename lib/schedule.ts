@@ -1,6 +1,6 @@
 import type { DayLog, Schedule, TrainingType } from "./types";
 import { addDaysKey, todayKey } from "./date";
-import { workingSets } from "./prescription";
+import { workingSets } from "./trainingMetrics";
 
 // 计划：0=周一 ... 6=周日
 export const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];

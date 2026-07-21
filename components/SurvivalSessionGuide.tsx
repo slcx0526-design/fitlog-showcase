@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
 import { pulseFeedback } from "@/lib/feedback";
-import { workingSets } from "@/lib/prescription";
+import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 
 function workSets(sets: Parameters<typeof workingSets>[0]) {
   return workingSets(sets).length;
@@ -30,13 +30,13 @@ export default function SurvivalSessionGuide() {
   const current = useMemo(() => {
     const exercises = workout?.exercises ?? [];
     const done = exercises.reduce((count, exercise) => count + workSets(exercise.sets), 0);
-    const planned = exercises.reduce((count, exercise) => count + (exercise.planned?.sets ?? exercise.workingSets ?? 0), 0);
+    const planned = exercises.reduce((count, exercise) => count + plannedWorkingSets(exercise), 0);
     const next = exercises.find((exercise) => {
-      const target = exercise.planned?.sets ?? exercise.workingSets ?? 0;
+      const target = plannedWorkingSets(exercise);
       return target > 0 && workSets(exercise.sets) < target;
     }) ?? exercises.find((exercise) => workSets(exercise.sets) === 0) ?? exercises[0];
     const nextDone = next ? workSets(next.sets) : 0;
-    const nextTarget = next?.planned?.sets ?? next?.workingSets ?? 0;
+    const nextTarget = next ? plannedWorkingSets(next) : 0;
     return { done, planned, next, nextDone, nextTarget };
   }, [workout]);
 

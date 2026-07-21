@@ -1,5 +1,6 @@
 import type {
   ActivityEnergyEntry,
+  AppData,
   BackupData,
   BodyWeightEntry,
   CardioEntry,
@@ -23,24 +24,13 @@ import type {
 import { fromKey, todayKey, toKey } from "./date";
 import { assignHistoricalMicrocycles, defaultMicrocycle, microcyclePatternFor } from "./microcycle";
 import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
-import { normalizeExercisePrescription } from "./prescription";
+import { DEFAULT_EXERCISES } from "./exercises";
+import { normalizeExercisePrescription, normalizeTemplateItemPrescription } from "./prescription";
+
+export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
-export const SCHEMA_VERSION = 10;
-
-export interface AppData {
-  days: Record<string, DayLog>;
-  bodyWeights: BodyWeightEntry[];
-  waistEntries: WaistEntry[];
-  cutPlan?: CutPlan;
-  customExercises: ExercisePreset[];
-  schedule: Schedule;
-  profile?: Profile;
-  templates?: Template[];
-  muscleTargets?: import("./types").MuscleTargetMap;
-  microcycle?: import("./types").MicrocycleState;
-  lastBackupAt?: string;
-}
+export const SCHEMA_VERSION = 11;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -93,6 +83,19 @@ function uniqueByDate<T extends { date: string }>(entries: T[]) {
   return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function uniqueId(candidate: string, prefix: string, used: Set<string>) {
+  const base = candidate.trim() || prefix;
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let index = 2;
+  while (used.has(`${base}_${index}`)) index += 1;
+  const id = `${base}_${index}`;
+  used.add(id);
+  return id;
+}
+
 function parsePrescription(input: unknown): ProgressionPrescription | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
@@ -120,10 +123,13 @@ function parseSet(input: unknown): SetRecord | null {
   const value = input as Record<string, unknown>;
   const validWeight = typeof value.weight === "number" && Number.isFinite(value.weight);
   const validReps = typeof value.reps === "number" && Number.isFinite(value.reps);
-  const durationSeconds = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) && value.durationSeconds >= 0 ? value.durationSeconds : undefined;
-  const distanceMeters = typeof value.distanceMeters === "number" && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0 ? value.distanceMeters : undefined;
+  const durationSeconds = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) && value.durationSeconds >= 0 ? Math.round(value.durationSeconds) : undefined;
+  const distanceMeters = typeof value.distanceMeters === "number" && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0 ? Math.round(value.distanceMeters * 100) / 100 : undefined;
   if ((!validWeight || !validReps) && durationSeconds == null && distanceMeters == null) return null;
-  const set: SetRecord = { weight: validWeight ? value.weight as number : 0, reps: validReps ? value.reps as number : 0 };
+  const set: SetRecord = {
+    weight: validWeight ? Math.max(0, Math.round((value.weight as number) * 100) / 100) : 0,
+    reps: validReps ? Math.max(0, Math.round(value.reps as number)) : 0,
+  };
   if (durationSeconds != null) set.durationSeconds = durationSeconds;
   if (distanceMeters != null) set.distanceMeters = distanceMeters;
   if (typeof value.rir === "number" && value.rir >= 0 && value.rir <= 10) set.rir = value.rir;
@@ -170,7 +176,7 @@ export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? normalize(JSON.parse(raw)) : emptyData();
+    return raw ? normalizeData(JSON.parse(raw)) : emptyData();
   } catch { return emptyData(); }
 }
 
@@ -180,7 +186,7 @@ export function saveData(data: AppData): void {
   catch (error) { console.warn("保存失败：", error); }
 }
 
-function normalize(input: unknown): AppData {
+export function normalizeData(input: unknown): AppData {
   const out = emptyData();
   if (!input || typeof input !== "object") return out;
   const obj = input as Record<string, unknown>;
@@ -255,7 +261,13 @@ function normalize(input: unknown): AppData {
     if (Object.keys(plan).length) out.cutPlan = plan;
   }
 
-  if (Array.isArray(obj.customExercises)) out.customExercises = obj.customExercises.map(parseCustomExercise).filter((entry): entry is ExercisePreset => Boolean(entry));
+  if (Array.isArray(obj.customExercises)) {
+    const usedExerciseIds = new Set(DEFAULT_EXERCISES.map((exercise) => exercise.id));
+    out.customExercises = obj.customExercises
+      .map(parseCustomExercise)
+      .filter((entry): entry is ExercisePreset => Boolean(entry))
+      .map((entry) => ({ ...entry, id: uniqueId(entry.id, "cx_imported", usedExerciseIds) }));
+  }
   if (obj.schedule && typeof obj.schedule === "object" && Array.isArray((obj.schedule as Schedule).split) && (obj.schedule as Schedule).split.length === 7) {
     const rawSchedule = obj.schedule as Schedule;
     const split = rawSchedule.split.map((type) => VALID_TYPES.includes(type as TrainingType) ? type as TrainingType : "") as (TrainingType | "")[];
@@ -281,7 +293,9 @@ function normalize(input: unknown): AppData {
     if (Object.keys(profile).length) out.profile = profile;
   }
 
-  const templateId = () => `tpl_${Math.random().toString(36).slice(2, 10)}`;
+  const presetById = new Map(
+    [...DEFAULT_EXERCISES, ...out.customExercises].map((preset) => [preset.id, preset])
+  );
   const parseItem = (input: unknown): TemplateItem | null => {
     if (!input || typeof input !== "object") return null;
     const value = input as Record<string, unknown>;
@@ -301,9 +315,11 @@ function normalize(input: unknown): AppData {
     const targetMax = performanceMode === "duration" ? 3_600 : performanceMode === "distance" ? 100_000 : 40;
     low = Math.min(targetMax, Math.max(1, Math.round(low)));
     high = Math.min(targetMax, Math.max(low, Math.round(high)));
-    return {
+    const item: TemplateItem = {
       exerciseId: value.exerciseId,
-      name: typeof value.name === "string" ? value.name : "",
+      name: typeof value.name === "string" && value.name.trim()
+        ? value.name.trim()
+        : presetById.get(value.exerciseId)?.name ?? "动作",
       sets: typeof value.sets === "number" && value.sets >= 1 && value.sets <= 12 ? Math.round(value.sets) : 3,
       repsLow: low,
       repsHigh: high,
@@ -318,15 +334,20 @@ function normalize(input: unknown): AppData {
       ...(value.progressionRule === "doubleProgression" || value.progressionRule === "repsFirst" || value.progressionRule === "custom" ? { progressionRule: value.progressionRule } : {}),
       ...(recordModes ? { recordModes } : {}),
     };
+    return normalizeTemplateItemPrescription(item, presetById.get(item.exerciseId));
   };
 
   if (Array.isArray(obj.templates)) {
     const templates: Template[] = [];
+    const usedTemplateIds = new Set<string>();
     for (const rawTemplate of obj.templates) {
       if (!rawTemplate || typeof rawTemplate !== "object") continue;
       const value = rawTemplate as Record<string, unknown>;
       if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
-      templates.push({ id: typeof value.id === "string" && value.id ? value.id : templateId(), name: typeof value.name === "string" ? value.name : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
+      const candidate = typeof value.id === "string" && value.id
+        ? value.id
+        : `tpl_imported_${templates.length + 1}`;
+      templates.push({ id: uniqueId(candidate, "tpl_imported", usedTemplateIds), name: typeof value.name === "string" ? value.name : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
     }
     if (templates.length) out.templates = templates;
   } else if (obj.templates && typeof obj.templates === "object") {
@@ -335,7 +356,7 @@ function normalize(input: unknown): AppData {
     const templates = (Object.keys(meta) as TemplateSlot[]).flatMap((slot) => {
       const source = rawTemplates[slot];
       const items = Array.isArray(source) ? source.map(parseItem).filter((item): item is TemplateItem => !!item) : [];
-      return items.length ? [{ id: templateId(), name: meta[slot].name, type: meta[slot].type, items }] : [];
+      return items.length ? [{ id: `tpl_legacy_${slot}`, name: meta[slot].name, type: meta[slot].type, items }] : [];
     });
     if (templates.length) out.templates = templates;
   }
@@ -396,7 +417,8 @@ function normalize(input: unknown): AppData {
 }
 
 export function toBackup(data: AppData): BackupData {
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: data.days, bodyWeights: data.bodyWeights, waistEntries: data.waistEntries, cutPlan: data.cutPlan, customExercises: data.customExercises, schedule: data.schedule, profile: data.profile, templates: data.templates, muscleTargets: data.muscleTargets, microcycle: data.microcycle };
+  const normalized = normalizeData(data);
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle };
 }
 
 export function downloadBackup(data: AppData): void {
@@ -414,11 +436,11 @@ export function downloadBackup(data: AppData): void {
 export function parseBackup(text: string): AppData {
   const parsed = JSON.parse(text);
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
-  return normalize(parsed);
+  return normalizeData(parsed);
 }
 
 export function parseBackupWithMeta(text: string): { data: AppData; exportedAt?: string; version?: number } {
   const parsed = JSON.parse(text) as { app?: unknown; exportedAt?: unknown; version?: unknown };
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
-  return { data: normalize(parsed), exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined, version: typeof parsed.version === "number" ? parsed.version : undefined };
+  return { data: normalizeData(parsed), exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined, version: typeof parsed.version === "number" ? parsed.version : undefined };
 }

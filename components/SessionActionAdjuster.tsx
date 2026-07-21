@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { DEFAULT_EXERCISES } from "@/lib/exercises";
 import { MUSCLE_LABELS } from "@/lib/muscles";
+import { exercisePrescription } from "@/lib/prescription";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
+import { plannedWorkingSets } from "@/lib/trainingMetrics";
 import type { Exercise, ExercisePreset, TrainingType } from "@/lib/types";
 
 export default function SessionActionAdjuster({
@@ -38,7 +40,7 @@ export default function SessionActionAdjuster({
   function replace(source: Exercise, target: ExercisePreset) {
     if (source.sets.length || existingIds.has(target.id)) return;
     removeExercise(date, source.id);
-    addExercise(date, target, { intent: source.trainingIntent ?? "context" });
+    addExercise(date, target, { intent: exercisePrescription(source).trainingIntent });
     setEditingId(null);
     toast.show(`已用 ${target.name} 临时替换 ${source.name}`);
   }
@@ -56,7 +58,7 @@ export default function SessionActionAdjuster({
           const canEdit = exercise.sets.length === 0;
           const editing = editingId === exercise.id;
           return <div key={exercise.id} className="rounded-xl bg-surface-2 px-3 py-2.5">
-            <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><p className="truncate text-[12px] font-semibold text-fg">{exercise.name}</p><p className="mt-0.5 text-[10px] text-faint">计划 {exercise.planned?.sets ?? 0} 组{preset?.primaryMuscle ? ` · ${MUSCLE_LABELS[preset.primaryMuscle]}` : ""}</p></div>{canEdit ? <div className="flex shrink-0 gap-1.5"><button type="button" onClick={() => setEditingId(editing ? null : exercise.id)} className="press rounded-lg bg-surface px-2 py-1.5 text-[11px] font-semibold text-accent">替换</button><button type="button" onClick={() => skip(exercise)} className="press rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] font-semibold text-muted">跳过</button></div> : <span className="shrink-0 text-[10px] font-semibold text-faint">已开始</span>}</div>
+            <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><p className="truncate text-[12px] font-semibold text-fg">{exercise.name}</p><p className="mt-0.5 text-[10px] text-faint">计划 {plannedWorkingSets(exercise)} 组{preset?.primaryMuscle ? ` · ${MUSCLE_LABELS[preset.primaryMuscle]}` : ""}</p></div>{canEdit ? <div className="flex shrink-0 gap-1.5"><button type="button" onClick={() => setEditingId(editing ? null : exercise.id)} className="press rounded-lg bg-surface px-2 py-1.5 text-[11px] font-semibold text-accent">替换</button><button type="button" onClick={() => skip(exercise)} className="press rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] font-semibold text-muted">跳过</button></div> : <span className="shrink-0 text-[10px] font-semibold text-faint">已开始</span>}</div>
             {editing && <div className="soft-divider mt-2 border-t pt-2"><p className="text-[10px] text-faint">优先显示同动作模式或同肌群替代。替换后看上方“本次容量”决定是否补组。</p><div className="mt-2 flex flex-wrap gap-1.5">{alternatives.map((candidate) => <button key={candidate.id} type="button" onClick={() => replace(exercise, candidate)} className="choice-chip press rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] font-semibold text-fg">{candidate.name}</button>)}{alternatives.length === 0 && <p className="text-[11px] text-faint">没有可直接替代的动作，可在下方“添加动作”里选择。</p>}</div></div>}
           </div>;
         })}

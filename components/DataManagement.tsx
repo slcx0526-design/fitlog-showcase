@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { daysAgo } from "@/lib/date";
-import { type AppData, downloadBackup, parseBackupWithMeta } from "@/lib/storage";
+import { SCHEMA_VERSION, type AppData, downloadBackup, parseBackupWithMeta } from "@/lib/storage";
 import { typeLabel } from "@/lib/exercises";
-import { performanceModeFor, workingSets } from "@/lib/prescription";
+import { exerciseTrackId, exerciseTrackLabel, performanceModeFor } from "@/lib/prescription";
+import { inspectDataHealth } from "@/lib/dataHealth";
+import { workingSets } from "@/lib/trainingMetrics";
 
 export default function DataManagement() {
   const { tr, locale } = useI18n();
-  const { exportData, importFromText, clearAll, data } = useStore();
+  const { exportData, importFromText, repairData, clearAll, data } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -29,6 +31,7 @@ export default function DataManagement() {
 
   const lastBackup = daysAgo(data.lastBackupAt, locale);
   const stale = !lastBackup || lastBackup.days >= 30;
+  const health = useMemo(() => inspectDataHealth(data), [data]);
   const currentDayCount = Object.keys(data.days).length;
   const filledDayCount = Object.values(data.days).filter((day) => {
     const sets = day.workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
@@ -135,6 +138,41 @@ export default function DataManagement() {
             <span className="text-[11px] font-semibold uppercase tracking-wider">
               {tr("建议备份")}
             </span>
+          )}
+        </div>
+
+        <div className={"control-strip rounded-xl px-2.5 py-2 " + (health.status === "healthy" ? "bg-surface-2" : "bg-warn-soft")}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className={"text-[12px] font-semibold " + (health.status === "healthy" ? "text-fg" : "text-warn")}>
+                {tr(health.status === "healthy" ? "数据结构正常" : "发现 {n} 项数据需要整理", { n: health.issueCount })}
+              </p>
+              <p className="tnum mt-0.5 truncate text-[10px] text-faint">
+                Schema {SCHEMA_VERSION} · {tr("{n} 次训练", { n: health.totals.trainingSessions })} · {tr("{n} 个有效组", { n: health.totals.workingSets })}
+              </p>
+            </div>
+            {health.status === "attention" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const repaired = repairData();
+                  flash("ok", tr("已整理 {n} 项数据", { n: repaired }));
+                }}
+                className="choice-chip press h-8 shrink-0 border border-border bg-surface px-2.5 text-[11px] font-semibold text-fg"
+              >
+                {tr("自动整理")}
+              </button>
+            )}
+          </div>
+          {health.status === "attention" && (
+            <p className="mt-1 text-[10px] leading-relaxed text-warn">
+              {health.issues.map((issue) => `${tr(issue.label)} ${issue.count}`).join(" · ")}
+            </p>
+          )}
+          {health.totals.legacyTrackExercises > 0 && (
+            <p className="mt-1 text-[10px] text-faint">
+              {tr("保留 {n} 条旧轨道历史作为参考，不参与新轨道自动建议。", { n: health.totals.legacyTrackExercises })}
+            </p>
           )}
         </div>
 
@@ -333,11 +371,11 @@ function downloadTrainingCsv(data: AppData) {
     }
     workout.exercises.forEach((exercise) => {
       if (!exercise.sets.length) {
-        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exercise.progressionTrackId, exercise.progressionTrackLabel, exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), "", "", "", "", "", "", ""]);
+        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exerciseTrackId(exercise), exerciseTrackLabel(exercise), exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), "", "", "", "", "", "", ""]);
         return;
       }
       exercise.sets.forEach((set, index) => {
-        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exercise.progressionTrackId, exercise.progressionTrackLabel, exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), index + 1, set.weight, set.reps, set.durationSeconds, set.distanceMeters, set.completion, set.technique]);
+        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.difficulty, exercise.name, exerciseTrackId(exercise), exerciseTrackLabel(exercise), exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), index + 1, set.weight, set.reps, set.durationSeconds, set.distanceMeters, set.completion, set.technique]);
       });
     });
   });

@@ -5,7 +5,8 @@ import Link from "next/link";
 import type { DayLog, Exercise } from "@/lib/types";
 import { formatCompact, relativeLabel } from "@/lib/date";
 import { typeLabel } from "@/lib/exercises";
-import { hasSetPerformance, performanceModeFor, workingSets } from "@/lib/prescription";
+import { performanceModeFor } from "@/lib/prescription";
+import { hasSetPerformance, workingSets } from "@/lib/trainingMetrics";
 import { zoneMeta } from "@/lib/hr";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 

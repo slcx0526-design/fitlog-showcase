@@ -8,7 +8,8 @@ import { useToast } from "@/lib/toast";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { DEFAULT_EXERCISES, typeHasExercises } from "@/lib/exercises";
 import { isCutModeActive, primeCutTemplateAllocation } from "@/lib/cutMode";
-import { hasSetPerformance, performanceValue, workingSets } from "@/lib/prescription";
+import { exercisePrescription, performanceValue } from "@/lib/prescription";
+import { hasSetPerformance, plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 import { haptic } from "@/lib/feedback";
 import ExerciseCard from "./ExerciseCard";
 import AddExercisePanel from "./AddExercisePanel";
@@ -39,14 +40,31 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const draftIds = exercises.filter((exercise) => !hasEntry(exercise.sets)).map((exercise) => exercise.id);
   const addedIds = useMemo(() => new Set(exercises.map((exercise) => exercise.id)), [exercises]);
   const lockedIds = useMemo(() => new Set(exercises.filter((exercise) => hasEntry(exercise.sets)).map((exercise) => exercise.id)), [exercises]);
-  const plannedSets = exercises.reduce((sum, exercise) => sum + (exercise.planned?.sets ?? 0), 0);
+  const plannedSets = exercises.reduce((sum, exercise) => sum + plannedWorkingSets(exercise), 0);
   const setUnit = tx(locale, "组", "sets", "セット");
 
   function selectType(next: TrainingType) { if (next === type) return; if (recordEntries) { setNextType(next); return; } draftIds.forEach((id) => removeExercise(date, id)); setWorkoutType(date, next); haptic(8); }
   function confirmSwitch() { if (!nextType) return; setWorkoutType(date, nextType); setNextType(null); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
   function saveTemplate() {
     if (!templateType(type)) return;
-    const items: TemplateItem[] = exercises.flatMap((exercise) => { const sets = workingSets(exercise.sets); if (!sets.length) return []; const mode = exercise.prescription?.performanceMode ?? "reps"; const values = sets.map((set) => performanceValue(set, mode)).filter((value) => value > 0); const repsLow = values.length ? Math.min(...values) : exercise.planned?.repsLow ?? 8; const repsHigh = values.length ? Math.max(...values) : exercise.planned?.repsHigh ?? 12; return [{ exerciseId: exercise.id, name: exercise.name, sets: sets.length, repsLow, repsHigh: Math.max(repsLow, repsHigh), recordModes: exercise.recordModes, ...(exercise.prescription ? { prescription: exercise.prescription } : {}), ...(exercise.progressionTrackId ? { progressionTrackId: exercise.progressionTrackId } : {}), ...(exercise.progressionTrackLabel ? { progressionTrackLabel: exercise.progressionTrackLabel } : {}), ...(exercise.trainingIntent ? { trainingIntent: exercise.trainingIntent } : {}), ...(exercise.targetRirMin != null ? { targetRirMin: exercise.targetRirMin } : {}), ...(exercise.targetRirMax != null ? { targetRirMax: exercise.targetRirMax } : {}), ...(exercise.loadIncrementKg != null ? { loadIncrementKg: exercise.loadIncrementKg } : {}), ...(exercise.progressionRule ? { progressionRule: exercise.progressionRule } : {}) }]; });
+    const items: TemplateItem[] = exercises.flatMap((exercise) => {
+      const sets = workingSets(exercise.sets);
+      if (!sets.length) return [];
+      const prescription = exercisePrescription(exercise);
+      const mode = prescription.performanceMode ?? "reps";
+      const values = sets.map((set) => performanceValue(set, mode)).filter((value) => value > 0);
+      const repsLow = values.length ? Math.min(...values) : prescription.targetRepMin;
+      const repsHigh = values.length ? Math.max(...values) : prescription.targetRepMax;
+      return [{
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: sets.length,
+        repsLow,
+        repsHigh: Math.max(repsLow, repsHigh),
+        recordModes: exercise.recordModes,
+        prescription,
+      }];
+    });
     if (!items.length) return;
     const id = createTemplate(type, `${typeName(locale, type)} ${date}`);
     if (!id) { toast.show(tx(locale, "该类型模板已达上限", "Template limit reached for this type", "この種別のテンプレート数が上限です")); return; }

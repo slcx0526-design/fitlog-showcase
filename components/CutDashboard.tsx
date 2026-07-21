@@ -21,7 +21,7 @@ import {
   projectedWeightAtBodyFat,
   suggestedCutVolumeScale,
 } from "@/lib/cutMode";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 
 const ACTIVITY_LEVELS: BaselineActivity[] = ["low", "light", "moderate", "high"];
 const LOSS_PRESETS = [0.25, 0.5, 0.75] as const;

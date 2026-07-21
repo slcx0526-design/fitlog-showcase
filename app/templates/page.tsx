@@ -327,7 +327,7 @@ function TemplateCard({
     const prescription = prescriptionForPreset(p, tpl.type);
     setTemplateItems(tpl.id, [
       ...items,
-      { exerciseId: p.id, name: p.name, sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax, loadIncrementKg: prescription.loadIncrementKg, recordModes: p.recordModes },
+      { exerciseId: p.id, name: p.name, sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax, prescription, recordModes: p.recordModes },
     ]);
   }
 
@@ -426,7 +426,7 @@ function TemplateCard({
                   () => toast.show(tr("复制失败，请手动选择"))
                 )
               }
-              aria-label={tr("复制")}
+              aria-label={tr("复制文字计划")}
               className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-accent"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -444,7 +444,7 @@ function TemplateCard({
             ) : (
               <button type="button"
                 onClick={() => setConfirmDel(true)}
-                aria-label={tr("删除")}
+                aria-label={tr("删除模板")}
                 className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-warn"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -465,7 +465,7 @@ function TemplateCard({
               <div className="flex items-center gap-1.5">
                 <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-fg">{tr(it.name)}</span>
                 <span className="tnum shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-                  {templateItemMode(it) === "duration" ? tr("时长") : templateItemMode(it) === "distance" ? tr("距离") : intentLabel(it.trainingIntent ?? inferIntent(it.repsLow, it.repsHigh))} · {it.repsLow}–{it.repsHigh} {targetUnit(it, tr)}
+                  {templateItemMode(it) === "duration" ? tr("时长") : templateItemMode(it) === "distance" ? tr("距离") : intentLabel(it.prescription?.trainingIntent ?? it.trainingIntent ?? inferIntent(it.repsLow, it.repsHigh))} · {it.repsLow}–{it.repsHigh} {targetUnit(it, tr)}
                 </span>
                 <button type="button" onClick={() => move(idx, -1)} aria-label={tr("上移")} className={"press grid h-8 w-8 place-items-center " + (idx === 0 ? "text-border" : "text-faint")}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M6 11L12 5L18 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -533,7 +533,7 @@ function TemplateCard({
                 </div>}
                 {templateItemMode(it) === "reps" && <div className="flex items-center gap-2">
                   <span className="w-9 shrink-0 text-[12px] text-faint">{tr("加重")}</span>
-                  <Stepper label={tr("加重")} value={it.loadIncrementKg ?? 2.5} min={0} max={10} step={0.5} onChange={(v) => update(idx, { loadIncrementKg: v })} />
+                  <Stepper label={tr("加重")} value={it.prescription?.loadIncrementKg ?? it.loadIncrementKg ?? 2.5} min={0} max={10} step={0.5} onChange={(v) => update(idx, { loadIncrementKg: v })} />
                   <span className="text-[11px] text-faint">kg</span>
                 </div>}
               </div>

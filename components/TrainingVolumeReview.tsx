@@ -10,7 +10,7 @@ import { MUSCLE_LABELS, type MuscleGroup } from "@/lib/muscles";
 import { typeLabel } from "@/lib/exercises";
 import { DEFAULT_CUT_VOLUME_SCALE, isCutModeActive } from "@/lib/cutMode";
 import { currentMicrocycleProgress } from "@/lib/microcycle";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 import NumberField from "./NumberField";
 import ExerciseTrendReview from "./ExerciseTrendReview";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";

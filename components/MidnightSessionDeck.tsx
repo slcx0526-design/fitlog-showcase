@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
 import { pulseFeedback } from "@/lib/feedback";
-import { workingSets } from "@/lib/prescription";
+import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 
 function workingSetCount(sets: Parameters<typeof workingSets>[0]) {
   return workingSets(sets).length;
@@ -33,12 +33,12 @@ export default function MidnightSessionDeck() {
   const session = useMemo(() => {
     const exercises = workout?.exercises ?? [];
     const total = exercises.reduce((sum, exercise) => sum + workingSetCount(exercise.sets), 0);
-    const planned = exercises.reduce((sum, exercise) => sum + (exercise.planned?.sets ?? exercise.workingSets ?? 0), 0);
+    const planned = exercises.reduce((sum, exercise) => sum + plannedWorkingSets(exercise), 0);
     const active = exercises.find((exercise) => {
-      const target = exercise.planned?.sets ?? exercise.workingSets ?? 0;
+      const target = plannedWorkingSets(exercise);
       return target > 0 && workingSetCount(exercise.sets) < target;
     }) ?? exercises.find((exercise) => workingSetCount(exercise.sets) === 0) ?? exercises[0];
-    const activeTarget = active?.planned?.sets ?? active?.workingSets ?? 0;
+    const activeTarget = active ? plannedWorkingSets(active) : 0;
     const activeDone = active ? workingSetCount(active.sets) : 0;
     return { total, planned, active, activeTarget, activeDone };
   }, [workout]);

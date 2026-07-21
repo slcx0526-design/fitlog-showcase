@@ -124,19 +124,31 @@ export interface Exercise {
   secondaryMuscles?: MuscleGroup[];
   volumeContributions?: VolumeContribution[];
   recordModes?: RecordMode[];
+  /** @deprecated Schema <= 10 import compatibility. Canonical targets live in prescription. */
   planned?: { sets: number; repsLow: number; repsHigh: number; rpe?: number };
-  /** Original template working sets before a temporary cut overlay. */
+  /** @deprecated Unused pre-4.2 cut overlay field. */
   basePlannedSets?: number;
+  /** Canonical immutable prescription snapshot for this workout exercise. */
   prescription?: ProgressionPrescription;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionTrackId?: string;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionTrackLabel?: string;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   trainingIntent?: TrainingIntent;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRepMin?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRepMax?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRirMin?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRirMax?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   workingSets?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   loadIncrementKg?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionRule?: ProgressionRule;
   /** Accepted recommendation for this session. It is planning context, not a completed set. */
   plannedLoadKg?: number;
@@ -158,13 +170,21 @@ export interface TemplateItem {
   repsLow: number;
   repsHigh: number;
   rpe?: number;
+  /** Canonical prescription definition. sets/repsLow/repsHigh remain editable template targets. */
   prescription?: ProgressionPrescription;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionTrackId?: string;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionTrackLabel?: string;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   trainingIntent?: TrainingIntent;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRirMin?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   targetRirMax?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   loadIncrementKg?: number;
+  /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
   progressionRule?: ProgressionRule;
   recordModes?: RecordMode[];
 }
@@ -278,9 +298,11 @@ export interface AppData {
   waistEntries: WaistEntry[];
   templates?: Template[];
   customExercises: ExercisePreset[];
-  schedule?: Schedule;
+  schedule: Schedule;
   muscleTargets?: MuscleTargetMap;
   microcycle?: MicrocycleState;
+  /** Local-only backup reminder. Excluded from portable backup payloads. */
+  lastBackupAt?: string;
 }
 
 /** JSON 全量备份格式：与 AppData 同级，避免导出再嵌套一层 data。 */

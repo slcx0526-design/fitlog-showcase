@@ -14,6 +14,8 @@ import ExerciseCard from "./ExerciseCard";
 import AddExercisePanel from "./AddExercisePanel";
 import CutTrainingNotice from "./CutTrainingNotice";
 import { haptic, pulseFeedback } from "@/lib/feedback";
+import { exercisePrescription, performanceValue } from "@/lib/prescription";
+import { plannedWorkingSets, workingSets } from "@/lib/trainingMetrics";
 
 const TYPES: { value: TrainingType; label: string }[] = [
   { value: "push", label: "推" },
@@ -50,40 +52,34 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
   );
   // 有已记录组的动作 —— 不允许从添加面板一键删掉（防止静默丢记录）
   const lockedIds = useMemo(
-    () => new Set(exercises.filter((e) => e.sets.length > 0).map((e) => e.id)),
+    () => new Set(exercises.filter((e) => workingSets(e.sets).length > 0).map((e) => e.id)),
     [exercises]
   );
 
-  const setCount = exercises.reduce((s, e) => s + e.sets.length, 0);
+  const setCount = exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0);
   const mainCount = exercises.filter((exercise) => exercise.isMain).length;
   const emptyCount = exercises.filter((exercise) => exercise.sets.length === 0).length;
-  const plannedSets = exercises.reduce((sum, exercise) => sum + (exercise.planned?.sets ?? 0), 0);
+  const plannedSets = exercises.reduce((sum, exercise) => sum + plannedWorkingSets(exercise), 0);
   const canFinish = type !== undefined && type !== "rest" && setCount > 0;
-  const canSaveTemplate = isTemplateType(type) && exercises.some((e) => e.sets.length > 0);
+  const canSaveTemplate = isTemplateType(type) && exercises.some((exercise) => workingSets(exercise.sets).length > 0);
 
   function saveWorkoutAsTemplate() {
     if (!isTemplateType(type)) return;
     const items: TemplateItem[] = exercises
-      .filter((exercise) => exercise.sets.length > 0)
+      .filter((exercise) => workingSets(exercise.sets).length > 0)
       .map((exercise) => {
-        const reps = exercise.sets.map((set) => set.reps).filter((value) => value > 0);
-        const repsLow = reps.length ? Math.min(...reps) : exercise.planned?.repsLow ?? 8;
-        const repsHigh = reps.length ? Math.max(...reps) : exercise.planned?.repsHigh ?? 12;
+        const sets = workingSets(exercise.sets);
+        const prescription = exercisePrescription(exercise);
+        const values = sets.map((set) => performanceValue(set, prescription.performanceMode ?? "reps")).filter((value) => value > 0);
+        const repsLow = values.length ? Math.min(...values) : prescription.targetRepMin;
+        const repsHigh = values.length ? Math.max(...values) : prescription.targetRepMax;
         return {
           exerciseId: exercise.id,
           name: exercise.name,
-          sets: exercise.sets.length,
+          sets: sets.length,
           repsLow,
           repsHigh: Math.max(repsLow, repsHigh),
-          ...(exercise.prescription ? { prescription: exercise.prescription } : {}),
-          ...(exercise.progressionTrackId ? { progressionTrackId: exercise.progressionTrackId } : {}),
-          ...(exercise.progressionTrackLabel ? { progressionTrackLabel: exercise.progressionTrackLabel } : {}),
-          ...(exercise.trainingIntent ? { trainingIntent: exercise.trainingIntent } : {}),
-          ...(exercise.targetRirMin != null ? { targetRirMin: exercise.targetRirMin } : {}),
-          ...(exercise.targetRirMax != null ? { targetRirMax: exercise.targetRirMax } : {}),
-          ...(exercise.loadIncrementKg != null ? { loadIncrementKg: exercise.loadIncrementKg } : {}),
-          ...(exercise.progressionRule ? { progressionRule: exercise.progressionRule } : {}),
-          ...(exercise.planned?.rpe ? { rpe: exercise.planned.rpe } : {}),
+          prescription,
         };
       });
     if (!items.length) return;

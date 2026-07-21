@@ -1,9 +1,10 @@
 import type { AppData } from "./storage";
-import type { Exercise, TrainingType } from "./types";
+import type { TrainingType } from "./types";
 import type { MuscleGroup } from "./muscles";
 import { DEFAULT_CUT_VOLUME_SCALE, isCutModeActive } from "./cutMode";
 import { currentMicrocycleProgress, microcycleStepHref, shouldAdvanceMicrocycle } from "./microcycle";
-import { hasSetPerformance, summarizeExerciseTrackTrends, workingSets } from "./prescription";
+import { summarizeExerciseTrackTrends } from "./prescription";
+import { isHistoryEligibleWorkout, summarizeWorkoutWork } from "./trainingMetrics";
 import { shiftDate } from "./weight";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "./volume";
 
@@ -43,32 +44,16 @@ export interface TrainingDecision {
   actions: TrainingDecisionAction[];
 }
 
-function completedPlanSets(exercise: Exercise) {
-  return exercise.sets.reduce((sum, set) => {
-    if (set.type === "warmup" || set.completion === "skipped" || set.technique === "rehab" || !hasSetPerformance(set)) return sum;
-    return sum + (set.completion === "partial" ? 0.5 : 1);
-  }, 0);
-}
-
-function plannedSets(exercise: Exercise) {
-  return Math.max(0, exercise.prescription?.workingSets ?? exercise.planned?.sets ?? exercise.workingSets ?? 0);
-}
-
-function validSessionSets(exercises: Exercise[]) {
-  return exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0);
-}
-
 export function recentPlanAdherence(data: AppData, today: string, limit = 4): PlanAdherenceSummary {
   const start = shiftDate(today, -27);
   const sessions = Object.entries(data.days)
-    .filter(([date, day]) => date >= start && date <= today && day.workout?.type !== "rest" && day.workout?.done !== false && validSessionSets(day.workout?.exercises ?? []) > 0)
+    .filter(([date, day]) => date >= start && date <= today && isHistoryEligibleWorkout(day.workout))
     .sort(([a], [b]) => b.localeCompare(a))
     .flatMap(([, day]) => {
-      const exercises = day.workout?.exercises ?? [];
-      const planned = exercises.reduce((sum, exercise) => sum + plannedSets(exercise), 0);
-      if (!planned) return [];
-      const completed = exercises.reduce((sum, exercise) => sum + Math.min(plannedSets(exercise), completedPlanSets(exercise)), 0);
-      return [{ planned, completed }];
+      const summary = summarizeWorkoutWork(day.workout);
+      return summary.plannedSets
+        ? [{ planned: summary.plannedSets, completed: summary.completionCredits }]
+        : [];
     })
     .slice(0, limit);
   const totalPlanned = sessions.reduce((sum, session) => sum + session.planned, 0);
@@ -85,7 +70,7 @@ export function recentPlanAdherence(data: AppData, today: string, limit = 4): Pl
 function recentTrainingSessions(data: AppData, today: string) {
   const start = shiftDate(today, -27);
   return Object.entries(data.days).filter(([date, day]) =>
-    date >= start && date <= today && day.workout?.type !== "rest" && day.workout?.done !== false && validSessionSets(day.workout?.exercises ?? []) > 0
+    date >= start && date <= today && isHistoryEligibleWorkout(day.workout)
   ).length;
 }
 
@@ -155,7 +140,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
   const confidence: TrainingDecisionConfidence = sessions28d < 2 ? "starter" : sessions28d < 6 || trends.length === 0 ? "building" : "ready";
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
-  const todaySets = validSessionSets(todayWorkout?.exercises ?? []);
+  const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
 
   if (context === "review" && todayWorkout?.type !== "rest" && todaySets > 0 && !todayWorkout?.done) {
     actions.push({ kind: "continueSession", priority: 120, href: "/train", setCount: todaySets });

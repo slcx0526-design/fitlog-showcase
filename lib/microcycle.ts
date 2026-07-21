@@ -1,6 +1,6 @@
 import type { AppData } from "./storage";
 import type { DayLog, MicrocycleState, MicrocycleStep, Schedule, TrainingType, WorkoutSession } from "./types";
-import { hasSetPerformance } from "./prescription";
+import { hasRecordedTrainingWork } from "./trainingMetrics";
 
 export function makeMicrocycleId(index: number, startedAt: string) { return `mc_${index}_${startedAt.replace(/[^0-9]/g, "").slice(0, 8)}`; }
 
@@ -31,9 +31,7 @@ export function microcycleForScheduleEdit(data: AppData, schedule: Schedule): Mi
 }
 /** Must match the valid-work semantics used by progression and volume. */
 function hasWorkingSet(day: DayLog) {
-  return day.workout?.exercises.some((exercise) => exercise.sets.some((set) =>
-    set.type !== "warmup" && set.completion !== "skipped" && set.technique !== "rehab" && hasSetPerformance(set)
-  )) ?? false;
+  return hasRecordedTrainingWork(day.workout);
 }
 
 export function completedStep(day: DayLog, today = localDate()) {

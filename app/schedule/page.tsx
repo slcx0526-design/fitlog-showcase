@@ -23,7 +23,7 @@ import {
   type MuscleGroup,
 } from "@/lib/muscles";
 import { computeVolumeSummary } from "@/lib/volume";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 import type { Schedule, TrainingType } from "@/lib/types";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [

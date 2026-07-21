@@ -36,6 +36,7 @@ import {
   AppData,
   emptyData,
   loadData,
+  normalizeData,
   parseBackup,
   saveData,
 } from "./storage";
@@ -46,11 +47,13 @@ import { ensureMicrocycle, microcycleForNewWorkout, microcycleForScheduleEdit, n
 import {
   applyPrescriptionSnapshot,
   findTrackHistory,
+  normalizeTemplateItemPrescription,
   prescriptionForPreset,
   prescriptionFromTemplateItem,
-  workingSets,
   type TrackHistoryResult,
 } from "./prescription";
+import { workingSets } from "./trainingMetrics";
+import { inspectDataHealth } from "./dataHealth";
 
 interface StoreApi {
   loaded: boolean;
@@ -154,6 +157,7 @@ interface StoreApi {
   // 数据管理
   exportData: () => void;
   importFromText: (text: string) => void;
+  repairData: () => number;
   clearAll: () => void;
 }
 
@@ -347,7 +351,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           secondaryMuscles: preset.secondaryMuscles,
           volumeContributions: preset.volumeContributions,
           recordModes: preset.recordModes,
-          planned: { sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax },
         }, prescription);
         return { ...w, exercises: [...w.exercises, ex] };
       });
@@ -596,12 +599,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setTemplateItems = useCallback((id: string, items: TemplateItem[]) => {
-    setData((prev) => ({
-      ...prev,
-      templates: (prev.templates ?? []).map((t) =>
-        t.id === id ? { ...t, items } : t
-      ),
-    }));
+    setData((prev) => {
+      const pool = new Map(
+        [...DEFAULT_EXERCISES, ...prev.customExercises].map((preset) => [preset.id, preset])
+      );
+      const canonicalItems = items.map((item) =>
+        normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))
+      );
+      return {
+        ...prev,
+        templates: (prev.templates ?? []).map((template) =>
+          template.id === id ? { ...template, items: canonicalItems } : template
+        ),
+      };
+    });
   }, []);
 
   const deleteTemplate = useCallback((id: string) => {
@@ -661,8 +672,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             secondaryMuscles: preset?.secondaryMuscles,
             volumeContributions: preset?.volumeContributions,
             recordModes: it.recordModes ?? preset?.recordModes,
-            // Cut mode is a temporary session overlay: templates themselves remain unchanged.
-            planned: { sets: cutActive ? cutAdjustedSets(it.sets, cutScale) : it.sets, repsLow: it.repsLow, repsHigh: it.repsHigh, ...(it.rpe ? { rpe: it.rpe } : {}) },
           }, { ...prescription, workingSets: cutActive ? cutAdjustedSets(prescription.workingSets, cutScale) : prescription.workingSets }));
         }
         return {
@@ -860,7 +869,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 const modeChanged = JSON.stringify(it.recordModes ?? ["weight", "reps"]) !== JSON.stringify(recordModes ?? ["weight", "reps"]);
                 if (it.name === name && !modeChanged) return it;
                 itemsChanged = true;
-                return {
+                return normalizeTemplateItemPrescription({
                   ...it,
                   name,
                   recordModes,
@@ -871,7 +880,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                     progressionTrackId: undefined,
                     progressionTrackLabel: undefined,
                   } : {}),
-                };
+                }, customExercises.find((exercise) => exercise.id === id));
               }
               return it;
             });
@@ -949,6 +958,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     saveData(next);
   }, []);
 
+  const repairData = useCallback(() => {
+    const current = dataRef.current;
+    const issueCount = inspectDataHealth(current).issueCount;
+    const repaired = normalizeData(current);
+    setData(repaired);
+    saveData(repaired);
+    return issueCount;
+  }, []);
+
   const clearAll = useCallback(() => {
     const fresh = emptyData();
     setData(fresh);
@@ -1004,6 +1022,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       lastWorkoutByType,
       exportData,
       importFromText,
+      repairData,
       clearAll,
     }),
     [
@@ -1049,6 +1068,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       lastWorkoutByType,
       exportData,
       importFromText,
+      repairData,
       clearAll,
     ]
   );

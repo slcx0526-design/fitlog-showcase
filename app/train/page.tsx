@@ -10,7 +10,7 @@ import { formatDisplay, validPastOrToday } from "@/lib/date";
 import { dateKeyWeekdayIndex, getScheduledType } from "@/lib/schedule";
 import { usePersona } from "@/lib/copy";
 import { localeText, useI18n } from "@/lib/i18n";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import TrainingModuleStable from "@/components/TrainingModuleStable";
 import SessionVolumePlan from "@/components/SessionVolumePlan";

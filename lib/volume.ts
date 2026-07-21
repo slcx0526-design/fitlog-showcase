@@ -1,8 +1,13 @@
 import type { AppData } from "./storage";
-import type { DayLog, Exercise, MuscleTargetMap, SetRecord, VolumeContribution, Zone } from "./types";
+import type { DayLog, Exercise, MuscleTargetMap, VolumeContribution, Zone } from "./types";
 import { MUSCLE_LABELS, MUSCLE_ORDER, weeklyTargetFor, type MuscleGroup, type TrainingLevel } from "./muscles";
 import { activeMicrocyclePattern, isActiveMicrocycleDay } from "./microcycle";
-import { hasSetPerformance } from "./prescription";
+import {
+  isRehabSet,
+  isValidWorkingSet,
+  mechanicalVolumeForSet as canonicalMechanicalVolumeForSet,
+  setStimulusFactor,
+} from "./trainingMetrics";
 
 export type VolumeStatus = "under" | "in" | "over";
 export type VolumeMap = Partial<Record<MuscleGroup, number>>;
@@ -15,12 +20,10 @@ export interface VolumeAdvice { muscle: MuscleGroup; kind: "add" | "hold" | "red
 const round = (n: number) => Math.round(n * 100) / 100;
 const zones: Record<Zone, number> = { 1: .4, 2: .6, 3: 1, 4: 1.4, 5: 1.8 };
 const validZone = (zone: unknown): zone is Zone => zone === 1 || zone === 2 || zone === 3 || zone === 4 || zone === 5;
-const hasEntry = (s: SetRecord) => hasSetPerformance(s);
 const fallback = (e: Exercise): VolumeContribution[] => e.primaryMuscle ? [{ muscle: e.primaryMuscle, weight: 1, direct: true }] : [];
-export const isCountedWorkingSet = (s: SetRecord) => s.type !== "warmup" && s.completion !== "skipped" && s.technique !== "rehab" && hasEntry(s);
-const isRehab = (s: SetRecord) => s.type !== "warmup" && s.completion !== "skipped" && s.technique === "rehab" && hasEntry(s);
-export function setEffortFactor(s: SetRecord) { if (!isCountedWorkingSet(s)) return 0; let n=1; if(s.completion==="partial") n*=.5; if(s.technique==="technique") n=Math.min(n,.25); if(s.technique==="dropSet"||s.technique==="restPause"||s.technique==="myoReps") n*=1.25; return round(Math.min(1.5,Math.max(0,n))); }
-export const mechanicalVolumeForSet = (s: SetRecord) => isCountedWorkingSet(s) ? Math.max(0,s.weight)*Math.max(0,s.reps) : 0;
+export const isCountedWorkingSet = isValidWorkingSet;
+export const setEffortFactor = setStimulusFactor;
+export const mechanicalVolumeForSet = canonicalMechanicalVolumeForSet;
 export const volumeStatus = (n:number,low:number,high:number):VolumeStatus => n<low?"under":n>high?"over":"in";
 export const targetForMuscle = (m:MuscleGroup,level?:TrainingLevel,custom?:MuscleTargetMap) => custom?.[m] ?? weeklyTargetFor(m,level);
 
@@ -28,7 +31,7 @@ export function computeVolumeSummary(days:(DayLog|undefined)[],level?:TrainingLe
   const map=new Map<MuscleGroup,MuscleVolumeRow>();
   const row=(m:MuscleGroup)=>{ let x=map.get(m); if(!x){const t=targetForMuscle(m,level,targets); x={muscle:m,rawDirectSets:0,directEffectiveSets:0,indirectEffectiveSets:0,stimulusSets:0,rehabSets:0,directSets:0,effectiveSets:0,target:{low:round(t.low*targetScale),high:round(t.high*targetScale)},status:"under",sources:[]};map.set(m,x);}return x;};
   MUSCLE_ORDER.forEach(row); let work=0,resistance=0,mechanical=0,cardioMinutes=0,cardioStress=0,trainingDays=0;
-  for(const day of days){if(!day)continue;const workout=day.workout;if(workout&&workout.type!=="rest"&&workout.exercises.some(e=>e.sets.some(s=>isCountedWorkingSet(s)||isRehab(s))))trainingDays++;for(const item of day.cardio??[]){const mins=Math.max(0,item.minutes??0);cardioMinutes+=mins;cardioStress+=mins*zones[validZone(item.zone) ? item.zone : 2];}if(!workout||workout.type==="rest")continue;for(const exercise of workout.exercises){const contributions=exercise.volumeContributions?.length?exercise.volumeContributions:fallback(exercise);for(const set of exercise.sets){const rehab=isRehab(set),effort=setEffortFactor(set);if(!rehab&&!effort)continue;if(!rehab){work++;resistance+=effort;mechanical+=mechanicalVolumeForSet(set);}for(const c of contributions){const direct=!!c.direct,target=row(c.muscle);let source=target.sources.find(x=>x.exerciseId===exercise.id&&x.direct===direct);if(!source){source={exerciseId:exercise.id,name:exercise.name,direct,rawDirectSets:0,directEffectiveSets:0,indirectEffectiveSets:0,stimulusSets:0,rehabSets:0,sets:0,contribution:0};target.sources.push(source);}if(rehab){if(direct){target.rehabSets++;source.rehabSets++;}continue;}const value=effort*c.weight;if(direct){target.rawDirectSets++;target.directEffectiveSets+=value;source.rawDirectSets++;source.directEffectiveSets+=value;source.sets=(source.sets??0)+1;}else{target.indirectEffectiveSets+=value;source.indirectEffectiveSets+=value;}target.stimulusSets+=value;source.stimulusSets+=value;source.contribution=(source.contribution??0)+value;}}}}
+  for(const day of days){if(!day)continue;const workout=day.workout;if(workout&&workout.type!=="rest"&&workout.exercises.some(e=>e.sets.some(s=>isCountedWorkingSet(s)||isRehabSet(s))))trainingDays++;for(const item of day.cardio??[]){const mins=Math.max(0,item.minutes??0);cardioMinutes+=mins;cardioStress+=mins*zones[validZone(item.zone) ? item.zone : 2];}if(!workout||workout.type==="rest")continue;for(const exercise of workout.exercises){const contributions=exercise.volumeContributions?.length?exercise.volumeContributions:fallback(exercise);for(const set of exercise.sets){const rehab=isRehabSet(set),effort=setEffortFactor(set);if(!rehab&&!effort)continue;if(!rehab){work++;resistance+=effort;mechanical+=mechanicalVolumeForSet(set);}for(const c of contributions){const direct=!!c.direct,target=row(c.muscle);let source=target.sources.find(x=>x.exerciseId===exercise.id&&x.direct===direct);if(!source){source={exerciseId:exercise.id,name:exercise.name,direct,rawDirectSets:0,directEffectiveSets:0,indirectEffectiveSets:0,stimulusSets:0,rehabSets:0,sets:0,contribution:0};target.sources.push(source);}if(rehab){if(direct){target.rehabSets++;source.rehabSets++;}continue;}const value=effort*c.weight;if(direct){target.rawDirectSets++;target.directEffectiveSets+=value;source.rawDirectSets++;source.directEffectiveSets+=value;source.sets=(source.sets??0)+1;}else{target.indirectEffectiveSets+=value;source.indirectEffectiveSets+=value;}target.stimulusSets+=value;source.stimulusSets+=value;source.contribution=(source.contribution??0)+value;}}}}
   const rows=MUSCLE_ORDER.map(m=>{const x=row(m);x.rawDirectSets=round(x.rawDirectSets);x.directEffectiveSets=round(x.directEffectiveSets);x.indirectEffectiveSets=round(x.indirectEffectiveSets);x.stimulusSets=round(x.stimulusSets);x.rehabSets=round(x.rehabSets);x.directSets=x.rawDirectSets;x.effectiveSets=x.directEffectiveSets;x.sources=x.sources.map(s=>({...s,rawDirectSets:round(s.rawDirectSets),directEffectiveSets:round(s.directEffectiveSets),indirectEffectiveSets:round(s.indirectEffectiveSets),stimulusSets:round(s.stimulusSets),rehabSets:round(s.rehabSets),contribution:round(s.contribution??0)})).sort((a,b)=>b.stimulusSets-a.stimulusSets);x.status=volumeStatus(x.directEffectiveSets,x.target.low,x.target.high);return x;});
   const totalDirectEffectiveSets=round(rows.reduce((n,x)=>n+x.directEffectiveSets,0)),totalIndirectEffectiveSets=round(rows.reduce((n,x)=>n+x.indirectEffectiveSets,0));
   return {rows,totalWorkingSets:round(work),totalDirectEffectiveSets,totalIndirectEffectiveSets,resistanceRecoveryLoad:round(resistance),totalMechanicalVolume:Math.round(mechanical),cardioMinutes:Math.round(cardioMinutes),cardioStress:round(cardioStress),trainingDays,totalDirectSets:round(rows.reduce((n,x)=>n+x.directSets,0)),totalEffectiveSets:totalDirectEffectiveSets};

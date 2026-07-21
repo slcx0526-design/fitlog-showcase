@@ -1,1 +1,1 @@
-FitLog 4.1.0 prescription cycle release
+FitLog 4.2.0 canonical training data release

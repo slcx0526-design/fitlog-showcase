@@ -12,7 +12,7 @@ import { useI18n } from "@/lib/i18n";
 import { useUIMode } from "@/lib/uiMode";
 import { dateKeyWeekdayIndex, getScheduledType } from "@/lib/schedule";
 import { typeLabel } from "@/lib/exercises";
-import { workingSets } from "@/lib/prescription";
+import { workingSets } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import MorningCheckIn from "./MorningCheckIn";
 import PulseDailyBrief from "./PulseDailyBrief";
