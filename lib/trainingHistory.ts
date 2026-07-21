@@ -12,13 +12,14 @@ import {
 } from "./prescription";
 import {
   isHistoryEligibleWorkout,
+  isPastUnclosedWorkout,
   summarizeExerciseWork,
   summarizeWorkoutWork,
   workingSets,
 } from "./trainingMetrics";
 import { summarizeSessionExecution } from "./trainingExecution";
 
-export type WorkoutLogState = "completed" | "legacy" | "inProgress" | "draft" | "rest";
+export type WorkoutLogState = "completed" | "legacy" | "inProgress" | "unclosed" | "draft" | "rest";
 
 export interface ExerciseTrackArchiveSession {
   date: string;
@@ -42,6 +43,7 @@ export interface ExerciseTrackArchiveRow {
   latestDate: string;
   sessions: ExerciseTrackArchiveSession[];
   sessionCount: number;
+  implicitSessionCount: number;
   workingSetCount: number;
   completionCredits: number;
   bestMetric: TrackPerformanceMetric | null;
@@ -50,6 +52,7 @@ export interface ExerciseTrackArchiveRow {
 
 export interface TrainingWindowSummary {
   completedSessions: number;
+  implicitSessions: number;
   legacySessions: number;
   workingSets: number;
   completionCredits: number;
@@ -62,12 +65,19 @@ export interface TrainingWindowSummary {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-export function workoutLogState(workout: WorkoutSession | undefined): WorkoutLogState | null {
+export function workoutLogState(
+  workout: WorkoutSession | undefined,
+  workoutDate?: string,
+  referenceDate?: string
+): WorkoutLogState | null {
   if (!workout) return null;
   const hasWork = workout.exercises.some((exercise) => workingSets(exercise.sets).length > 0);
   if (workout.type === "rest" && !hasWork) return "rest";
   if (workout.done === true && hasWork) return "completed";
-  if (workout.done === false) return hasWork ? "inProgress" : "draft";
+  if (workout.done === false) {
+    if (!hasWork) return "draft";
+    return isPastUnclosedWorkout(workout, workoutDate, referenceDate) ? "unclosed" : "inProgress";
+  }
   return hasWork ? "legacy" : "draft";
 }
 
@@ -116,13 +126,15 @@ export function daySearchText(day: DayLog | undefined) {
 export function buildExerciseTrackArchive(
   days: Record<string, DayLog>,
   beforeDate = "9999-12-31",
+  referenceDate = beforeDate.slice(0, 10),
 ): ExerciseTrackArchiveRow[] {
   const groups = new Map<string, ExerciseTrackArchiveRow>();
   const dates = Object.keys(days).filter((date) => date < beforeDate).sort().reverse();
 
   for (const date of dates) {
     const workout = days[date].workout;
-    if (!isHistoryEligibleWorkout(workout) || !workout || workout.type === "rest") continue;
+    if (!isHistoryEligibleWorkout(workout, date, referenceDate) || !workout || workout.type === "rest") continue;
+    const implicitCompletion = workout.done === false;
     for (const rawExercise of workout.exercises) {
       const sets = workingSets(rawExercise.sets);
       if (!sets.length) continue;
@@ -135,6 +147,7 @@ export function buildExerciseTrackArchive(
         sets,
         kind: trackId.startsWith("legacy:") ? "legacy" : "same",
         sessionDifficulty: workout.difficulty,
+        implicitCompletion: implicitCompletion || undefined,
       };
       const summary = summarizeExerciseWork(exercise);
       const session: ExerciseTrackArchiveSession = {
@@ -158,6 +171,7 @@ export function buildExerciseTrackArchive(
         latestDate: date,
         sessions: [],
         sessionCount: 0,
+        implicitSessionCount: 0,
         workingSetCount: 0,
         completionCredits: 0,
         bestMetric: null,
@@ -165,10 +179,11 @@ export function buildExerciseTrackArchive(
       };
       current.sessions.push(session);
       current.sessionCount += 1;
+      if (implicitCompletion) current.implicitSessionCount += 1;
       current.workingSetCount += session.workingSetCount;
       current.completionCredits = round(current.completionCredits + session.completionCredits);
       const metric = session.metric;
-      if (metric && (!current.bestMetric || (metric.kind === current.bestMetric.kind && metric.value > current.bestMetric.value))) {
+      if (!implicitCompletion && metric && (!current.bestMetric || (metric.kind === current.bestMetric.kind && metric.value > current.bestMetric.value))) {
         current.bestMetric = metric;
       }
       groups.set(key, current);
@@ -190,8 +205,9 @@ export function filterExerciseTrackArchive(rows: ExerciseTrackArchiveRow[], quer
 }
 
 export function summarizeTrainingWindow(days: Record<string, DayLog>, startDate: string, endDate: string): TrainingWindowSummary {
-  const completed = Object.entries(days)
-    .filter(([date, day]) => date >= startDate && date <= endDate && isHistoryEligibleWorkout(day.workout));
+  const eligible = Object.entries(days)
+    .filter(([date, day]) => date >= startDate && date <= endDate && isHistoryEligibleWorkout(day.workout, date, endDate));
+  let implicitSessions = 0;
   let legacySessions = 0;
   let workingSetCount = 0;
   let completionCredits = 0;
@@ -199,8 +215,9 @@ export function summarizeTrainingWindow(days: Record<string, DayLog>, startDate:
   let plannedSets = 0;
   let mechanicalVolume = 0;
   const tracks = new Set<string>();
-  for (const [, day] of completed) {
+  for (const [, day] of eligible) {
     const workout = day.workout!;
+    if (workout.done === false) implicitSessions += 1;
     if (workout.done == null) legacySessions += 1;
     const execution = summarizeSessionExecution(workout);
     const work = summarizeWorkoutWork(workout);
@@ -214,7 +231,8 @@ export function summarizeTrainingWindow(days: Record<string, DayLog>, startDate:
     }
   }
   return {
-    completedSessions: completed.length,
+    completedSessions: eligible.length - implicitSessions,
+    implicitSessions,
     legacySessions,
     workingSets: workingSetCount,
     completionCredits: round(completionCredits),

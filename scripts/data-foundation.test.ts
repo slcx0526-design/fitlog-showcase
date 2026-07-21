@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
+import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
 import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
+import { moveTemplateWithinType } from "../lib/templates";
 import {
   setCompletionCredit,
   setStimulusFactor,
@@ -212,6 +214,7 @@ const raw = {
     { date: "2026-07-01", weight: 79.8 },
   ],
   waistEntries: [],
+  favoriteExerciseIds: ["px_incline_barbell", "px_incline_barbell", "cx_same"],
   customExercises: [
     { id: "cx_same", name: "动作 A", isMain: false, type: "custom" },
     { id: "cx_same", name: "动作 B", isMain: false, type: "custom" },
@@ -255,7 +258,11 @@ assert.equal(normalizedExercise.progressionTrackId, undefined);
 assert.equal(normalizedExercise.trainingIntent, undefined);
 assert.equal(normalized.templates?.[0].items[0].prescription?.workingSets, 4);
 assert.equal(normalized.templates?.[0].items[0].progressionTrackId, undefined);
+assert.equal(normalized.templates?.[0].items[0].primaryMuscle, "upperChest");
+assert.equal(normalized.templates?.[0].items[0].isMain, true);
+assert.ok(normalized.templates?.[0].items[0].volumeContributions?.some((item) => item.muscle === "upperChest" && item.direct));
 assert.equal(normalized.bodyWeights.length, 1);
+assert.deepEqual(normalized.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(new Set(normalized.customExercises.map((item) => item.id)).size, 2);
 assert.equal(new Set((normalized.templates ?? []).map((item) => item.id)).size, 2);
 assert.equal(normalized.schedule.microcycle?.[0].templateId, undefined);
@@ -263,8 +270,44 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 11);
+assert.equal(backup.version, 12);
+assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
+
+assert.ok(DEFAULT_EXERCISES.length >= 70, "The built-in library should cover common gym movements");
+const builtInIds = new Set(DEFAULT_EXERCISES.map((preset) => preset.id));
+assert.equal(builtInIds.size, DEFAULT_EXERCISES.length, "Built-in ids must be unique");
+for (const preset of DEFAULT_EXERCISES) {
+  assert.ok(preset.name && preset.englishName, `${preset.id} needs Chinese and English names`);
+  assert.ok(preset.primaryMuscle, `${preset.id} needs a primary muscle`);
+  assert.ok(preset.volumeContributions?.length, `${preset.id} needs volume contributions`);
+  assert.ok(preset.equipment && preset.movementPattern, `${preset.id} needs equipment and movement pattern`);
+  assert.ok(preset.recordModes?.length, `${preset.id} needs record modes`);
+  assert.equal(typeof preset.defaultLoadIncrementKg, "number", `${preset.id} needs a default load increment`);
+  for (const alternativeId of preset.alternatives ?? []) assert.ok(builtInIds.has(alternativeId), `${preset.id} references missing alternative ${alternativeId}`);
+}
+assert.equal(searchExercisePreset(DEFAULT_EXERCISES.find((preset) => preset.id === "px_barbell_bench")!, "bench press"), true);
+assert.equal(searchExercisePreset(DEFAULT_EXERCISES.find((preset) => preset.id === "px_barbell_bench")!, "杠铃 卧推"), true);
+assert.equal(searchExercisePreset(DEFAULT_EXERCISES.find((preset) => preset.id === "px_chest_press")!, "hammer chest"), true);
+
+const interleavedTemplates = [
+  { id: "push_a", name: "A", type: "push" as const, items: [] },
+  { id: "pull_a", name: "P", type: "pull" as const, items: [] },
+  { id: "push_b", name: "B", type: "push" as const, items: [] },
+];
+assert.deepEqual(moveTemplateWithinType(interleavedTemplates, "push_b", -1).map((template) => template.id), ["push_b", "pull_a", "push_a"]);
+assert.equal(moveTemplateWithinType(interleavedTemplates, "push_a", -1), interleavedTemplates, "A blocked move should keep referential equality");
+
+const customTemplate = normalizeData({
+  days: {}, bodyWeights: [], waistEntries: [],
+  customExercises: [{ id: "legacy_custom_press", name: "自定义推胸", type: "custom", isMain: false, primaryMuscle: "chest", volumeContributions: [{ muscle: "chest", weight: 1, direct: true }] }],
+  templates: [{ id: "custom_template", name: "自定义模板", type: "push", items: [{ exerciseId: "legacy_custom_press", name: "自定义推胸", sets: 3, repsLow: 8, repsHigh: 12 }] }],
+  schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+});
+assert.equal(customTemplate.customExercises[0].custom, true, "Imported custom exercises remain editable regardless of id convention");
+const afterCustomDeletion = normalizeData({ ...customTemplate, customExercises: [] });
+assert.equal(afterCustomDeletion.templates?.[0].items[0].primaryMuscle, "chest");
+assert.equal(afterCustomDeletion.templates?.[0].items[0].volumeContributions?.[0].weight, 1, "Template snapshots survive custom-library deletion");
 
 console.log("data foundation tests passed");

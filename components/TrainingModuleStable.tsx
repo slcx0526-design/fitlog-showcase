@@ -6,8 +6,7 @@ import type { TemplateItem, TrainingType } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { useI18n, type Locale } from "@/lib/i18n";
-import { DEFAULT_EXERCISES, typeHasExercises } from "@/lib/exercises";
-import { isCutModeActive, primeCutTemplateAllocation } from "@/lib/cutMode";
+import { typeHasExercises } from "@/lib/exercises";
 import { exercisePrescription, performanceValue } from "@/lib/prescription";
 import { hasSetPerformance, workingSets } from "@/lib/trainingMetrics";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
@@ -98,18 +97,6 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     toast.show(tx(locale, "已用有效工作组保存为模板", "Saved effective work sets as a template", "有効ワーキングセットをテンプレートとして保存しました"));
   }
   function applySelectedTemplate(templateId: string, templateName: string) {
-    const template = (data.templates ?? []).find((item) => item.id === templateId);
-    if (template && isCutModeActive(data.cutPlan)) {
-      const pool = [...DEFAULT_EXERCISES, ...data.customExercises];
-      const pendingItems = template.items
-        .filter((item) => !lockedIds.has(item.exerciseId))
-        .map((item) => ({
-          id: item.exerciseId,
-          sets: item.sets,
-          isMain: pool.find((preset) => preset.id === item.exerciseId)?.isMain,
-        }));
-      primeCutTemplateAllocation(pendingItems, data.cutPlan?.trainingVolumeScale);
-    }
     // Functional store updates are queued in order: unfinished 0×0 drafts leave first,
     // then the template can fully replace the unrecorded session shell.
     draftIds.forEach((id) => removeExercise(date, id));

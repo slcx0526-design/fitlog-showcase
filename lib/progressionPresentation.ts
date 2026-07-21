@@ -27,7 +27,7 @@ export function progressionPresentation(
     condition: suggestionCondition(suggestion, prescription, unit, locale),
     tone: suggestion.status === "addWeight"
       ? "accent"
-      : ["effortCheck", "mixedLoads", "missingLoad"].includes(suggestion.status)
+      : ["effortCheck", "mixedLoads", "missingLoad", "unconfirmedHistory"].includes(suggestion.status)
         ? "warn"
         : "muted",
   };
@@ -36,8 +36,10 @@ export function progressionPresentation(
 function suggestionValue(suggestion: ProgressionSuggestion, mode: PerformanceMode, locale: Locale) {
   if (suggestion.nextWeight != null && suggestion.nextWeight > 0) {
     if (suggestion.status === "addWeight") return `${suggestion.nextWeight}kg`;
+    if (suggestion.status === "unconfirmedHistory") return tx(locale, `${suggestion.nextWeight}kg · 仅参考`, `${suggestion.nextWeight}kg · reference`, `${suggestion.nextWeight}kg・参考`);
     return tx(locale, `${suggestion.nextWeight}kg · 保持`, `${suggestion.nextWeight}kg · hold`, `${suggestion.nextWeight}kg・維持`);
   }
+  if (suggestion.status === "unconfirmedHistory") return tx(locale, "未结束记录", "Unclosed record", "未終了記録");
   if (suggestion.status === "manualProgression") return tx(locale, "手动进阶", "Choose progression", "進行方法を選択");
   if (suggestion.status === "mixedLoads") return tx(locale, "手动定基准", "Choose baseline", "基準を選択");
   if (suggestion.status === "missingLoad") return tx(locale, "补全负重", "Log load", "重量を記録");
@@ -54,6 +56,7 @@ function suggestionValue(suggestion: ProgressionSuggestion, mode: PerformanceMod
 
 function suggestionSummary(suggestion: ProgressionSuggestion, mode: PerformanceMode, prescription: ProgressionPrescription, locale: Locale) {
   if (suggestion.status === "noHistory") return tx(locale, "当前轨道暂无记录，先记录本次表现", "No history on this track; log this session first", "このトラックには記録がありません。まず今回を記録してください");
+  if (suggestion.status === "unconfirmedHistory") return tx(locale, "上次训练未显式结束，仅作为负重和表现参考", "The last session was not explicitly finished, so it remains reference only", "前回のトレーニングは明示的に終了していないため、参考のみとして扱います");
   if (suggestion.status === "finishSets") return tx(locale, "先完成计划工作组，再调整负重", "Finish the planned work sets before changing load", "予定のワーキングセットを完了してから負荷を調整します");
   if (suggestion.status === "addWeight") return tx(locale, `下次加 ${prescription.loadIncrementKg} kg`, `Add ${prescription.loadIncrementKg} kg next time`, `次回は ${prescription.loadIncrementKg} kg 増やす`);
   if (suggestion.status === "modeReference") return tx(locale, "保留同轨道历史参考，不自动改处方", "Keep same-track history as reference without changing the prescription", "同一トラック履歴を参照用に保持し、処方は自動変更しません");
@@ -69,6 +72,7 @@ function suggestionSummary(suggestion: ProgressionSuggestion, mode: PerformanceM
 
 function suggestionCondition(suggestion: ProgressionSuggestion, prescription: ProgressionPrescription, unit: string, locale: Locale) {
   if (suggestion.status === "noHistory") return tx(locale, "完成一次同轨道训练后生成", "Complete one same-track session first", "同一トラックを1回完了すると生成されます");
+  if (suggestion.status === "unconfirmedHistory") return tx(locale, "完成一次同轨道训练后再判断加重", "Complete one same-track session before deciding on a load increase", "同一トラックを1回完了してから増量を判断します");
   if (suggestion.status === "finishSets") return tx(locale, `完成 ${prescription.workingSets} 个标准工作组`, `Complete ${prescription.workingSets} standard work sets`, `標準ワーキングセットを ${prescription.workingSets} セット完了`);
   if (suggestion.status === "addWeight") return tx(locale, `所有计划组达到 ${prescription.targetRepMax} ${unit}，且整体不吃力`, `All planned sets reach ${prescription.targetRepMax} ${unit} without a hard session`, `全予定セットで ${prescription.targetRepMax} ${unit} に到達し、全体がきつすぎないこと`);
   if (suggestion.status === "effortCheck") return tx(locale, "同一负重再次达到上限，且整体不吃力", "Reach the ceiling again at the same load without a hard session", "同じ重量で再び上限に到達し、全体がきつすぎないこと");

@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
-import { DEFAULT_EXERCISES } from "@/lib/exercises";
-import { inferIntent, intentLabel, performanceModeFor, prescriptionForPreset } from "@/lib/prescription";
+import { DEFAULT_EXERCISES, searchExercisePreset } from "@/lib/exercises";
+import { defaultTrackId, inferIntent, intentLabel, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem } from "@/lib/prescription";
 import {
   TEMPLATE_TYPES,
   TYPE_LABEL,
@@ -297,7 +297,7 @@ function TemplateCard({
 }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const { setTemplateItems, renameTemplate, duplicateTemplate, moveTemplate, deleteTemplate } = useStore();
+  const { data, setTemplateItems, renameTemplate, duplicateTemplate, moveTemplate, deleteTemplate } = useStore();
   const items = tpl.items;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -305,12 +305,29 @@ function TemplateCard({
   function update(idx: number, patch: Partial<TemplateItem>) {
     const changesTrack = patch.sets != null || patch.repsLow != null || patch.repsHigh != null || patch.trainingIntent != null;
     const changesEffort = Object.prototype.hasOwnProperty.call(patch, "rpe");
-    setTemplateItems(tpl.id, items.map((it, i) => i === idx ? {
-      ...it,
-      ...patch,
-      ...(changesTrack ? { prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined } : {}),
-      ...(changesEffort ? { prescription: undefined, targetRirMin: undefined, targetRirMax: undefined } : {}),
-    } : it));
+    setTemplateItems(tpl.id, items.map((item, index) => {
+      if (index !== idx) return item;
+      const preset = [...DEFAULT_EXERCISES, ...data.customExercises].find((candidate) => candidate.id === item.exerciseId);
+      const currentPrescription = prescriptionFromTemplateItem(item, preset);
+      const currentSharedId = defaultTrackId(item.exerciseId, currentPrescription.trainingIntent, item.repsLow, item.repsHigh, item.sets, currentPrescription.performanceMode);
+      const wasIndependent = currentPrescription.progressionTrackId !== currentSharedId;
+      const next: TemplateItem = {
+        ...item,
+        ...patch,
+        ...(changesTrack ? { prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined } : {}),
+        ...(changesEffort ? { prescription: undefined, targetRirMin: undefined, targetRirMax: undefined } : {}),
+      };
+      if ((changesTrack || changesEffort) && wasIndependent) {
+        const nextPrescription = prescriptionFromTemplateItem(next, preset);
+        const nextSharedId = defaultTrackId(next.exerciseId, nextPrescription.trainingIntent, next.repsLow, next.repsHigh, next.sets, nextPrescription.performanceMode);
+        next.prescription = {
+          ...nextPrescription,
+          progressionTrackId: `${nextSharedId}-ind-${tpl.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+          progressionTrackLabel: `${nextPrescription.progressionTrackLabel.replace(/\s*·\s*独立$/, "")} · 独立`,
+        };
+      }
+      return next;
+    }));
   }
   function remove(idx: number) {
     setTemplateItems(tpl.id, items.filter((_, i) => i !== idx));
@@ -331,9 +348,26 @@ function TemplateCard({
     ]);
   }
 
+  function setTrackMode(index: number, mode: "shared" | "independent") {
+    const item = items[index];
+    const preset = [...DEFAULT_EXERCISES, ...data.customExercises].find((candidate) => candidate.id === item.exerciseId);
+    const prescription = prescriptionFromTemplateItem(item, preset);
+    const sharedId = defaultTrackId(item.exerciseId, prescription.trainingIntent, item.repsLow, item.repsHigh, item.sets, prescription.performanceMode);
+    const sharedLabel = prescription.progressionTrackLabel.replace(/\s*·\s*独立$/, "");
+    update(index, {
+      progressionTrackId: undefined,
+      progressionTrackLabel: undefined,
+      prescription: {
+        ...prescription,
+        progressionTrackId: mode === "shared" ? sharedId : `${sharedId}-ind-${tpl.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+        progressionTrackLabel: mode === "shared" ? sharedLabel : `${sharedLabel} · 独立`,
+      },
+    });
+  }
+
   const totalSets = items.reduce((s, it) => s + it.sets, 0);
-  const pool = [...DEFAULT_EXERCISES];
-  const mainCount = items.filter((item) => pool.find((preset) => preset.id === item.exerciseId)?.isMain).length;
+  const pool = [...DEFAULT_EXERCISES, ...data.customExercises];
+  const mainCount = items.filter((item) => item.isMain ?? pool.find((preset) => preset.id === item.exerciseId)?.isMain).length;
 
   return (
     <div className="control-card overflow-hidden">
@@ -536,6 +570,19 @@ function TemplateCard({
                   <Stepper label={tr("加重")} value={it.prescription?.loadIncrementKg ?? it.loadIncrementKg ?? 2.5} min={0} max={10} step={0.5} onChange={(v) => update(idx, { loadIncrementKg: v })} />
                   <span className="text-[11px] text-faint">kg</span>
                 </div>}
+                <div className="flex items-center gap-2">
+                  <span className="w-9 shrink-0 text-[12px] text-faint">{tr("轨道")}</span>
+                  {(() => {
+                    const preset = pool.find((candidate) => candidate.id === it.exerciseId);
+                    const prescription = prescriptionFromTemplateItem(it, preset);
+                    const sharedId = defaultTrackId(it.exerciseId, prescription.trainingIntent, it.repsLow, it.repsHigh, it.sets, prescription.performanceMode);
+                    const independent = prescription.progressionTrackId !== sharedId;
+                    return <div className="control-strip grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg p-1" role="group" aria-label={tr("训练轨道")}>
+                      <button type="button" onClick={() => setTrackMode(idx, "shared")} aria-pressed={!independent} className={"choice-chip press h-8 min-w-0 text-[11px] font-semibold " + (!independent ? "bg-fg text-bg" : "text-muted")}>{tr("共享")}</button>
+                      <button type="button" onClick={() => setTrackMode(idx, "independent")} aria-pressed={independent} className={"choice-chip press h-8 min-w-0 text-[11px] font-semibold " + (independent ? "bg-fg text-bg" : "text-muted")}>{tr("独立")}</button>
+                    </div>;
+                  })()}
+                </div>
               </div>
             </div>
           ))}
@@ -626,7 +673,7 @@ function MusclePicker({
   onClose: () => void;
 }) {
   const { tr } = useI18n();
-  const { data, addCustomExercise } = useStore();
+  const { data, addCustomExercise, toggleFavoriteExercise } = useStore();
   const pool = useMemo(
     () => [...DEFAULT_EXERCISES, ...data.customExercises],
     [data.customExercises]
@@ -636,15 +683,19 @@ function MusclePicker({
     [pool]
   );
   const untagged = useMemo(() => pool.filter((p) => !p.primaryMuscle), [pool]);
-  const [muscle, setMuscle] = useState<MuscleGroup | "untagged" | null>(null);
+  const [muscle, setMuscle] = useState<MuscleGroup | "untagged" | "favorites" | null>(null);
+  const [query, setQuery] = useState("");
+  const [equipmentFilter, setEquipmentFilter] = useState<Equipment | "">("");
   const [editId, setEditId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newEquip, setNewEquip] = useState<Equipment | "">("");
   const [newRecordKind, setNewRecordKind] = useState<CustomRecordKind>("weightReps");
+  const favoriteIds = useMemo(() => new Set(data.favoriteExerciseIds ?? []), [data.favoriteExerciseIds]);
+  const presetNameById = useMemo(() => new Map(DEFAULT_EXERCISES.map((preset) => [preset.id, preset.name])), []);
 
   function createHere() {
     const name = newName.trim();
-    if (!name || muscle === null || muscle === "untagged") return;
+    if (!name || muscle === null || muscle === "untagged" || muscle === "favorites") return;
     const p = addCustomExercise(name, false, muscle, newEquip || undefined, CUSTOM_RECORD_MODES[newRecordKind]);
     onPick(p);
     setNewName("");
@@ -652,12 +703,20 @@ function MusclePicker({
     setNewRecordKind("weightReps");
   }
 
-  const list =
-    muscle === null
-      ? []
-      : muscle === "untagged"
-      ? untagged
-      : pool.filter((p) => p.primaryMuscle === muscle);
+  const activeSearch = Boolean(query.trim() || equipmentFilter);
+  const list = useMemo(() => {
+    if (muscle === null && !activeSearch) return [];
+    return pool
+      .filter((preset) => searchExercisePreset(preset, query))
+      .filter((preset) => !equipmentFilter || preset.equipment === equipmentFilter)
+      .filter((preset) => {
+        if (muscle === null) return true;
+        if (muscle === "favorites") return favoriteIds.has(preset.id);
+        if (muscle === "untagged") return !preset.primaryMuscle;
+        return preset.primaryMuscle === muscle || preset.secondaryMuscles?.includes(muscle);
+      })
+      .sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)) || Number(!b.custom) - Number(!a.custom) || a.name.localeCompare(b.name));
+  }, [activeSearch, equipmentFilter, favoriteIds, muscle, pool, query]);
 
   return (
     <div className="control-strip rounded-2xl p-2.5">
@@ -666,7 +725,26 @@ function MusclePicker({
         <button type="button" onClick={onClose} className="press text-[12px] font-medium text-muted">{tr("收起")}</button>
       </div>
 
+      <div className="mb-2 space-y-2">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label={tr("搜索动作")}
+          placeholder={tr("搜索动作 / 英文 / 别名")}
+          className="number-cell h-10 w-full rounded-xl border border-border bg-surface px-3 text-[13px] text-fg outline-none placeholder:text-faint focus:border-accent"
+        />
+        <select value={equipmentFilter} onChange={(event) => setEquipmentFilter(event.target.value as Equipment | "")} aria-label={tr("按器械筛选")} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-[12px] text-muted outline-none focus:border-accent">
+          <option value="">{tr("全部器械")}</option>
+          {EQUIP_ORDER.map((equipment) => <option key={equipment} value={equipment}>{tr(EQUIPMENT_LABELS[equipment])}</option>)}
+        </select>
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
+        {favoriteIds.size > 0 && (
+          <button type="button" onClick={() => setMuscle((current) => current === "favorites" ? null : "favorites")} className={"choice-chip press border px-2.5 py-1.5 text-[13px] " + (muscle === "favorites" ? "border-accent bg-accent-soft font-medium text-accent" : "border-border bg-surface text-fg")}>
+            {tr("收藏")}
+          </button>
+        )}
         {muscles.map((m) => (
           <button type="button"
             key={m}
@@ -686,7 +764,7 @@ function MusclePicker({
         )}
       </div>
 
-      {muscle !== null && (
+      {(muscle !== null || activeSearch) && (
         <div className="mt-2 space-y-1">
           {list.map((p) => {
             const added = addedIds.has(p.id);
@@ -694,13 +772,20 @@ function MusclePicker({
               return <CustomExerciseEditor key={p.id} preset={p} onClose={() => setEditId(null)} />;
             }
             return (
-              <div key={p.id} className="flex items-center gap-1">
+              <div key={p.id} className="flex items-stretch gap-1">
+                <button type="button" onClick={() => toggleFavoriteExercise(p.id)} aria-label={favoriteIds.has(p.id) ? tr("取消收藏") : tr("收藏动作")} className={"press grid w-9 shrink-0 place-items-center rounded-lg border " + (favoriteIds.has(p.id) ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface text-faint")}>
+                  {favoriteIds.has(p.id) ? "★" : "☆"}
+                </button>
                 <button type="button"
                   onClick={() => !added && onPick(p)}
                   disabled={added}
                   className={"choice-chip flex min-w-0 flex-1 items-center gap-2 border px-2.5 py-2 text-left " + (added ? "cursor-default border-border bg-surface text-faint" : "press border-border bg-surface text-fg active:bg-accent-soft")}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{tr(p.name)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium">{tr(p.name)}</span>
+                    <span className="mt-0.5 block truncate text-[10px] font-normal text-faint">{[p.primaryMuscle ? tr(MUSCLE_LABELS[p.primaryMuscle]) : null, ...(p.secondaryMuscles ?? []).slice(0, 2).map((item) => tr(MUSCLE_LABELS[item])), p.englishName].filter(Boolean).join(" · ")}</span>
+                    {(p.alternatives ?? []).length > 0 && <span className="mt-0.5 block truncate text-[10px] font-normal text-faint">{tr("替代")}：{p.alternatives!.map((id) => presetNameById.get(id)).filter(Boolean).slice(0, 2).map((name) => tr(name!)).join(" / ")}</span>}
+                  </span>
                   {p.region && <span className="shrink-0 text-[10px] text-faint">{tr(p.region)}</span>}
                   {p.equipment && <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{tr(EQUIPMENT_LABELS[p.equipment])}</span>}
                   {added ? (
@@ -721,9 +806,11 @@ function MusclePicker({
               </div>
             );
           })}
-          {list.length === 0 && <p className="px-1 py-2 text-[12px] text-faint">{tr("这个部位还没有动作")}</p>}
+          {list.length === 0 && <p className="px-1 py-2 text-[12px] text-faint">{muscle !== null && muscle !== "untagged" && muscle !== "favorites"
+            ? tr("没有匹配动作，可在下方新建自定义动作")
+            : tr("没有匹配动作，选择目标肌群后可新建")}</p>}
 
-          {muscle !== "untagged" && (
+          {muscle !== "untagged" && muscle !== "favorites" && muscle !== null && (
             <div className="mt-1.5 space-y-2 rounded-xl border border-dashed border-border-strong bg-surface/60 p-2">
               <p className="text-[11px] text-faint">{tr("没有想要的？新建「{m}」动作", { m: tr(MUSCLE_LABELS[muscle]) })}</p>
               <div className="flex gap-1.5">

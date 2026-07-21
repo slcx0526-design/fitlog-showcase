@@ -87,7 +87,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const workSummary = summarizeExerciseWork(exercise);
   const plannedSets = plannedWorkingSets(exercise);
   const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
-  const carry = currentLoad ?? (recordsWeight && previous ? lastProgressionSet(previous.sets) : null);
+  const carry = currentLoad ?? (recordsWeight && previous && !previous.implicitCompletion ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
   const setUnit = tx(locale, "组", "sets", "セット");
   const repUnit = tx(locale, "次", "reps", "回");
@@ -157,7 +157,9 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
       <p className="text-[11px] text-faint">{reviewingCompleted && currentHistory
         ? tx(locale, `本次完成 · ${summarize(currentHistory.sets, performanceMode, locale)}`, `Completed this session · ${summarize(currentHistory.sets, performanceMode, locale)}`, `今回完了・${summarize(currentHistory.sets, performanceMode, locale)}`)
         : previous
-          ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`)
+          ? previous.implicitCompletion
+            ? tx(locale, `同轨道参考 ${formatCompact(previous.date, locale).md} · 未显式结束 · ${summarize(previous.sets, performanceMode, locale)}`, `Same-track reference · ${formatCompact(previous.date, locale).md} · unclosed · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック参考 ${formatCompact(previous.date, locale).md}・未終了・${summarize(previous.sets, performanceMode, locale)}`)
+            : tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`)
           : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
       <div className="control-strip mt-2 rounded-lg px-2.5 py-2">
         <div className="flex items-center justify-between gap-2"><span className="text-[9px] font-semibold text-faint">{reviewingCompleted ? tx(locale, "下次建议", "Next-session suggestion", "次回の提案") : tx(locale, "本次建议", "Session suggestion", "今回の提案")}</span><span className={"tnum text-[11px] font-semibold " + (suggestionCopy.tone === "accent" ? "text-accent" : suggestionCopy.tone === "warn" ? "text-warn" : "text-fg")}>{suggestionCopy.value}</span></div>
@@ -172,7 +174,9 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
         <span className="shrink-0">kg</span>
         {acceptedWeight != null && <button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
       </div>}
-      {!reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
+      {!reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{suggestion.status === "unconfirmedHistory"
+        ? tx(locale, `采用参考 · ${suggestion.nextWeight}kg`, `Use reference · ${suggestion.nextWeight}kg`, `参考を採用 · ${suggestion.nextWeight}kg`)
+        : tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
         <div className="mt-2 space-y-2">
@@ -205,7 +209,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
 
 function HistoryRows({ title, rows, locale, showTrack = false }: { title: string; rows: TrackHistoryResult[]; locale: Locale; showTrack?: boolean }) {
   if (!rows.length) return null;
-  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${exerciseTrackId(row.exercise)}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack ? ` · ${exerciseTrackLabel(row.exercise)}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, exercisePrescription(row.exercise).performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
+  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${exerciseTrackId(row.exercise)}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack ? ` · ${exerciseTrackLabel(row.exercise)}` : ""}{row.implicitCompletion ? ` · ${tx(locale, "未结束", "Unclosed", "未終了")}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, exercisePrescription(row.exercise).performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
 }
 
 function Chip({ label, accent = false }: { label: string; accent?: boolean }) {

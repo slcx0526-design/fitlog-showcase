@@ -80,7 +80,7 @@ export default function MicrocycleEditor() {
       <div className="control-card p-3">
         <div className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[11px] text-muted">
           {tx(locale, "下一步：", "Next: ", "次へ：")}<span className="font-semibold text-fg">{progress.next ? tr(progress.next.label) : tx(locale, "本轮已完成", "Cycle complete", "サイクル完了")}</span>
-          {progress.next?.templateId && <span className="ml-1 text-faint">· {tr(data.templates?.find((template) => template.id === progress.next?.templateId)?.name ?? "")}</span>}
+          {progress.next?.templateId && <span className="ml-1 text-faint">· {tr(progress.next.templateSnapshot?.name ?? data.templates?.find((template) => template.id === progress.next?.templateId)?.name ?? "")}</span>}
         </div>
 
         {progress.next && (!todayWorkout ? <Link href={microcycleStepHref(progress.next)} className="press mb-3 flex h-10 items-center justify-center rounded-lg bg-fg text-[12px] font-semibold text-bg">

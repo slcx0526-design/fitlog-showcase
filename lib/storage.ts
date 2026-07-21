@@ -8,6 +8,7 @@ import type {
   DayLog,
   Exercise,
   ExercisePreset,
+  MovementPattern,
   NutritionLog,
   Profile,
   RecordMode,
@@ -22,8 +23,9 @@ import type {
   Zone,
 } from "./types";
 import { fromKey, todayKey, toKey } from "./date";
-import { assignHistoricalMicrocycles, defaultMicrocycle, microcyclePatternFor } from "./microcycle";
+import { assignHistoricalMicrocycles, defaultMicrocycle } from "./microcycle";
 import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
+import type { Equipment } from "./muscles";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { normalizeExercisePrescription, normalizeTemplateItemPrescription } from "./prescription";
 import { hasSetPerformance } from "./trainingMetrics";
@@ -31,18 +33,63 @@ import { hasSetPerformance } from "./trainingMetrics";
 export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
-export const SCHEMA_VERSION = 11;
+const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
+export const SCHEMA_VERSION = 12;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
 const VALID_TECHNIQUES = new Set(["normal", "dropSet", "restPause", "myoReps", "cluster", "technique", "rehab"]);
 const VALID_COMPLETIONS = new Set(["completed", "partial", "skipped"]);
 const VALID_RECORD_MODES = new Set<RecordMode>(["weight", "reps", "rir", "duration", "distance"]);
+const VALID_EQUIPMENT = new Set<Equipment>(["free", "machine", "cable", "bodyweight"]);
+const VALID_PATTERNS = new Set<MovementPattern>([
+  "horizontalPush", "inclinePush", "verticalPush", "fly", "verticalPull", "horizontalPull",
+  "hipHinge", "squat", "lunge", "kneeExtension", "kneeFlexion", "armCurl", "armExtension",
+  "lateralRaise", "rearDelt", "calfRaise", "core", "carry", "custom",
+]);
 
 function parseRecordModes(input: unknown): RecordMode[] | undefined {
   if (!Array.isArray(input)) return undefined;
   const modes = input.filter((mode): mode is RecordMode => typeof mode === "string" && VALID_RECORD_MODES.has(mode as RecordMode));
   return modes.length ? [...new Set(modes)] : undefined;
+}
+
+function parseStringList(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const values = input
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    .map((value) => value.trim())
+    .filter((value, index, items) => items.indexOf(value) === index);
+  return values.length ? values : undefined;
+}
+
+function parseMuscle(input: unknown): MuscleGroup | undefined {
+  return typeof input === "string" && VALID_MUSCLES.has(input) ? input as MuscleGroup : undefined;
+}
+
+function parseMuscleList(input: unknown, primary?: MuscleGroup): MuscleGroup[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const values = input
+    .map(parseMuscle)
+    .filter((value): value is MuscleGroup => Boolean(value) && value !== primary)
+    .filter((value, index, items) => items.indexOf(value) === index);
+  return values.length ? values : undefined;
+}
+
+function parseVolumeContributions(input: unknown) {
+  if (!Array.isArray(input)) return undefined;
+  const byMuscle = new Map<MuscleGroup, { muscle: MuscleGroup; weight: number; direct: boolean }>();
+  for (const entry of input) {
+    if (!entry || typeof entry !== "object") continue;
+    const value = entry as Record<string, unknown>;
+    const muscle = parseMuscle(value.muscle);
+    if (!muscle || typeof value.weight !== "number" || !Number.isFinite(value.weight)) continue;
+    const candidate = { muscle, weight: Math.min(1, Math.max(0.1, Math.round(value.weight * 100) / 100)), direct: Boolean(value.direct) };
+    const current = byMuscle.get(muscle);
+    if (!current || candidate.direct || candidate.weight > current.weight) byMuscle.set(muscle, candidate);
+  }
+  const values = [...byMuscle.values()];
+  return values.length ? values : undefined;
 }
 
 function isDateKey(value: unknown): value is string {
@@ -163,6 +210,7 @@ function parseCustomExercise(input: unknown): ExercisePreset | null {
     name: value.name.trim(),
     isMain: Boolean(value.isMain),
     type: "custom",
+    custom: true,
     ...(primaryMuscle ? { primaryMuscle } : { primaryMuscle: undefined }),
     secondaryMuscles: secondary.map((item) => item.muscle),
     volumeContributions,
@@ -177,13 +225,24 @@ export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? normalizeData(JSON.parse(raw)) : emptyData();
+    const data = raw ? normalizeData(JSON.parse(raw)) : emptyData();
+    let legacyFavorites: string[] = [];
+    try {
+      legacyFavorites = parseStringList(JSON.parse(window.localStorage.getItem(LEGACY_FAVORITES_KEY) ?? "[]")) ?? [];
+    } catch {
+      legacyFavorites = [];
+    }
+    if (legacyFavorites.length) data.favoriteExerciseIds = [...new Set([...(data.favoriteExerciseIds ?? []), ...legacyFavorites])];
+    return data;
   } catch { return emptyData(); }
 }
 
 export function saveData(data: AppData): void {
   if (typeof window === "undefined") return;
-  try { window.localStorage.setItem(KEY, JSON.stringify(data)); }
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(data));
+    window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+  }
   catch (error) { console.warn("保存失败：", error); }
 }
 
@@ -191,6 +250,9 @@ export function normalizeData(input: unknown): AppData {
   const out = emptyData();
   if (!input || typeof input !== "object") return out;
   const obj = input as Record<string, unknown>;
+
+  const favoriteExerciseIds = parseStringList(obj.favoriteExerciseIds);
+  if (favoriteExerciseIds?.length) out.favoriteExerciseIds = favoriteExerciseIds;
 
   if (obj.days && typeof obj.days === "object") {
     for (const [date, rawDay] of Object.entries(obj.days as Record<string, unknown>)) {
@@ -216,6 +278,7 @@ export function normalizeData(input: unknown): AppData {
           type,
           ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
           ...(typeof workout.microcycleId === "string" ? { microcycleId: workout.microcycleId } : {}),
+          ...(typeof workout.microcycleStepId === "string" ? { microcycleStepId: workout.microcycleStepId } : {}),
           ...(typeof workout.done === "boolean" ? { done: workout.done } : {}),
           ...(workout.difficulty === "easy" || workout.difficulty === "onTarget" || workout.difficulty === "hard" ? { difficulty: workout.difficulty } : {}),
           exercises,
@@ -301,11 +364,32 @@ export function normalizeData(input: unknown): AppData {
   const presetById = new Map(
     [...DEFAULT_EXERCISES, ...out.customExercises].map((preset) => [preset.id, preset])
   );
+  for (const [, day] of Object.entries(out.days).sort(([a], [b]) => b.localeCompare(a))) {
+    for (const exercise of day.workout?.exercises ?? []) {
+      if (presetById.has(exercise.id)) continue;
+      presetById.set(exercise.id, {
+        id: exercise.id,
+        name: exercise.name,
+        isMain: exercise.isMain,
+        type: day.workout?.type ?? "custom",
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        recordModes: exercise.recordModes,
+      });
+    }
+  }
   const parseItem = (input: unknown): TemplateItem | null => {
     if (!input || typeof input !== "object") return null;
     const value = input as Record<string, unknown>;
     if (typeof value.exerciseId !== "string" || !value.exerciseId) return null;
     const recordModes = parseRecordModes(value.recordModes);
+    const primaryMuscle = parseMuscle(value.primaryMuscle);
+    const secondaryMuscles = parseMuscleList(value.secondaryMuscles, primaryMuscle);
+    const volumeContributions = parseVolumeContributions(value.volumeContributions);
+    const equipment = typeof value.equipment === "string" && VALID_EQUIPMENT.has(value.equipment as Equipment) ? value.equipment as Equipment : undefined;
+    const movementPattern = typeof value.movementPattern === "string" && VALID_PATTERNS.has(value.movementPattern as MovementPattern) ? value.movementPattern as MovementPattern : undefined;
+    const alternatives = parseStringList(value.alternatives);
     const prescription = parsePrescription(value.prescription);
     const performanceMode = prescription?.performanceMode ?? (recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps");
     let low = 8;
@@ -329,6 +413,13 @@ export function normalizeData(input: unknown): AppData {
       repsLow: low,
       repsHigh: high,
       ...(typeof value.rpe === "number" && value.rpe >= 5 && value.rpe <= 10 ? { rpe: value.rpe } : {}),
+      ...(typeof value.isMain === "boolean" ? { isMain: value.isMain } : {}),
+      ...(primaryMuscle ? { primaryMuscle } : {}),
+      ...(secondaryMuscles ? { secondaryMuscles } : {}),
+      ...(volumeContributions ? { volumeContributions } : {}),
+      ...(equipment ? { equipment } : {}),
+      ...(movementPattern ? { movementPattern } : {}),
+      ...(alternatives ? { alternatives } : {}),
       ...(prescription ? { prescription } : {}),
       ...(typeof value.progressionTrackId === "string" ? { progressionTrackId: value.progressionTrackId } : {}),
       ...(typeof value.progressionTrackLabel === "string" ? { progressionTrackLabel: value.progressionTrackLabel } : {}),
@@ -340,6 +431,19 @@ export function normalizeData(input: unknown): AppData {
       ...(recordModes ? { recordModes } : {}),
     };
     return normalizeTemplateItemPrescription(item, presetById.get(item.exerciseId));
+  };
+
+  const parseTemplateSnapshot = (input: unknown): Template | undefined => {
+    if (!input || typeof input !== "object") return undefined;
+    const value = input as Record<string, unknown>;
+    if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") return undefined;
+    if (typeof value.id !== "string" || !value.id) return undefined;
+    return {
+      id: value.id,
+      name: typeof value.name === "string" ? value.name : "",
+      type: value.type,
+      items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => Boolean(item)) : [],
+    };
   };
 
   if (Array.isArray(obj.templates)) {
@@ -366,6 +470,19 @@ export function normalizeData(input: unknown): AppData {
     if (templates.length) out.templates = templates;
   }
 
+  if (obj.days && typeof obj.days === "object") {
+    for (const [date, rawDay] of Object.entries(obj.days as Record<string, unknown>)) {
+      if (!out.days[date]?.workout || !rawDay || typeof rawDay !== "object") continue;
+      const rawWorkout = (rawDay as Record<string, unknown>).workout;
+      if (!rawWorkout || typeof rawWorkout !== "object") continue;
+      const snapshot = parseTemplateSnapshot((rawWorkout as Record<string, unknown>).templateSnapshot);
+      const workout = out.days[date].workout!;
+      if (snapshot && snapshot.type === workout.type && (!workout.templateId || workout.templateId === snapshot.id)) {
+        out.days[date].workout = { ...workout, templateId: workout.templateId ?? snapshot.id, templateSnapshot: snapshot };
+      }
+    }
+  }
+
   if (obj.muscleTargets && typeof obj.muscleTargets === "object") {
     const targets: NonNullable<AppData["muscleTargets"]> = {};
     for (const [muscle, rawTarget] of Object.entries(obj.muscleTargets as Record<string, unknown>)) {
@@ -385,7 +502,15 @@ export function normalizeData(input: unknown): AppData {
             if (!step || typeof step !== "object") return [];
             const item = step as Record<string, unknown>;
             if (!VALID_TYPES.includes(item.type as TrainingType) || item.type === "custom") return [];
-            return [{ id: typeof item.id === "string" && item.id ? item.id : `cycle_step_${index + 1}`, type: item.type as TrainingType, label: typeof item.label === "string" && item.label.trim() ? item.label.trim().slice(0, 24) : String(item.type), ...(item.type !== "rest" && typeof item.templateId === "string" && item.templateId ? { templateId: item.templateId } : {}) }];
+            const templateId = item.type !== "rest" && typeof item.templateId === "string" && item.templateId ? item.templateId : undefined;
+            const templateSnapshot = parseTemplateSnapshot(item.templateSnapshot);
+            return [{
+              id: typeof item.id === "string" && item.id ? item.id : `cycle_step_${index + 1}`,
+              type: item.type as TrainingType,
+              label: typeof item.label === "string" && item.label.trim() ? item.label.trim().slice(0, 24) : String(item.type),
+              ...(templateId ? { templateId } : {}),
+              ...(templateId && templateSnapshot?.id === templateId && templateSnapshot.type === item.type ? { templateSnapshot } : {}),
+            }];
           }).slice(0, 14)
         : [];
       out.microcycle = { currentId: value.currentId, startedAt: value.startedAt, index: typeof value.index === "number" ? Math.max(1, Math.round(value.index)) : 1, ...(steps.length ? { steps } : {}) };
@@ -395,21 +520,38 @@ export function normalizeData(input: unknown): AppData {
   const today = todayKey();
   const workouts = Object.entries(out.days).filter(([, day]) => !!day.workout).sort(([a], [b]) => a.localeCompare(b));
   if (!out.microcycle && workouts.length) {
-    const assigned = assignHistoricalMicrocycles(out.days, out.schedule, today);
+    const assigned = assignHistoricalMicrocycles(out.days, out.schedule, today, out.templates);
     out.days = assigned.days;
     out.microcycle = assigned.microcycle;
   }
-  if (!out.microcycle) out.microcycle = defaultMicrocycle(today, out.schedule);
-  if (!out.microcycle.steps?.length) out.microcycle = { ...out.microcycle, steps: microcyclePatternFor(out.schedule).map((step) => ({ ...step })) };
+  if (!out.microcycle) out.microcycle = defaultMicrocycle(today, out.schedule, out.templates);
+  if (!out.microcycle.steps?.length) {
+    out.microcycle = {
+      ...out.microcycle,
+      steps: defaultMicrocycle(out.microcycle.startedAt, out.schedule, out.templates).steps,
+    };
+  }
   const templatesById = new Map((out.templates ?? []).map((template) => [template.id, template]));
-  const cleanStep = (step: import("./types").MicrocycleStep) => {
+  const cleanScheduleStep = (step: import("./types").MicrocycleStep) => {
     const template = step.templateId ? templatesById.get(step.templateId) : undefined;
-    if (!step.templateId || (template && template.type === step.type)) return step;
-    const { templateId: _templateId, ...rest } = step;
+    const { templateSnapshot: _snapshot, ...withoutSnapshot } = step;
+    if (!step.templateId || (template && template.type === step.type)) return withoutSnapshot;
+    const { templateId: _templateId, ...rest } = withoutSnapshot;
     return rest;
   };
-  if (out.schedule.microcycle) out.schedule = { ...out.schedule, microcycle: out.schedule.microcycle.map(cleanStep) };
-  if (out.microcycle.steps) out.microcycle = { ...out.microcycle, steps: out.microcycle.steps.map(cleanStep) };
+  const cleanActiveStep = (step: import("./types").MicrocycleStep) => {
+    if (!step.templateId) {
+      const { templateSnapshot: _snapshot, ...rest } = step;
+      return rest;
+    }
+    if (step.templateSnapshot?.id === step.templateId && step.templateSnapshot.type === step.type) return step;
+    const template = templatesById.get(step.templateId);
+    if (template?.type === step.type) return { ...step, templateSnapshot: parseTemplateSnapshot(template) };
+    const { templateId: _templateId, templateSnapshot: _snapshot, ...rest } = step;
+    return rest;
+  };
+  if (out.schedule.microcycle) out.schedule = { ...out.schedule, microcycle: out.schedule.microcycle.map(cleanScheduleStep) };
+  if (out.microcycle.steps) out.microcycle = { ...out.microcycle, steps: out.microcycle.steps.map(cleanActiveStep) };
   for (const [date, day] of Object.entries(out.days)) {
     if (!day.workout) continue;
     const assignedToCurrentBeforeStart = day.workout.microcycleId === out.microcycle.currentId && date < out.microcycle.startedAt;
@@ -423,7 +565,7 @@ export function normalizeData(input: unknown): AppData {
 
 export function toBackup(data: AppData): BackupData {
   const normalized = normalizeData(data);
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle };
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle };
 }
 
 export function downloadBackup(data: AppData): void {

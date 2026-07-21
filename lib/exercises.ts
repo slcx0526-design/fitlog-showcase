@@ -35,7 +35,8 @@ export const DEFAULT_EXERCISES: ExercisePreset[] = [
   ex({ id: "px_barbell_bench", name: "平板杠铃卧推", englishName: "Barbell Bench Press", aliases: ["bench press", "卧推", "杠铃卧推"], type: "push", equipment: "free", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.5), s("triceps", 0.5)], alternatives: ["px_db_bench", "px_chest_press", "px_smith_bench"] }),
   ex({ id: "px_db_bench", name: "平板哑铃卧推", englishName: "Dumbbell Bench Press", aliases: ["db bench", "哑铃卧推"], type: "push", equipment: "free", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.5), s("triceps", 0.4)], alternatives: ["px_barbell_bench", "px_chest_press"] }),
   ex({ id: "px_smith_bench", name: "史密斯卧推", englishName: "Smith Machine Bench Press", aliases: ["smith bench", "史密斯平板"], type: "push", equipment: "machine", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.45), s("triceps", 0.45)], alternatives: ["px_barbell_bench", "px_chest_press"] }),
-  ex({ id: "px_chest_press", name: "悍马推胸", englishName: "Machine Chest Press", aliases: ["坐姿推胸", "hammer chest press", "器械推胸"], type: "push", equipment: "machine", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.4), s("triceps", 0.4)], alternatives: ["px_barbell_bench", "px_db_bench"] }),
+  ex({ id: "px_chest_press", name: "悍马推胸", englishName: "Hammer Strength Chest Press", aliases: ["hammer chest press", "悍马机推胸"], type: "push", equipment: "machine", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.4), s("triceps", 0.4)], alternatives: ["px_machine_chest_press", "px_barbell_bench", "px_db_bench"] }),
+  ex({ id: "px_machine_chest_press", name: "器械推胸", englishName: "Seated Machine Chest Press", aliases: ["坐姿推胸", "machine chest press"], type: "push", equipment: "machine", movementPattern: "horizontalPush", compound: true, category: "胸 · 平推", volumeContributions: [c("chest"), s("frontDelt", 0.4), s("triceps", 0.4)], alternatives: ["px_chest_press", "px_smith_bench", "px_db_bench"] }),
   ex({ id: "px_incline_barbell", name: "上斜杠铃卧推", englishName: "Incline Barbell Bench Press", aliases: ["incline bench", "上斜卧推", "上斜杠铃"], type: "push", equipment: "free", movementPattern: "inclinePush", compound: true, category: "胸 · 上斜", region: "上胸", volumeContributions: [c("upperChest"), s("chest", 0.7), s("frontDelt", 0.6), s("triceps", 0.4)], alternatives: ["px_incline_db", "px_incline_press", "px_incline_smith"] }),
   ex({ id: "px_incline_db", name: "上斜哑铃卧推", englishName: "Incline Dumbbell Press", aliases: ["incline dumbbell press", "上斜哑铃"], type: "push", equipment: "free", movementPattern: "inclinePush", compound: true, category: "胸 · 上斜", region: "上胸", volumeContributions: [c("upperChest"), s("chest", 0.65), s("frontDelt", 0.55), s("triceps", 0.35)], alternatives: ["px_incline_barbell", "px_incline_press"] }),
   ex({ id: "px_incline_smith", name: "上斜史密斯推", englishName: "Incline Smith Press", aliases: ["smith incline press", "上斜史密斯卧推"], type: "push", equipment: "machine", movementPattern: "inclinePush", compound: true, category: "胸 · 上斜", region: "上胸", volumeContributions: [c("upperChest"), s("chest", 0.65), s("frontDelt", 0.55), s("triceps", 0.35)], alternatives: ["px_incline_barbell", "px_incline_press"] }),
@@ -56,6 +57,7 @@ export const DEFAULT_EXERCISES: ExercisePreset[] = [
   ex({ id: "pl_pullup", name: "引体向上", englishName: "Pull Up", aliases: ["pull-up", "引体"], type: "pull", equipment: "bodyweight", movementPattern: "verticalPull", compound: true, category: "背 · 下拉", volumeContributions: [c("lats"), s("upperBack", 0.5), s("biceps", 0.5)], alternatives: ["pl_assisted_pullup", "pl_lat_pulldown"] }),
   ex({ id: "pl_assisted_pullup", name: "辅助引体", englishName: "Assisted Pull Up", aliases: ["assisted pullup"], type: "pull", equipment: "machine", movementPattern: "verticalPull", compound: true, category: "背 · 下拉", volumeContributions: [c("lats"), s("upperBack", 0.45), s("biceps", 0.45)], alternatives: ["pl_pullup", "pl_lat_pulldown"] }),
   ex({ id: "pl_lat_pulldown", name: "宽握下拉", englishName: "Wide Grip Lat Pulldown", aliases: ["高位下拉", "lat pulldown", "下拉"], type: "pull", equipment: "cable", movementPattern: "verticalPull", compound: true, category: "背 · 下拉", volumeContributions: [c("lats"), s("upperBack", 0.4), s("biceps", 0.45)], alternatives: ["pl_pullup", "pl_close_pulldown"] }),
+  ex({ id: "pl_close_pulldown", name: "窄握下拉", englishName: "Close Grip Lat Pulldown", aliases: ["close grip pulldown", "窄握高位下拉", "V 把下拉"], type: "pull", equipment: "cable", movementPattern: "verticalPull", compound: true, category: "背 · 下拉", volumeContributions: [c("lats"), s("upperBack", 0.35), s("biceps", 0.5)], alternatives: ["pl_lat_pulldown", "pl_reverse_pulldown"] }),
   ex({ id: "pl_reverse_pulldown", name: "反握下拉", englishName: "Reverse Grip Pulldown", aliases: ["反手下拉"], type: "pull", equipment: "cable", movementPattern: "verticalPull", compound: true, category: "背 · 下拉", volumeContributions: [c("lats"), s("biceps", 0.55), s("upperBack", 0.35)], alternatives: ["pl_close_pulldown", "pl_single_arm_pulldown"] }),
   ex({ id: "pl_single_arm_pulldown", name: "单臂下拉", englishName: "Single Arm Pulldown", aliases: ["单手下拉"], type: "pull", equipment: "cable", movementPattern: "verticalPull", category: "背 · 下拉", volumeContributions: [c("lats"), s("biceps", 0.3)], alternatives: ["pl_lat_pulldown", "pl_straight_arm"] }),
   ex({ id: "pl_barbell_row", name: "杠铃划船", englishName: "Barbell Row", aliases: ["barbell row"], type: "pull", equipment: "free", movementPattern: "horizontalPull", compound: true, category: "背 · 划船", volumeContributions: [c("upperBack"), s("lats", 0.6), s("rearDelt", 0.35), s("biceps", 0.4), s("lowerBack", 0.35)], alternatives: ["pl_seated_row", "pl_hammer_row"] }),
@@ -148,9 +150,14 @@ export function presetForHistoricalExercise(exercise: Exercise, type: TrainingTy
 }
 
 export function searchExercisePreset(preset: ExercisePreset, query: string) {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return [preset.name, preset.englishName, preset.category, preset.region, ...(preset.aliases ?? [])]
+  const normalized = query.normalize("NFKC").trim().toLowerCase();
+  if (!normalized) return true;
+  const tokens = normalized.split(/[\s/,_-]+/).filter(Boolean);
+  const fields = [preset.name, preset.englishName, preset.category, preset.region, ...(preset.aliases ?? [])]
     .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(needle));
+    .map((value) => String(value).normalize("NFKC").toLowerCase());
+  return tokens.every((token) => {
+    const compact = token.replace(/[\s/,_-]+/g, "");
+    return fields.some((field) => field.includes(token) || field.replace(/[\s/,_-]+/g, "").includes(compact));
+  });
 }

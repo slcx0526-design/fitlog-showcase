@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ExercisePreset, RecordMode, TrainingIntent, TrainingType } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
@@ -16,7 +16,6 @@ import { formatCompact } from "@/lib/date";
 import CustomExerciseEditor, { isCustomExercise } from "./CustomExerciseEditor";
 
 const EQUIP_ORDER: Equipment[] = ["machine", "cable", "free", "bodyweight"];
-const FAVORITE_KEY = "fitlog:favoriteExercises";
 type TrackChoice = "context" | TrainingIntent;
 type RecordKind = "weightReps" | "reps" | "duration" | "distance";
 const RECORD_MODES: Record<RecordKind, RecordMode[]> = { weightReps: ["weight", "reps"], reps: ["reps"], duration: ["duration"], distance: ["distance"] };
@@ -39,6 +38,7 @@ export default function AddExercisePanel({
     addCustomExercise,
     data,
     lastWorkoutByType,
+    toggleFavoriteExercise,
   } = useStore();
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -49,27 +49,8 @@ export default function AddExercisePanel({
   const [query, setQuery] = useState("");
   const [muscleFilter, setMuscleFilter] = useState<MuscleGroup | "">("");
   const [equipmentFilter, setEquipmentFilter] = useState<Equipment | "">("");
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [trackChoice, setTrackChoice] = useState<TrackChoice>("context");
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(FAVORITE_KEY);
-      if (raw) setFavoriteIds(new Set(JSON.parse(raw)));
-    } catch {}
-  }, []);
-
-  function toggleFavorite(id: string) {
-    setFavoriteIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      try {
-        window.localStorage.setItem(FAVORITE_KEY, JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-  }
+  const favoriteIds = useMemo(() => new Set(data.favoriteExerciseIds ?? []), [data.favoriteExerciseIds]);
 
   const presets = useMemo(
     () => DEFAULT_EXERCISES.filter((e) => e.type === type && e.primaryMuscle !== "abs"),
@@ -83,13 +64,13 @@ export default function AddExercisePanel({
   const customs = data.customExercises;
   const activeSearch = query.trim() || muscleFilter || equipmentFilter;
   const filtered = useMemo(() => {
-    const pool = [...presets, ...corePresets, ...customs];
+    const pool = [...DEFAULT_EXERCISES, ...customs];
     return pool
       .filter((preset) => searchExercisePreset(preset, query))
       .filter((preset) => !muscleFilter || preset.primaryMuscle === muscleFilter || preset.secondaryMuscles?.includes(muscleFilter))
       .filter((preset) => !equipmentFilter || preset.equipment === equipmentFilter)
-      .sort((a, b) => Number(b.type !== "custom") - Number(a.type !== "custom") || Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)) || a.name.localeCompare(b.name));
-  }, [corePresets, customs, equipmentFilter, favoriteIds, muscleFilter, presets, query]);
+      .sort((a, b) => Number(favoriteIds.has(b.id)) - Number(favoriteIds.has(a.id)) || Number(b.type === type) - Number(a.type === type) || Number(!b.custom) - Number(!a.custom) || a.name.localeCompare(b.name));
+  }, [customs, equipmentFilter, favoriteIds, muscleFilter, query, type]);
 
   // 上次同类型训练里实际做过的动作
   const lastSession = useMemo(
@@ -209,20 +190,24 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavorite}
+              onFavorite={toggleFavoriteExercise}
               onEdit={(p) => isCustomExercise(p) && setEditId(p.id)}
             />
+          )}
+
+          {activeSearch && filtered.length === 0 && (
+            <p className="mb-3 rounded-xl border border-dashed border-border px-3 py-4 text-center text-[12px] text-faint">{tr("没有匹配动作，可在下方新建自定义动作")}</p>
           )}
 
           {!activeSearch && favoriteIds.size > 0 && (
             <Chips
               label={tr("收藏")}
-              items={[...presets, ...corePresets, ...customs].filter((p) => favoriteIds.has(p.id))}
+              items={[...DEFAULT_EXERCISES, ...customs].filter((p) => favoriteIds.has(p.id))}
               addedIds={addedIds}
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavorite}
+              onFavorite={toggleFavoriteExercise}
               onEdit={(p) => isCustomExercise(p) && setEditId(p.id)}
             />
           )}
@@ -281,36 +266,36 @@ export default function AddExercisePanel({
               label={
                 tr(type === "push" ? "推" : type === "pull" ? "拉" : "腿")
               }
-              items={presets}
+              items={presets.filter((preset) => !favoriteIds.has(preset.id))}
               addedIds={addedIds}
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavorite}
+              onFavorite={toggleFavoriteExercise}
             />
           )}
 
           {!activeSearch && corePresets.length > 0 && (
             <Chips
               label={tr("其它")}
-              items={corePresets}
+              items={corePresets.filter((preset) => !favoriteIds.has(preset.id))}
               addedIds={addedIds}
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavorite}
+              onFavorite={toggleFavoriteExercise}
             />
           )}
 
           {!activeSearch && customs.length > 0 && (
             <Chips
               label={tr("自定义")}
-              items={customs}
+              items={customs.filter((preset) => !favoriteIds.has(preset.id))}
               addedIds={addedIds}
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavorite}
+              onFavorite={toggleFavoriteExercise}
               onEdit={(p) => setEditId(p.id)}
             />
           )}
@@ -414,6 +399,7 @@ function Chips({
     () => new Map(DEFAULT_EXERCISES.map((preset) => [preset.id, preset.name])),
     []
   );
+  if (!items.length) return null;
   return (
     <div className="mb-3">
       <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-faint">

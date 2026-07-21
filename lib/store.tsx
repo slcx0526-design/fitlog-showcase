@@ -41,9 +41,17 @@ import {
   saveData,
 } from "./storage";
 import { DEFAULT_EXERCISES } from "./exercises";
-import { MAX_TEMPLATES_PER_TYPE } from "./templates";
-import { currentCutSnapshot, cutAdjustedSets, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
-import { ensureMicrocycle, microcycleForNewWorkout, microcycleForScheduleEdit, nextMicrocycle } from "./microcycle";
+import { MAX_TEMPLATES_PER_TYPE, moveTemplateWithinType } from "./templates";
+import { currentCutSnapshot, cutSetPlan, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
+import {
+  cloneTemplate,
+  ensureMicrocycle,
+  microcycleAssignmentForNewWorkout,
+  microcycleForScheduleEdit,
+  microcycleForTemplateEdit,
+  nextMicrocycle,
+  templateForMicrocycleStep,
+} from "./microcycle";
 import {
   applyPrescriptionSnapshot,
   findTrackHistory,
@@ -63,7 +71,7 @@ interface StoreApi {
   getDay: (date: string) => DayLog | undefined;
 
   // 训练
-  setWorkoutType: (date: string, type: TrainingType) => void;
+  setWorkoutType: (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => void;
   setWorkoutDone: (date: string, done: boolean) => void;
   setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => void;
   addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => void;
@@ -106,7 +114,7 @@ interface StoreApi {
   renameTemplate: (id: string, name: string) => void;
   setTemplateItems: (id: string, items: TemplateItem[]) => void;
   deleteTemplate: (id: string) => void;
-  applyTemplate: (id: string, date: string) => number;
+  applyTemplate: (id: string, date: string, options?: { microcycleStepId?: string }) => number;
 
   // 跨天查询
   lastSession: (
@@ -143,10 +151,12 @@ interface StoreApi {
       recordModes?: RecordMode[];
     }
   ) => void;
+  toggleFavoriteExercise: (id: string) => void;
 
   // 计划
   setSchedule: (schedule: Schedule) => void;
   setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
+  resetMuscleTarget: (muscle: MuscleGroup) => void;
   startNewMicrocycle: (date: string) => void;
 
   // 跨天 type 查询（"上次也做了"用）
@@ -238,18 +248,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, fn: (w: WorkoutSession) => WorkoutSession) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
-        const microcycle = day.workout
-          ? ensureMicrocycle(prev, date)
-          : microcycleForNewWorkout(prev, date);
+        const current = ensureMicrocycle(prev, date);
+        const assignment = day.workout
+          ? {
+              microcycle: current,
+              microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
+            }
+          : microcycleAssignmentForNewWorkout(prev, date);
+        const microcycle = assignment.microcycle;
         const w: WorkoutSession = day.workout ?? {
           type: "push",
           exercises: [],
-          microcycleId: microcycle.currentId,
+          microcycleId: assignment.microcycleId,
         };
-        const next = fn({ ...w, microcycleId: w.microcycleId ?? microcycle.currentId });
+        const next = fn({ ...w, microcycleId: w.microcycleId ?? assignment.microcycleId });
         // Historical edits must preserve the session's original microcycle.
         // Only a genuinely new workout receives the currently active cycle id.
-        const microcycleId = day.workout?.microcycleId ?? next.microcycleId ?? microcycle.currentId;
+        const microcycleId = day.workout?.microcycleId ?? next.microcycleId ?? assignment.microcycleId;
         const nextData = {
           ...prev,
           microcycle,
@@ -282,13 +297,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- 训练相关 API ----
   const setWorkoutType = useCallback(
-    (date: string, type: TrainingType) => {
+    (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
-        const microcycle = day.workout
-          ? ensureMicrocycle(prev, date)
-          : microcycleForNewWorkout(prev, date);
-        const w = day.workout ?? { type, exercises: [], microcycleId: microcycle.currentId };
+        const current = ensureMicrocycle(prev, date);
+        const assignment = day.workout
+          ? {
+              microcycle: current,
+              microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
+            }
+          : microcycleAssignmentForNewWorkout(prev, date);
+        const microcycle = assignment.microcycle;
+        const requestedStep = options?.microcycleStepId
+          ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === type)
+          : undefined;
+        const w = day.workout ?? { type, exercises: [], microcycleId: assignment.microcycleId };
         if (type === "rest" && w.type !== "rest" && w.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) {
           return prev;
         }
@@ -304,7 +327,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 ...w,
                 type,
                 templateId: w.type === type ? w.templateId : undefined,
-                microcycleId: w.microcycleId ?? microcycle.currentId,
+                templateSnapshot: w.type === type ? w.templateSnapshot : undefined,
+                microcycleId: w.microcycleId ?? assignment.microcycleId,
+                microcycleStepId: requestedStep?.id ?? (w.type === type ? w.microcycleStepId : undefined),
                 ...(w.type === type ? {} : { done: false }),
               },
             },
@@ -557,7 +582,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return prev;
       }
       const tpl: Template = { id, name: name.trim() || name, type, items: [] };
-      return { ...prev, templates: [...current, tpl] };
+      const templates = [...current, tpl];
+      return { ...prev, templates, microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates) };
     });
     return id;
   }, []);
@@ -577,16 +603,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (list.filter((t) => t.type === source.type).length >= MAX_TEMPLATES_PER_TYPE) {
         return prev;
       }
-      const copy: Template = {
+      const copy = cloneTemplate({
         ...source,
         id: nextId,
         name: `${source.name.trim() || "模板"} 副本`,
-        items: source.items.map((item) => ({ ...item })),
-      };
+      });
       const sourceIndex = list.findIndex((t) => t.id === id);
       const next = [...list];
       next.splice(sourceIndex + 1, 0, copy);
-      return { ...prev, templates: next };
+      return { ...prev, templates: next, microcycle: microcycleForTemplateEdit({ ...prev, templates: next }, next) };
     });
     return nextId;
   }, []);
@@ -594,24 +619,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const moveTemplate = useCallback((id: string, dir: -1 | 1) => {
     setData((prev) => {
       const list = prev.templates ?? [];
-      const index = list.findIndex((t) => t.id === id);
-      if (index < 0) return prev;
-      const target = index + dir;
-      if (target < 0 || target >= list.length) return prev;
-      if (list[index].type !== list[target].type) return prev;
-      const next = [...list];
-      [next[index], next[target]] = [next[target], next[index]];
+      const next = moveTemplateWithinType(list, id, dir);
+      if (next === list) return prev;
       return { ...prev, templates: next };
     });
   }, []);
 
   const renameTemplate = useCallback((id: string, name: string) => {
-    setData((prev) => ({
-      ...prev,
-      templates: (prev.templates ?? []).map((t) =>
-        t.id === id ? { ...t, name } : t
-      ),
-    }));
+    setData((prev) => {
+      const templates = (prev.templates ?? []).map((template) => template.id === id ? { ...template, name } : template);
+      return { ...prev, templates, microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates) };
+    });
   }, []);
 
   const setTemplateItems = useCallback((id: string, items: TemplateItem[]) => {
@@ -622,11 +640,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const canonicalItems = items.map((item) =>
         normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))
       );
+      const templates = (prev.templates ?? []).map((template) =>
+        template.id === id ? { ...template, items: canonicalItems } : template
+      );
       return {
         ...prev,
-        templates: (prev.templates ?? []).map((template) =>
-          template.id === id ? { ...template, items: canonicalItems } : template
-        ),
+        templates,
+        microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates),
       };
     });
   }, []);
@@ -635,15 +655,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => {
       const next = (prev.templates ?? []).filter((t) => t.id !== id);
       const clearBinding = (step: import("./types").MicrocycleStep) => step.templateId === id ? { ...step, templateId: undefined } : step;
+      const schedule = prev.schedule.microcycle ? { ...prev.schedule, microcycle: prev.schedule.microcycle.map(clearBinding) } : prev.schedule;
       const trainingTemplateIds = prev.cutPlan?.trainingTemplateIds
         ? Object.fromEntries(Object.entries(prev.cutPlan.trainingTemplateIds).filter(([, templateId]) => templateId !== id)) as NonNullable<CutPlan["trainingTemplateIds"]>
         : undefined;
-      return {
+      const base = {
         ...prev,
         templates: next.length ? next : undefined,
-        schedule: prev.schedule.microcycle ? { ...prev.schedule, microcycle: prev.schedule.microcycle.map(clearBinding) } : prev.schedule,
-        microcycle: prev.microcycle?.steps ? { ...prev.microcycle, steps: prev.microcycle.steps.map(clearBinding) } : prev.microcycle,
+        schedule,
         cutPlan: prev.cutPlan ? { ...prev.cutPlan, trainingTemplateIds: trainingTemplateIds && Object.keys(trainingTemplateIds).length ? trainingTemplateIds : undefined } : prev.cutPlan,
+      };
+      return {
+        ...base,
+        // A cycle with recorded work keeps its immutable snapshot. An unstarted cycle follows the edited schedule.
+        microcycle: microcycleForTemplateEdit(base, next),
       };
     });
   }, []);
@@ -651,10 +676,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /**
    * 套用模板到某天：合并去重（已有的动作保留，模板里缺的补进来）。
    * 不写入任何重量 —— 重量交给"沿用上次"。返回新增动作数。
-   */
+  */
   const applyTemplate = useCallback(
-    (id: string, date: string): number => {
-      const tpl = dataRef.current.templates?.find((t) => t.id === id);
+    (id: string, date: string, options?: { microcycleStepId?: string }): number => {
+      const tpl = templateForMicrocycleStep(dataRef.current, options?.microcycleStepId, id);
       if (!tpl || !tpl.items.length) return 0;
       const currentExercises = dataRef.current.days[date]?.workout?.exercises ?? [];
       const currentIds = new Set(currentExercises.filter((exercise) => workingSets(exercise.sets).length > 0).map((exercise) => exercise.id));
@@ -662,34 +687,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // 预设池：内置 + 自定义（拿 primaryMuscle / isMain 快照）
       setData((prev) => {
         const day = prev.days[date] ?? { date };
-        const microcycle = day.workout
-          ? ensureMicrocycle(prev, date)
-          : microcycleForNewWorkout(prev, date);
+        const current = ensureMicrocycle(prev, date);
+        const assignment = day.workout
+          ? {
+              microcycle: current,
+              microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
+            }
+          : microcycleAssignmentForNewWorkout(prev, date);
+        const microcycle = assignment.microcycle;
+        const requestedStep = options?.microcycleStepId
+          ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === tpl.type && step.templateId === id)
+          : undefined;
+        const resolvedTemplate = templateForMicrocycleStep({ ...prev, microcycle }, requestedStep?.id, id);
+        if (!resolvedTemplate) return prev;
         const pool = [...DEFAULT_EXERCISES, ...prev.customExercises];
+        const presetById = new Map(pool.map((preset) => [preset.id, preset]));
         const cutSnapshot = currentCutSnapshot(prev.profile, prev.bodyWeights, prev.waistEntries);
         const cutActive = isCutModeActive(prev.cutPlan);
         const cutScale = prev.cutPlan?.trainingVolumeScale ?? suggestedCutVolumeScale(cutSnapshot?.bodyFatPercent, prev.cutPlan?.weeklyLossPct);
+        const adjustedSets = new Map((cutActive
+          ? cutSetPlan(resolvedTemplate.items.map((item) => ({
+              id: item.exerciseId,
+              sets: item.sets,
+              isMain: item.isMain ?? presetById.get(item.exerciseId)?.isMain,
+            })), cutScale)
+          : resolvedTemplate.items.map((item) => ({ id: item.exerciseId, cutSets: item.sets })))
+          .map((item) => [item.id, item.cutSets]));
         const existing = day.workout?.exercises ?? [];
         // 已记录组数的动作保留（绝不丢数据）；其余（空的、上一个模板残留的）一律替换掉
         const kept = existing.filter((e) => workingSets(e.sets).length > 0);
         const keptIds = new Set(kept.map((e) => e.id));
 
         const fresh: Exercise[] = [];
-        for (const it of tpl.items) {
+        for (const it of resolvedTemplate.items) {
           if (keptIds.has(it.exerciseId)) continue; // 已保留（有记录）的不重复加
-          const preset = pool.find((p) => p.id === it.exerciseId);
+          const preset = presetById.get(it.exerciseId);
           const prescription = prescriptionFromTemplateItem(it, preset);
           fresh.push(applyPrescriptionSnapshot({
             id: it.exerciseId,
-            name: preset?.name ?? it.name ?? "动作",
-            isMain: preset?.isMain ?? false,
+            name: it.name || preset?.name || "动作",
+            isMain: it.isMain ?? preset?.isMain ?? false,
             sets: [],
-            primaryMuscle: preset?.primaryMuscle,
-            secondaryMuscles: preset?.secondaryMuscles,
-            volumeContributions: preset?.volumeContributions,
+            primaryMuscle: it.primaryMuscle ?? preset?.primaryMuscle,
+            secondaryMuscles: it.secondaryMuscles ?? preset?.secondaryMuscles,
+            volumeContributions: it.volumeContributions ?? preset?.volumeContributions,
             recordModes: it.recordModes ?? preset?.recordModes,
-          }, { ...prescription, workingSets: cutActive ? cutAdjustedSets(prescription.workingSets, cutScale) : prescription.workingSets }));
+          }, { ...prescription, workingSets: adjustedSets.get(it.exerciseId) ?? prescription.workingSets }));
         }
+        const templateSnapshot = cloneTemplate(resolvedTemplate);
         return {
           ...prev,
           microcycle,
@@ -700,9 +745,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               date,
               // Editing an existing historical day must not move it to the current cycle.
               workout: {
-                type: tpl.type,
-                templateId: tpl.id,
-                microcycleId: day.workout?.microcycleId ?? microcycle.currentId,
+                type: resolvedTemplate.type,
+                templateId: resolvedTemplate.id,
+                templateSnapshot,
+                microcycleId: day.workout?.microcycleId ?? assignment.microcycleId,
+                microcycleStepId: requestedStep?.id ?? (day.workout?.templateId === resolvedTemplate.id ? day.workout.microcycleStepId : undefined),
                 done: false,
                 ...(day.workout?.difficulty ? { difficulty: day.workout.difficulty } : {}),
                 exercises: [...kept, ...fresh],
@@ -800,6 +847,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         name: name.trim(),
         isMain,
         type: "custom",
+        custom: true,
         ...(primaryMuscle ? { primaryMuscle } : {}),
         ...(primaryMuscle ? { volumeContributions: [{ muscle: primaryMuscle, weight: 1, direct: true }] } : {}),
         ...(equipment ? { equipment } : {}),
@@ -818,7 +866,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({
       ...prev,
       customExercises: prev.customExercises.filter((e) => e.id !== id),
+      favoriteExerciseIds: prev.favoriteExerciseIds?.filter((exerciseId) => exerciseId !== id),
     }));
+  }, []);
+
+  const toggleFavoriteExercise = useCallback((id: string) => {
+    setData((prev) => {
+      const current = prev.favoriteExerciseIds ?? [];
+      const favoriteExerciseIds = current.includes(id)
+        ? current.filter((exerciseId) => exerciseId !== id)
+        : [...current, id];
+      return { ...prev, favoriteExerciseIds: favoriteExerciseIds.length ? favoriteExerciseIds : undefined };
+    });
   }, []);
 
   /**
@@ -888,6 +947,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 return normalizeTemplateItemPrescription({
                   ...it,
                   name,
+                  isMain: false,
+                  primaryMuscle: patch.primaryMuscle,
+                  secondaryMuscles,
+                  volumeContributions,
+                  equipment: patch.equipment,
                   recordModes,
                   ...(modeChanged ? {
                     repsLow: mode === "duration" ? 30 : mode === "distance" ? 20 : 8,
@@ -908,7 +972,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           });
           if (changed) templates = next;
         }
-        return { ...prev, customExercises, templates };
+        const nextData = { ...prev, customExercises, templates };
+        return {
+          ...nextData,
+          microcycle: templates ? microcycleForTemplateEdit(nextData, templates) : prev.microcycle,
+        };
       });
     },
     []
@@ -929,8 +997,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const resetMuscleTarget = useCallback((muscle: MuscleGroup) => {
+    setData((prev) => {
+      if (!prev.muscleTargets?.[muscle]) return prev;
+      const muscleTargets = { ...prev.muscleTargets };
+      delete muscleTargets[muscle];
+      return { ...prev, muscleTargets: Object.keys(muscleTargets).length ? muscleTargets : undefined };
+    });
+  }, []);
+
   const startNewMicrocycle = useCallback((date: string) => {
-    setData((prev) => ({ ...prev, microcycle: nextMicrocycle(prev.microcycle, date, prev.schedule) }));
+    setData((prev) => ({ ...prev, microcycle: nextMicrocycle(prev.microcycle, date, prev.schedule, prev.templates) }));
   }, []);
 
   // ---- 跨天 type 查询 ----
@@ -1032,8 +1109,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addCustomExercise,
       removeCustomExercise,
       updateCustomExercise,
+      toggleFavoriteExercise,
       setSchedule,
       setMuscleTarget,
+      resetMuscleTarget,
       startNewMicrocycle,
       lastWorkoutByType,
       exportData,
@@ -1078,8 +1157,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addCustomExercise,
       removeCustomExercise,
       updateCustomExercise,
+      toggleFavoriteExercise,
       setSchedule,
       setMuscleTarget,
+      resetMuscleTarget,
       startNewMicrocycle,
       lastWorkoutByType,
       exportData,

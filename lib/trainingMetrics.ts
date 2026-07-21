@@ -150,6 +150,29 @@ export function hasRecordedTrainingWork(workout?: WorkoutSession) {
   return Boolean(workout && workout.type !== "rest" && summarizeWorkoutWork(workout).workingSets > 0);
 }
 
-export function isHistoryEligibleWorkout(workout?: WorkoutSession) {
-  return Boolean(workout && workout.done !== false && hasRecordedTrainingWork(workout));
+export function isPastUnclosedWorkout(
+  workout?: WorkoutSession,
+  workoutDate?: string,
+  referenceDate?: string
+) {
+  return Boolean(
+    workout &&
+      workout.done === false &&
+      workoutDate &&
+      referenceDate &&
+      workoutDate < referenceDate &&
+      hasRecordedTrainingWork(workout)
+  );
+}
+
+export function isHistoryEligibleWorkout(
+  workout?: WorkoutSession,
+  workoutDate?: string,
+  referenceDate?: string
+) {
+  return Boolean(
+    workout &&
+      hasRecordedTrainingWork(workout) &&
+      (workout.done !== false || isPastUnclosedWorkout(workout, workoutDate, referenceDate))
+  );
 }

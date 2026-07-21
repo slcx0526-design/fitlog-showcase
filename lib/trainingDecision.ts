@@ -47,7 +47,7 @@ export interface TrainingDecision {
 export function recentPlanAdherence(data: AppData, today: string, limit = 4): PlanAdherenceSummary {
   const start = shiftDate(today, -27);
   const sessions = Object.entries(data.days)
-    .filter(([date, day]) => date >= start && date <= today && isHistoryEligibleWorkout(day.workout))
+    .filter(([date, day]) => date >= start && date <= today && isHistoryEligibleWorkout(day.workout, date, today))
     .sort(([a], [b]) => b.localeCompare(a))
     .flatMap(([, day]) => {
       const summary = summarizeWorkoutWork(day.workout);
@@ -70,7 +70,7 @@ export function recentPlanAdherence(data: AppData, today: string, limit = 4): Pl
 function recentTrainingSessions(data: AppData, today: string) {
   const start = shiftDate(today, -27);
   return Object.entries(data.days).filter(([date, day]) =>
-    date >= start && date <= today && isHistoryEligibleWorkout(day.workout)
+    date >= start && date <= today && isHistoryEligibleWorkout(day.workout, date, today)
   ).length;
 }
 

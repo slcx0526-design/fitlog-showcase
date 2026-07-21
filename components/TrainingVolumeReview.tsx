@@ -28,7 +28,7 @@ function formatMechanical(value: number) {
 }
 
 export default function TrainingVolumeReview() {
-  const { data, setMuscleTarget, startNewMicrocycle } = useStore();
+  const { data, setMuscleTarget, resetMuscleTarget, startNewMicrocycle } = useStore();
   const today = useToday();
   const [scope, setScope] = useState<VolumeScope>("microcycle");
   const [expandedMuscle, setExpandedMuscle] = useState<MuscleGroup | null>(null);
@@ -51,7 +51,7 @@ export default function TrainingVolumeReview() {
     .filter(([date, day]) => {
       const workout = day.workout;
       return Boolean(date <= today && workout && (
-        isHistoryEligibleWorkout(workout) ||
+        isHistoryEligibleWorkout(workout, date, today) ||
         (workout.type === "rest" && workout.done !== false)
       ));
     })
@@ -130,7 +130,13 @@ export default function TrainingVolumeReview() {
             {expandedMuscle === row.muscle && <div className="mt-2 space-y-2">
               <p className="rounded-lg bg-surface px-2.5 py-2 text-[11px] leading-relaxed text-muted">{advice.detail}</p>
               <div className="grid grid-cols-2 gap-1.5 text-[10px] text-faint"><Metric label="实际直接工作组" value={String(row.rawDirectSets)} /><Metric label="局部总刺激" value={String(row.stimulusSets)} /><Metric label="连带有效组" value={String(row.indirectEffectiveSets)} /><Metric label="康复暴露" value={row.rehabSets ? `${row.rehabSets} 组` : "—"} /></div>
-              {cutActive ? <p className="rounded-lg bg-surface px-2.5 py-2 text-[10px] leading-relaxed text-faint">同一范围的平时目标约为 {normalLow}–{normalHigh}；减脂期不直接改基础目标，关闭减脂后会自动恢复。</p> : <div className="grid grid-cols-[1fr_1fr_auto] gap-1.5"><NumberField value={baseTarget.low} onChange={(value) => setMuscleTarget(row.muscle, value, baseTarget.high)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}每周目标下限`} className="number-cell h-9 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" /><NumberField value={baseTarget.high} onChange={(value) => setMuscleTarget(row.muscle, baseTarget.low, value)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}每周目标上限`} className="number-cell h-9 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" /><span className="self-center text-[11px] text-faint">每周目标</span></div>}
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5"><NumberField value={baseTarget.low} onChange={(value) => setMuscleTarget(row.muscle, value, baseTarget.high)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}每周目标下限`} className="number-cell h-9 min-w-0 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" /><NumberField value={baseTarget.high} onChange={(value) => setMuscleTarget(row.muscle, baseTarget.low, value)} ariaLabel={`${MUSCLE_LABELS[row.muscle]}每周目标上限`} className="number-cell h-9 min-w-0 rounded-lg border border-border bg-surface px-2 text-center text-[13px] text-fg" /><span className="self-center text-[11px] text-faint">每周目标</span></div>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[10px] leading-relaxed text-faint">{cutActive ? `当前范围按减脂比例显示为 ${row.target.low}–${row.target.high}；平时同范围约 ${normalLow}–${normalHigh}。` : "基础目标会按本周期、7 天或 28 天范围自动换算。"}</p>
+                  {data.muscleTargets?.[row.muscle] && <button type="button" onClick={() => resetMuscleTarget(row.muscle)} className="press shrink-0 rounded-lg bg-surface px-2 py-1 text-[10px] font-semibold text-accent">恢复默认</button>}
+                </div>
+              </div>
               <div className="space-y-1">{row.sources.map((source) => <p key={`${row.muscle}-${source.exerciseId}-${source.name}-${source.directEffectiveSets}-${source.indirectEffectiveSets}`} className="tnum flex justify-between gap-2 text-[11px] text-muted"><span className="truncate">{source.name}{source.directEffectiveSets ? " · 直接" : " · 连带"}</span><span className="shrink-0">直 {source.directEffectiveSets} · 连 {source.indirectEffectiveSets}</span></p>)}</div>
             </div>}
           </div>;
@@ -144,7 +150,7 @@ export default function TrainingVolumeReview() {
 
     <section>
       <div className="mb-2"><h2 className="text-[14px] font-semibold text-fg">近期训练</h2><p className="mt-0.5 text-[11px] text-faint">计划工作组与实际完成分开记录；重量和吨位只用于表现趋势。</p></div>
-      {recent.length ? <div className="control-card overflow-hidden">{recent.map(([date, day]) => { const workout = day.workout!; const summary = summarizeSessionExecution(workout); const result = summary.plannedSets ? `${formatSetCredit(summary.planCredits)}/${summary.plannedSets} 组` : `${formatSetCredit(summary.completionCredits)} 组`; return <Link key={date} href={`/train?date=${date}`} className="press soft-divider flex items-center gap-3 border-t px-3.5 py-3 first:border-t-0"><span className="w-12 text-[12px] font-medium text-muted">{relativeLabel(date)}</span><span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{typeLabel(workout.type)}</span><span className="tnum ml-auto text-[12px] text-muted">{workout.type === "rest" ? "休息" : result}</span><span className="text-faint">›</span></Link>; })}</div> : <div className="control-card border-dashed px-4 py-7 text-center"><p className="text-[12px] text-faint">尚无已完成训练记录。</p><Link href="/train" className="press mt-3 inline-flex rounded-lg bg-fg px-3 py-2 text-[12px] font-semibold text-bg">开始训练</Link></div>}
+      {recent.length ? <div className="control-card overflow-hidden">{recent.map(([date, day]) => { const workout = day.workout!; const summary = summarizeSessionExecution(workout); const result = summary.plannedSets ? `${formatSetCredit(summary.planCredits)}/${summary.plannedSets} 组` : `${formatSetCredit(summary.completionCredits)} 组`; const unclosed = workout.done === false && date < today; return <Link key={date} href={`/train?date=${date}`} className="press soft-divider flex items-center gap-3 border-t px-3.5 py-3 first:border-t-0"><span className="w-12 text-[12px] font-medium text-muted">{relativeLabel(date)}</span><span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{typeLabel(workout.type)}</span><span className="tnum ml-auto min-w-0 truncate text-right text-[12px] text-muted">{workout.type === "rest" ? "休息" : unclosed ? `未结束 · ${result}` : result}</span><span className="text-faint">›</span></Link>; })}</div> : <div className="control-card border-dashed px-4 py-7 text-center"><p className="text-[12px] text-faint">尚无已完成训练记录。</p><Link href="/train" className="press mt-3 inline-flex rounded-lg bg-fg px-3 py-2 text-[12px] font-semibold text-bg">开始训练</Link></div>}
     </section>
   </div>;
 }

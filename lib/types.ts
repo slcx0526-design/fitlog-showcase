@@ -170,6 +170,14 @@ export interface TemplateItem {
   repsLow: number;
   repsHigh: number;
   rpe?: number;
+  /** Movement metadata snapshot so future sessions stay correct if the library entry changes or is removed. */
+  isMain?: boolean;
+  primaryMuscle?: MuscleGroup;
+  secondaryMuscles?: MuscleGroup[];
+  volumeContributions?: VolumeContribution[];
+  equipment?: Equipment;
+  movementPattern?: MovementPattern;
+  alternatives?: string[];
   /** Canonical prescription definition. sets/repsLow/repsHigh remain editable template targets. */
   prescription?: ProgressionPrescription;
   /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
@@ -193,7 +201,11 @@ export interface WorkoutSession {
   type: TrainingType;
   exercises: Exercise[];
   templateId?: string;
+  /** Template definition used for this session; protects historical plans from later edits. */
+  templateSnapshot?: Template;
   microcycleId?: string;
+  /** Exact active-cycle step used to start this session. */
+  microcycleStepId?: string;
   done?: boolean;
   /** Optional session-level effort signal; replaces repetitive per-set RIR entry. */
   difficulty?: SessionDifficulty;
@@ -264,6 +276,8 @@ export interface ExercisePreset {
   category?: string;
   alternatives?: string[];
   region?: string;
+  /** Explicit origin marker for imported custom movements whose id may predate the cx_ convention. */
+  custom?: boolean;
 }
 
 export type MuscleTargetMap = Partial<Record<MuscleGroup, { low: number; high: number }>>;
@@ -282,6 +296,8 @@ export interface MicrocycleStep {
   label: string;
   /** Optional concrete prescription for this step. The active cycle snapshots this binding. */
   templateId?: string;
+  /** Immutable template content captured when the active cycle starts. Never stored on the editable schedule. */
+  templateSnapshot?: Template;
 }
 
 export interface Schedule {
@@ -298,6 +314,8 @@ export interface AppData {
   waistEntries: WaistEntry[];
   templates?: Template[];
   customExercises: ExercisePreset[];
+  /** Stored with the rest of the local-first dataset so backup/import and cross-tab sync stay complete. */
+  favoriteExerciseIds?: string[];
   schedule: Schedule;
   muscleTargets?: MuscleTargetMap;
   microcycle?: MicrocycleState;

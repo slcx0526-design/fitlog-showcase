@@ -86,7 +86,7 @@ export function inspectDataHealth(data: AppData): DataHealthReport {
   const templateIds = new Set((data.templates ?? []).map((template) => template.id));
   const bindings = [
     ...(data.schedule.microcycle ?? []).flatMap((step) => step.templateId ? [step.templateId] : []),
-    ...(data.microcycle?.steps ?? []).flatMap((step) => step.templateId ? [step.templateId] : []),
+    ...(data.microcycle?.steps ?? []).flatMap((step) => step.templateId && !step.templateSnapshot ? [step.templateId] : []),
     ...Object.values(data.cutPlan?.trainingTemplateIds ?? {}),
   ];
   const danglingBindings = bindings.filter((id) => !templateIds.has(id)).length;

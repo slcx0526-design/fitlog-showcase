@@ -2,7 +2,7 @@ import "./audit-regression.test";
 import assert from "node:assert/strict";
 import { analyzeTrackTrend, estimatedOneRepMax, findTrackHistories, findTrackHistory, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";
-import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle } from "../lib/microcycle";
+import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, defaultMicrocycle, microcycleAssignmentForNewWorkout, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle, templateForWorkout } from "../lib/microcycle";
 import { parseBackup, toBackup, type AppData } from "../lib/storage";
 import { weightForWaistDate } from "../lib/bodyfat";
 import { shiftDate } from "../lib/weight";
@@ -18,6 +18,12 @@ const days: Record<string, DayLog> = { "2026-07-01": { date: "2026-07-01", worko
 assert.equal(findTrackHistory(days, "incline", "2026-07-02", strength.progressionTrackId).same?.sets[0].weight, 80);
 const historyWithDraft: Record<string, DayLog> = { ...days, "2026-07-02": { date: "2026-07-02", workout: { type: "push", done: false, exercises: [bench(90, 6)] } } };
 assert.equal(findTrackHistory(historyWithDraft, "incline", "2026-07-03", strength.progressionTrackId).same?.date, "2026-07-01");
+const onlyUnclosedHistory: Record<string, DayLog> = { "2026-07-02": historyWithDraft["2026-07-02"] };
+const unclosedFallback = findTrackHistory(onlyUnclosedHistory, "incline", "2026-07-03", strength.progressionTrackId).same;
+assert.equal(unclosedFallback?.date, "2026-07-02", "Past valid work must remain available when the user forgot to finish the session");
+assert.equal(unclosedFallback?.implicitCompletion, true);
+assert.equal(progressionSuggestion(strength, unclosedFallback ?? null).status, "unconfirmedHistory", "Unclosed fallback history must never trigger automatic load progression");
+assert.equal(findTrackHistory(onlyUnclosedHistory, "incline", "2026-07-02", strength.progressionTrackId).same, null, "The current in-progress date must not become its own history");
 const completedHistory: Record<string, DayLog> = { ...historyWithDraft, "2026-07-02": { date: "2026-07-02", workout: { type: "push", done: true, exercises: [bench(82.5, 6)] } } };
 const trackHistory = findTrackHistories(completedHistory, "incline", "2026-07-03", strength.progressionTrackId);
 assert.deepEqual(trackHistory.same.map((item) => item.date), ["2026-07-02", "2026-07-01"]);
@@ -128,7 +134,8 @@ assert.equal(currentMicrocycleProgress(boundCycle, "2026-07-04").completed, 2);
 assert.equal(shouldAdvanceMicrocycle(boundCycle, "2026-07-04"), true);
 assert.equal(microcycleStepMatchesWorkout(boundSteps[0], boundDay("2026-07-01").workout), false);
 assert.equal(microcycleStepMatchesWorkout(boundSteps[0], boundDay("2026-07-01").workout, true), true);
-assert.equal(microcycleStepHref(boundSteps[1]), "/train?start=push&template=tpl_hypertrophy");
+assert.equal(microcycleStepHref(boundSteps[1]), "/train?start=push&cycleStep=bound_hypertrophy&template=tpl_hypertrophy");
+assert.equal(microcycleStepMatchesWorkout(boundSteps[0], { ...boundDay("2026-07-01", "tpl_strength").workout!, microcycleStepId: "bound_hypertrophy" }), false, "Exact step ids prevent two same-type steps from collapsing together");
 const snapshottedCycle: AppData = {
   ...partialCycle,
   microcycle: { ...partialCycle.microcycle!, steps: microcyclePatternFor(partialCycle.schedule) },
@@ -148,10 +155,28 @@ assert.deepEqual(nextSnapshot.steps?.map((item) => item.label), ["Future Legs", 
 assert.deepEqual(microcycleForScheduleEdit(snapshottedCycle, snapshottedCycle.schedule)?.steps?.map((item) => item.label), ["Push Strength", "Pull Strength", "Legs", "Push Hypertrophy", "Rest"]);
 const emptySnapshottedCycle: AppData = { ...snapshottedCycle, days: {} };
 assert.deepEqual(microcycleForScheduleEdit(emptySnapshottedCycle, emptySnapshottedCycle.schedule)?.steps?.map((item) => item.label), ["Future Legs", "Future Rest"]);
+
+const strengthTemplate = { id: "tpl_strength", name: "力量模板", type: "push" as const, items: [{ exerciseId: "incline", name: "上斜卧推", sets: 4, repsLow: 4, repsHigh: 6 }] };
+const boundSchedule = { ...microData.schedule, microcycle: [{ id: "strength_step", type: "push" as const, label: "Push Strength", templateId: strengthTemplate.id }] };
+const frozenCycle = defaultMicrocycle("2026-07-01", boundSchedule, [strengthTemplate]);
+strengthTemplate.items[0].sets = 2;
+assert.equal(frozenCycle.steps?.[0].templateSnapshot?.items[0].sets, 4, "Active-cycle template content must be deeply frozen");
+const refreshedCycle = nextMicrocycle(frozenCycle, "2026-07-08", boundSchedule, [strengthTemplate]);
+assert.equal(refreshedCycle.steps?.[0].templateSnapshot?.items[0].sets, 2, "A new cycle snapshots the latest template");
+const backfillAssignment = microcycleAssignmentForNewWorkout({ ...microData, microcycle: { currentId: "mc_current", startedAt: "2026-07-10", index: 4, steps: microcyclePatternFor(microData.schedule) } }, "2026-07-01");
+assert.equal(backfillAssignment.microcycleId, "legacy_mc_20260701");
+assert.equal(backfillAssignment.microcycle.currentId, "mc_current", "Backfill must not advance or rewrite the active cycle");
 const cycleBackup = parseBackup(JSON.stringify(toBackup({ ...partialCycle, customExercises: [{ id: "cx_test", name: "自定义推举", isMain: false, type: "custom", primaryMuscle: "frontDelt", secondaryMuscles: ["triceps"], volumeContributions: [{ muscle: "frontDelt", weight: 1, direct: true }, { muscle: "triceps", weight: 0.5, direct: false }] }] })));
 assert.equal(cycleBackup.schedule.microcycle?.[3].label, "Push Hypertrophy");
 assert.equal(cycleBackup.microcycle?.steps?.[3].label, "Push Hypertrophy");
 assert.equal(cycleBackup.customExercises[0].volumeContributions?.[1].weight, 0.5);
+
+const deletedLiveTemplateCycle = parseBackup(JSON.stringify({
+  app: "fitlog", version: 12, exportedAt: "2026-07-09T00:00:00.000Z",
+  days: {}, bodyWeights: [], waistEntries: [], customExercises: [], templates: [], schedule: microData.schedule,
+  microcycle: { currentId: "mc_snapshot", startedAt: "2026-07-09", index: 2, steps: [{ id: "frozen", type: "push", label: "Frozen", templateId: strengthTemplate.id, templateSnapshot: frozenCycle.steps?.[0].templateSnapshot }] },
+}));
+assert.equal(deletedLiveTemplateCycle.microcycle?.steps?.[0].templateSnapshot?.items[0].sets, 4, "Active snapshots survive deletion of the live template");
 const customVolume = computeVolumeSummary([{ date: "2026-07-09", workout: { type: "custom", done: true, exercises: [{ id: "cx_test", name: "自定义推举", isMain: false, sets: [{ weight: 20, reps: 10, type: "working" }, { weight: 20, reps: 10, type: "working" }], volumeContributions: cycleBackup.customExercises[0].volumeContributions }] } }]);
 assert.equal(customVolume.rows.find((row) => row.muscle === "frontDelt")?.directEffectiveSets, 2);
 assert.equal(customVolume.rows.find((row) => row.muscle === "triceps")?.indirectEffectiveSets, 1);
@@ -254,6 +279,16 @@ assert.equal(durationBackup.days["2026-07-15"].workout?.exercises[0].sets[0].dur
 assert.equal(durationBackup.days["2026-07-15"].workout?.exercises[0].prescription?.performanceMode, "duration");
 assert.equal(durationBackup.schedule.microcycle?.[0].templateId, "tpl_duration");
 assert.equal(durationBackup.microcycle?.steps?.[0].templateId, "tpl_duration");
+
+const sessionTemplateSnapshot = { ...strengthTemplate, items: [{ ...strengthTemplate.items[0], sets: 4 }] };
+const sessionSnapshotBackup = parseBackup(JSON.stringify({
+  app: "fitlog", version: 12, exportedAt: "2026-07-15T00:00:00.000Z",
+  days: { "2026-07-15": { date: "2026-07-15", workout: { type: "push", templateId: sessionTemplateSnapshot.id, templateSnapshot: sessionTemplateSnapshot, microcycleId: "mc_session", microcycleStepId: "strength_step", done: true, exercises: [bench(80, 5)] } } },
+  bodyWeights: [], waistEntries: [], customExercises: [], favoriteExerciseIds: ["incline"], templates: [{ ...strengthTemplate, items: [{ ...strengthTemplate.items[0], sets: 2 }] }], schedule: boundSchedule,
+}));
+assert.equal(sessionSnapshotBackup.days["2026-07-15"].workout?.microcycleStepId, "strength_step");
+assert.equal(templateForWorkout(sessionSnapshotBackup, sessionSnapshotBackup.days["2026-07-15"].workout)?.items[0].sets, 4, "Historical sessions use their own template snapshot");
+assert.deepEqual(sessionSnapshotBackup.favoriteExerciseIds, ["incline"]);
 
 const preset: ExercisePreset = { id: "incline", name: "上斜杠铃卧推", isMain: true, type: "push" };
 assert.notEqual(prescriptionForPreset(preset, "push", "strength").progressionTrackId, prescriptionForPreset(preset, "push", "hypertrophy").progressionTrackId);

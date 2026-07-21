@@ -7,6 +7,7 @@ import type {
   ExercisePreset,
   Schedule,
   Template,
+  TemplateItem,
   TrainingType,
   VolumeContribution,
 } from "./types";
@@ -69,9 +70,11 @@ function selectTemplate(templates: Template[], type: CutTrainingTemplateType, pl
   return matching.find((template) => template.id === selectedId) ?? matching[0];
 }
 
-function contributionFor(preset: ExercisePreset | undefined): VolumeContribution[] {
+function contributionFor(item: TemplateItem, preset: ExercisePreset | undefined): VolumeContribution[] {
+  if (item.volumeContributions?.length) return item.volumeContributions;
   if (preset?.volumeContributions?.length) return preset.volumeContributions;
-  if (preset?.primaryMuscle) return [{ muscle: preset.primaryMuscle, weight: 1, direct: true }];
+  const primaryMuscle = item.primaryMuscle ?? preset?.primaryMuscle;
+  if (primaryMuscle) return [{ muscle: primaryMuscle, weight: 1, direct: true }];
   return [];
 }
 
@@ -107,7 +110,7 @@ export function buildWeeklyCutTrainingPlan(args: {
       preset: pool.find((candidate) => candidate.id === item.exerciseId),
     }));
     const allocation = cutSetPlan(
-      prepared.map(({ item, preset }) => ({ id: item.exerciseId, sets: item.sets, isMain: preset?.isMain })),
+      prepared.map(({ item, preset }) => ({ id: item.exerciseId, sets: item.sets, isMain: item.isMain ?? preset?.isMain })),
       scale
     );
     const exercises: CutExercisePlan[] = prepared.map(({ item, preset }, index) => ({
@@ -115,14 +118,14 @@ export function buildWeeklyCutTrainingPlan(args: {
       name: item.name,
       normalSets: allocation[index].normalSets,
       cutSets: allocation[index].cutSets,
-      isMain: preset?.isMain ?? false,
+      isMain: item.isMain ?? preset?.isMain ?? false,
     }));
 
     const normalSetsPerSession = exercises.reduce((sum, item) => sum + item.normalSets, 0);
     const cutSetsPerSession = exercises.reduce((sum, item) => sum + item.cutSets, 0);
     for (const exercise of exercises) {
-      const preset = pool.find((candidate) => candidate.id === exercise.exerciseId);
-      for (const contribution of contributionFor(preset)) {
+      const source = prepared.find(({ item }) => item.exerciseId === exercise.exerciseId)!;
+      for (const contribution of contributionFor(source.item, source.preset)) {
         normalByMuscle.set(contribution.muscle, (normalByMuscle.get(contribution.muscle) ?? 0) + exercise.normalSets * weeklySessions * contribution.weight);
         cutByMuscle.set(contribution.muscle, (cutByMuscle.get(contribution.muscle) ?? 0) + exercise.cutSets * weeklySessions * contribution.weight);
       }

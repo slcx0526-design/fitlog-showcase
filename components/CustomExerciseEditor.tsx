@@ -33,7 +33,7 @@ function modesFor(kind: RecordKind): RecordMode[] {
 
 /** 判断是否为自定义动作（可编辑/删除） */
 export function isCustomExercise(p: ExercisePreset): boolean {
-  return p.id.startsWith("cx_");
+  return p.custom === true || p.id.startsWith("cx_");
 }
 
 /**

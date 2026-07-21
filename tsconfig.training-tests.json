@@ -24,6 +24,7 @@
     "lib/trainingExecution.ts",
     "lib/trainingHistory.ts",
     "lib/dataHealth.ts",
+    "lib/templates.ts",
     "scripts/data-foundation.test.ts",
     "scripts/training-execution.test.ts",
     "scripts/training-history.test.ts",

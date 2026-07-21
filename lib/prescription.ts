@@ -22,11 +22,12 @@ export interface TrackHistoryResult {
   sets: SetRecord[];
   kind: TrackHistoryKind;
   sessionDifficulty?: SessionDifficulty;
+  implicitCompletion?: boolean;
 }
 
 export interface ProgressionSuggestion {
   nextWeight: number | null;
-  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference" | "manualProgression" | "mixedLoads" | "missingLoad";
+  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference" | "manualProgression" | "mixedLoads" | "missingLoad" | "unconfirmedHistory";
   message: string;
   condition: string;
 }
@@ -273,7 +274,23 @@ export function normalizeTemplateItemPrescription(
     progressionRule: _progressionRule,
     ...canonical
   } = item;
-  return { ...canonical, prescription };
+  const secondaryMuscles = item.secondaryMuscles ?? preset?.secondaryMuscles;
+  const volumeContributions = item.volumeContributions ?? preset?.volumeContributions;
+  const alternatives = item.alternatives ?? preset?.alternatives;
+  const recordModes = item.recordModes ?? preset?.recordModes;
+  return {
+    ...canonical,
+    name: item.name.trim() || preset?.name || "动作",
+    isMain: item.isMain ?? preset?.isMain ?? false,
+    ...(item.primaryMuscle ?? preset?.primaryMuscle ? { primaryMuscle: item.primaryMuscle ?? preset?.primaryMuscle } : {}),
+    ...(secondaryMuscles?.length ? { secondaryMuscles: [...secondaryMuscles] } : {}),
+    ...(volumeContributions?.length ? { volumeContributions: volumeContributions.map((entry) => ({ ...entry })) } : {}),
+    ...(item.equipment ?? preset?.equipment ? { equipment: item.equipment ?? preset?.equipment } : {}),
+    ...(item.movementPattern ?? preset?.movementPattern ? { movementPattern: item.movementPattern ?? preset?.movementPattern } : {}),
+    ...(alternatives?.length ? { alternatives: [...alternatives] } : {}),
+    ...(recordModes?.length ? { recordModes: [...recordModes] } : {}),
+    prescription,
+  };
 }
 
 export function lastValidWorkingSet(sets: SetRecord[]) {
@@ -304,29 +321,39 @@ export function findTrackHistories(
   limit = 8
 ): TrackHistoryCollection {
   const dates = Object.keys(days).filter((date) => date < beforeDate).sort().reverse();
-  const result: TrackHistoryCollection = { same: [], other: [], legacy: [] };
+  const confirmed: TrackHistoryCollection = { same: [], other: [], legacy: [] };
+  const fallback: TrackHistoryCollection = { same: [], other: [], legacy: [] };
 
   for (const date of dates) {
     const workout = days[date].workout;
-    // New sessions explicitly use done=false while in progress. Legacy
-    // sessions had no flag, so undefined remains eligible history.
-    if (!workout || workout.type === "rest" || workout.done === false) continue;
+    if (!workout || workout.type === "rest") continue;
     const exercise = workout.exercises.find((item) => item.id === exerciseId && workingSets(item.sets).length > 0);
     if (!exercise) continue;
     const normalized = normalizeExercisePrescription(exercise);
     const track = exerciseTrackId(normalized);
-    const row: TrackHistoryResult = { date, exercise: normalized, sets: workingSets(normalized.sets), kind: "other", sessionDifficulty: workout.difficulty };
+    const target = workout.done === false ? fallback : confirmed;
+    const row: TrackHistoryResult = {
+      date,
+      exercise: normalized,
+      sets: workingSets(normalized.sets),
+      kind: "other",
+      sessionDifficulty: workout.difficulty,
+      implicitCompletion: workout.done === false ? true : undefined,
+    };
     if (progressionTrackId && track === progressionTrackId) {
-      if (result.same.length < limit) result.same.push({ ...row, kind: "same" });
+      if (target.same.length < limit) target.same.push({ ...row, kind: "same" });
     } else if (track?.startsWith("legacy:")) {
-      if (result.legacy.length < limit) result.legacy.push({ ...row, kind: "legacy" });
+      if (target.legacy.length < limit) target.legacy.push({ ...row, kind: "legacy" });
     } else if (track !== progressionTrackId) {
-      if (result.other.length < limit) result.other.push(row);
+      if (target.other.length < limit) target.other.push(row);
     }
-    if (result.same.length >= limit && result.other.length >= limit && result.legacy.length >= limit) break;
   }
 
-  return result;
+  return {
+    same: [...confirmed.same, ...fallback.same].slice(0, limit),
+    other: [...confirmed.other, ...fallback.other].slice(0, limit),
+    legacy: [...confirmed.legacy, ...fallback.legacy].slice(0, limit),
+  };
 }
 
 export function findTrackHistory(
@@ -373,6 +400,7 @@ export function trackPerformanceMetric(history: TrackHistoryResult): TrackPerfor
 
 export function analyzeTrackTrend(histories: TrackHistoryResult[]): TrackTrend {
   const measured = histories
+    .filter((history) => !history.implicitCompletion)
     .map((history) => ({ history, metric: trackPerformanceMetric(history) }))
     .filter((item): item is { history: TrackHistoryResult; metric: TrackPerformanceMetric } => item.metric != null);
   const metricKind = measured[0]?.metric.kind ?? null;
@@ -482,6 +510,19 @@ export function progressionSuggestion(
       status: "noHistory",
       message: "当前轨道暂无有效工作组",
       condition: "只使用有效组生成建议",
+    };
+  }
+  if (history.implicitCompletion) {
+    const weights = sets.map((set) => Math.round(set.weight * 100) / 100);
+    const positiveWeights = weights.filter((weight) => weight > 0);
+    const referenceWeight = mode === "reps" && positiveWeights.length === sets.length && new Set(positiveWeights).size === 1
+      ? positiveWeights[0]
+      : null;
+    return {
+      nextWeight: referenceWeight,
+      status: "unconfirmedHistory",
+      message: "上次记录未显式结束，仅保留原负重参考",
+      condition: "完成一次同轨道训练后再判断加重",
     };
   }
   const plannedSetCount = prescription.workingSets || sets.length;

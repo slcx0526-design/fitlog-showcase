@@ -72,7 +72,7 @@ export function buildTemplateAdjustmentProposal(data: AppData, action: Adjustabl
   const presets = new Map([...DEFAULT_EXERCISES, ...data.customExercises].map((item) => [item.id, item]));
   const source = [...template.items]
     .reverse()
-    .find((item) => item.sets > 1 && !presets.get(item.exerciseId)?.isMain)
+    .find((item) => item.sets > 1 && !(item.isMain ?? presets.get(item.exerciseId)?.isMain))
     ?? [...template.items].reverse().find((item) => item.sets > 1);
   if (!source) return null;
   const delta = Math.min(action.averageMissingSets, source.sets - 1);

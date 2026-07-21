@@ -1,1 +1,1 @@
-FitLog 4.5.0 explainable progression release
+FitLog 5.0.0 training foundation release

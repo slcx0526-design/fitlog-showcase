@@ -33,7 +33,7 @@ export default function ExerciseHistoryArchive() {
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const archive = useMemo(() => buildExerciseTrackArchive(data.days, `${today}\uffff`), [data.days, today]);
+  const archive = useMemo(() => buildExerciseTrackArchive(data.days, `${today}\uffff`, today), [data.days, today]);
   const filtered = useMemo(() => filterExerciseTrackArchive(archive, query), [archive, query]);
   const visibleTracks = query.trim() || showAllTracks ? filtered : filtered.slice(0, 16);
   const selected = archive.find((row) => row.key === selectedKey && visibleTracks.some((item) => item.key === row.key)) ?? visibleTracks[0] ?? null;
@@ -51,7 +51,7 @@ export default function ExerciseHistoryArchive() {
     </div>
 
     <div className="control-strip mt-3 grid grid-cols-4 gap-1 rounded-xl p-1.5">
-      <Fact label={tx(locale, "近28天", "28 days", "28日")} value={`${summary.completedSessions}${tx(locale, "次", "", "回")}`} />
+      <Fact label={summary.implicitSessions ? tx(locale, "完成 + 未结束", "Done + unclosed", "完了 + 未終了") : tx(locale, "近28天", "28 days", "28日")} value={`${summary.completedSessions}${summary.implicitSessions ? ` + ${summary.implicitSessions}` : ""}${tx(locale, "次", "", "回")}`} />
       <Fact label={tx(locale, "有效组", "Work sets", "有効セット")} value={formatCredit(summary.completionCredits)} />
       <Fact label={tx(locale, "计划完成", "Adherence", "計画達成")} value={summary.completionPct == null ? "—" : `${summary.completionPct}%`} />
       <Fact label={tx(locale, "记录轨道", "Logged tracks", "記録トラック")} value={String(summary.trackedExercises)} />
@@ -114,7 +114,7 @@ function SelectedTrack({ row, locale, tr }: { row: ExerciseTrackArchiveRow; loca
       <TrendBadge trend={row.trend} locale={locale} />
     </div>
     <div className="mt-2 grid grid-cols-3 gap-1.5">
-      <MiniStat label={tx(locale, "完成次数", "Sessions", "完了回数")} value={String(row.sessionCount)} />
+      <MiniStat label={tx(locale, "记录次数", "Records", "記録回数")} value={String(row.sessionCount)} />
       <MiniStat label={tx(locale, "有效组", "Work sets", "有効セット")} value={formatCredit(row.completionCredits)} />
       <MiniStat label={tx(locale, "最佳表现", "Best", "ベスト")} value={formatMetric(row.bestMetric, locale)} />
     </div>
@@ -135,7 +135,7 @@ function SelectedTrack({ row, locale, tr }: { row: ExerciseTrackArchiveRow; loca
 
 function SessionRow({ session, locale }: { session: ExerciseTrackArchiveSession; locale: Locale }) {
   return <Link href={`/train?date=${session.date}`} className="press soft-divider flex min-w-0 items-center gap-2 border-t px-3 py-2.5 first:border-t-0">
-    <span className="w-12 shrink-0 text-[11px] text-muted">{relativeLabel(session.date, locale)}</span>
+    <span className="w-12 shrink-0 truncate text-[11px] text-muted">{session.history.implicitCompletion ? tx(locale, "未结束", "Unclosed", "未終了") : relativeLabel(session.date, locale)}</span>
     <span className="tnum shrink-0 text-[10px] text-faint">{formatCompact(session.date, locale).md}</span>
     <span className="min-w-0 flex-1 truncate text-right text-[11px] font-medium text-fg">{formatSessionPerformance(session, locale)}</span>
     <span className="tnum shrink-0 text-[10px] text-faint">{formatCredit(session.completionCredits)} {tx(locale, "组", "sets", "セット")}</span>

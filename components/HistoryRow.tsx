@@ -11,6 +11,7 @@ import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecut
 import { workoutLogState, type WorkoutLogState } from "@/lib/trainingHistory";
 import { zoneMeta } from "@/lib/hr";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
+import { useToday } from "@/lib/hooks";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
@@ -36,9 +37,10 @@ function summarize(exercise: Exercise, locale: Locale) {
 
 export default function HistoryRow({ date, day }: { date: string; day: DayLog | undefined }) {
   const { tr, locale } = useI18n();
+  const today = useToday();
   const [open, setOpen] = useState(false);
   const workout = day?.workout;
-  const state = workoutLogState(workout);
+  const state = workoutLogState(workout, date, today);
   const work = summarizeWorkoutWork(workout);
   const execution = summarizeSessionExecution(workout);
   const isRest = state === "rest";
@@ -90,9 +92,9 @@ export default function HistoryRow({ date, day }: { date: string; day: DayLog | 
 }
 
 function StateBadge({ state, locale }: { state: WorkoutLogState; locale: Locale }) {
-  const label = state === "completed" ? tx(locale, "完成", "Done", "完了") : state === "inProgress" ? tx(locale, "进行中", "Active", "進行中") : state === "legacy" ? "Legacy" : state === "draft" ? tx(locale, "草稿", "Draft", "下書き") : "";
+  const label = state === "completed" ? tx(locale, "完成", "Done", "完了") : state === "inProgress" ? tx(locale, "进行中", "Active", "進行中") : state === "unclosed" ? tx(locale, "未结束", "Unclosed", "未終了") : state === "legacy" ? "Legacy" : state === "draft" ? tx(locale, "草稿", "Draft", "下書き") : "";
   if (!label) return null;
-  return <span className={"shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-semibold " + (state === "completed" ? "bg-accent-soft text-accent" : state === "inProgress" ? "bg-warn-soft text-warn" : "bg-surface-2 text-faint")}>{label}</span>;
+  return <span className={"shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-semibold " + (state === "completed" ? "bg-accent-soft text-accent" : state === "inProgress" || state === "unclosed" ? "bg-warn-soft text-warn" : "bg-surface-2 text-faint")}>{label}</span>;
 }
 
 function difficultyLabel(value: "easy" | "onTarget" | "hard", locale: Locale) {
