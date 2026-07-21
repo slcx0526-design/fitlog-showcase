@@ -12,6 +12,7 @@ import type {
   NutritionLog,
   Profile,
   RecordMode,
+  ProgressionPlanSnapshot,
   ProgressionPrescription,
   Schedule,
   SetRecord,
@@ -23,7 +24,7 @@ import type {
   Zone,
 } from "./types";
 import { fromKey, todayKey, toKey } from "./date";
-import { assignHistoricalMicrocycles, defaultMicrocycle } from "./microcycle";
+import { assignHistoricalMicrocycles, defaultMesocycle, defaultMicrocycle, ensureMicrocycle, templateForCyclePhase } from "./microcycle";
 import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
 import type { Equipment } from "./muscles";
 import { DEFAULT_EXERCISES } from "./exercises";
@@ -34,7 +35,7 @@ export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -46,6 +47,10 @@ const VALID_PATTERNS = new Set<MovementPattern>([
   "horizontalPush", "inclinePush", "verticalPush", "fly", "verticalPull", "horizontalPull",
   "hipHinge", "squat", "lunge", "kneeExtension", "kneeFlexion", "armCurl", "armExtension",
   "lateralRaise", "rearDelt", "calfRaise", "core", "carry", "custom",
+]);
+const VALID_SUGGESTION_STATUSES = new Set([
+  "addWeight", "addReps", "stabilize", "effortCheck", "finishSets", "noHistory",
+  "modeReference", "manualProgression", "mixedLoads", "missingLoad", "unconfirmedHistory",
 ]);
 
 function parseRecordModes(input: unknown): RecordMode[] | undefined {
@@ -166,6 +171,30 @@ function parsePrescription(input: unknown): ProgressionPrescription | undefined 
   };
 }
 
+function parseProgressionPlan(input: unknown, plannedLoadKg?: number): ProgressionPlanSnapshot | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (value.origin !== "suggestion" && value.origin !== "reference" && value.origin !== "manual") return undefined;
+  if (typeof value.progressionTrackId !== "string" || !value.progressionTrackId) return undefined;
+  if (typeof value.acceptedAt !== "string" || !value.acceptedAt) return undefined;
+  if (typeof value.plannedLoadKg !== "number" || !Number.isFinite(value.plannedLoadKg) || value.plannedLoadKg <= 0) return undefined;
+  const load = Math.round(value.plannedLoadKg * 100) / 100;
+  if (plannedLoadKg != null && Math.abs(plannedLoadKg - load) > 0.05) return undefined;
+  return {
+    origin: value.origin,
+    acceptedAt: value.acceptedAt,
+    progressionTrackId: value.progressionTrackId,
+    plannedLoadKg: load,
+    ...(isDateKey(value.sourceDate) ? { sourceDate: value.sourceDate } : {}),
+    ...(typeof value.suggestedLoadKg === "number" && Number.isFinite(value.suggestedLoadKg) && value.suggestedLoadKg > 0
+      ? { suggestedLoadKg: Math.round(value.suggestedLoadKg * 100) / 100 }
+      : {}),
+    ...(typeof value.suggestionStatus === "string" && VALID_SUGGESTION_STATUSES.has(value.suggestionStatus)
+      ? { suggestionStatus: value.suggestionStatus as ProgressionPlanSnapshot["suggestionStatus"] }
+      : {}),
+  };
+}
+
 function parseSet(input: unknown): SetRecord | null {
   if (!input || typeof input !== "object") return null;
   const value = input as Record<string, unknown>;
@@ -267,7 +296,11 @@ export function normalizeData(input: unknown): AppData {
               const sets = Array.isArray(exercise.sets) ? exercise.sets.map(parseSet).filter((set): set is SetRecord => !!set) : [];
               const recordModes = parseRecordModes(exercise.recordModes);
               const prescription = parsePrescription(exercise.prescription);
-              return normalizeExercisePrescription({ ...exercise, sets, recordModes, prescription });
+              const plannedLoadKg = typeof exercise.plannedLoadKg === "number" && Number.isFinite(exercise.plannedLoadKg) && exercise.plannedLoadKg > 0
+                ? Math.round(exercise.plannedLoadKg * 100) / 100
+                : undefined;
+              const progressionPlan = parseProgressionPlan(exercise.progressionPlan, plannedLoadKg);
+              return normalizeExercisePrescription({ ...exercise, sets, recordModes, prescription, plannedLoadKg, progressionPlan });
             })
           : [];
         const parsedType = VALID_TYPES.includes(workout.type) ? workout.type : "custom";
@@ -281,6 +314,10 @@ export function normalizeData(input: unknown): AppData {
           ...(typeof workout.microcycleStepId === "string" ? { microcycleStepId: workout.microcycleStepId } : {}),
           ...(typeof workout.done === "boolean" ? { done: workout.done } : {}),
           ...(workout.difficulty === "easy" || workout.difficulty === "onTarget" || workout.difficulty === "hard" ? { difficulty: workout.difficulty } : {}),
+          ...(workout.done !== false && typeof workout.completedAt === "string" ? { completedAt: workout.completedAt } : {}),
+          ...(typeof workout.mesocycleId === "string" && workout.mesocycleId ? { mesocycleId: workout.mesocycleId } : {}),
+          ...(typeof workout.mesocycleCycleNumber === "number" && Number.isFinite(workout.mesocycleCycleNumber) ? { mesocycleCycleNumber: Math.max(1, Math.round(workout.mesocycleCycleNumber)) } : {}),
+          ...(workout.cyclePhase === "build" || workout.cyclePhase === "deload" ? { cyclePhase: workout.cyclePhase } : {}),
           exercises,
         };
       }
@@ -513,7 +550,66 @@ export function normalizeData(input: unknown): AppData {
             }];
           }).slice(0, 14)
         : [];
-      out.microcycle = { currentId: value.currentId, startedAt: value.startedAt, index: typeof value.index === "number" ? Math.max(1, Math.round(value.index)) : 1, ...(steps.length ? { steps } : {}) };
+      out.microcycle = {
+        currentId: value.currentId,
+        startedAt: value.startedAt,
+        index: typeof value.index === "number" ? Math.max(1, Math.round(value.index)) : 1,
+        ...(steps.length ? { steps } : {}),
+        ...(value.phase === "build" || value.phase === "deload" ? { phase: value.phase } : {}),
+        ...(typeof value.mesocycleId === "string" && value.mesocycleId ? { mesocycleId: value.mesocycleId } : {}),
+        ...(typeof value.mesocycleCycleNumber === "number" && Number.isFinite(value.mesocycleCycleNumber) ? { mesocycleCycleNumber: Math.max(1, Math.round(value.mesocycleCycleNumber)) } : {}),
+        ...(typeof value.sourceReviewId === "string" && value.sourceReviewId ? { sourceReviewId: value.sourceReviewId } : {}),
+      };
+    }
+  }
+
+  if (obj.mesocycle && typeof obj.mesocycle === "object") {
+    const value = obj.mesocycle as Record<string, unknown>;
+    if (typeof value.currentId === "string" && value.currentId && isDateKey(value.startedAt)) {
+      const targetBuildCycles = typeof value.targetBuildCycles === "number" && Number.isFinite(value.targetBuildCycles)
+        ? Math.min(8, Math.max(2, Math.round(value.targetBuildCycles)))
+        : 4;
+      out.mesocycle = {
+        currentId: value.currentId,
+        startedAt: value.startedAt,
+        index: typeof value.index === "number" && Number.isFinite(value.index) ? Math.max(1, Math.round(value.index)) : 1,
+        targetBuildCycles,
+        currentBuildCycle: typeof value.currentBuildCycle === "number" && Number.isFinite(value.currentBuildCycle)
+          ? Math.min(targetBuildCycles, Math.max(1, Math.round(value.currentBuildCycle)))
+          : 1,
+      };
+    }
+  }
+
+  if (obj.lastCycleReview && typeof obj.lastCycleReview === "object") {
+    const value = obj.lastCycleReview as Record<string, unknown>;
+    const changes = Array.isArray(value.changes)
+      ? value.changes.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") return [];
+          const change = entry as Record<string, unknown>;
+          if (typeof change.templateId !== "string" || !change.templateId || typeof change.exerciseId !== "string" || !change.exerciseId) return [];
+          if (typeof change.fromSets !== "number" || typeof change.toSets !== "number" || !Number.isFinite(change.fromSets) || !Number.isFinite(change.toSets)) return [];
+          return [{
+            templateId: change.templateId,
+            exerciseId: change.exerciseId,
+            fromSets: Math.max(1, Math.round(change.fromSets)),
+            toSets: Math.max(1, Math.round(change.toSets)),
+          }];
+        })
+      : [];
+    if (
+      typeof value.id === "string" && value.id
+      && typeof value.sourceMicrocycleId === "string" && value.sourceMicrocycleId
+      && typeof value.appliedAt === "string" && value.appliedAt
+      && (value.nextPhase === "build" || value.nextPhase === "deload")
+    ) {
+      out.lastCycleReview = {
+        id: value.id,
+        sourceMicrocycleId: value.sourceMicrocycleId,
+        appliedAt: value.appliedAt,
+        nextPhase: value.nextPhase,
+        changes,
+      };
     }
   }
 
@@ -546,12 +642,14 @@ export function normalizeData(input: unknown): AppData {
     }
     if (step.templateSnapshot?.id === step.templateId && step.templateSnapshot.type === step.type) return step;
     const template = templatesById.get(step.templateId);
-    if (template?.type === step.type) return { ...step, templateSnapshot: parseTemplateSnapshot(template) };
+    if (template?.type === step.type) return { ...step, templateSnapshot: parseTemplateSnapshot(templateForCyclePhase(template, out.microcycle?.phase ?? "build")) };
     const { templateId: _templateId, templateSnapshot: _snapshot, ...rest } = step;
     return rest;
   };
   if (out.schedule.microcycle) out.schedule = { ...out.schedule, microcycle: out.schedule.microcycle.map(cleanScheduleStep) };
   if (out.microcycle.steps) out.microcycle = { ...out.microcycle, steps: out.microcycle.steps.map(cleanActiveStep) };
+  if (!out.mesocycle) out.mesocycle = defaultMesocycle(out.microcycle.startedAt);
+  out.microcycle = ensureMicrocycle(out, today);
   for (const [date, day] of Object.entries(out.days)) {
     if (!day.workout) continue;
     const assignedToCurrentBeforeStart = day.workout.microcycleId === out.microcycle.currentId && date < out.microcycle.startedAt;
@@ -559,13 +657,21 @@ export function normalizeData(input: unknown): AppData {
       const microcycleId = date >= out.microcycle.startedAt ? out.microcycle.currentId : `legacy_mc_${date.replace(/-/g, "")}`;
       day.workout = { ...day.workout, microcycleId };
     }
+    if (day.workout.microcycleId === out.microcycle.currentId && date >= out.microcycle.startedAt) {
+      day.workout = {
+        ...day.workout,
+        mesocycleId: day.workout.mesocycleId ?? out.microcycle.mesocycleId,
+        mesocycleCycleNumber: day.workout.mesocycleCycleNumber ?? out.microcycle.mesocycleCycleNumber,
+        cyclePhase: day.workout.cyclePhase ?? out.microcycle.phase ?? "build",
+      };
+    }
   }
   return out;
 }
 
 export function toBackup(data: AppData): BackupData {
   const normalized = normalizeData(data);
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle };
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview };
 }
 
 export function downloadBackup(data: AppData): void {

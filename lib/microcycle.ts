@@ -1,8 +1,20 @@
 import type { AppData } from "./storage";
-import type { DayLog, MicrocycleState, MicrocycleStep, Schedule, Template, TrainingType, WorkoutSession } from "./types";
+import type {
+  DayLog,
+  MesocycleState,
+  MicrocycleState,
+  MicrocycleStep,
+  Schedule,
+  Template,
+  TrainingCyclePhase,
+  TrainingType,
+  WorkoutSession,
+} from "./types";
 import { hasRecordedTrainingWork } from "./trainingMetrics";
+import { deloadPrescription, prescriptionFromTemplateItem } from "./prescription";
 
 export function makeMicrocycleId(index: number, startedAt: string) { return `mc_${index}_${startedAt.replace(/[^0-9]/g, "").slice(0, 8)}`; }
+export function makeMesocycleId(index: number, startedAt: string) { return `meso_${index}_${startedAt.replace(/[^0-9]/g, "").slice(0, 8)}`; }
 
 function localDate() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; }
 const STEP_LABELS: Record<TrainingType, string> = { push: "推", pull: "拉", legs: "腿", rest: "休息", custom: "自定义" };
@@ -29,6 +41,31 @@ export function cloneTemplate(template: Template): Template {
   };
 }
 
+export function templateForCyclePhase(template: Template, phase: TrainingCyclePhase): Template {
+  if (phase === "build") return cloneTemplate(template);
+  if (template.items.length > 0 && template.items.every((item) => item.prescription?.progressionTrackId.endsWith(":deload"))) {
+    return cloneTemplate(template);
+  }
+  return {
+    ...template,
+    items: template.items.map((item) => {
+      const prescription = deloadPrescription(prescriptionFromTemplateItem(item));
+      return {
+        ...item,
+        sets: prescription.workingSets,
+        prescription,
+        progressionTrackId: undefined,
+        progressionTrackLabel: undefined,
+        trainingIntent: undefined,
+        targetRirMin: undefined,
+        targetRirMax: undefined,
+        loadIncrementKg: undefined,
+        progressionRule: undefined,
+      };
+    }),
+  };
+}
+
 function cloneStep(step: MicrocycleStep): MicrocycleStep {
   return {
     ...step,
@@ -36,25 +73,25 @@ function cloneStep(step: MicrocycleStep): MicrocycleStep {
   };
 }
 
-function snapshot(schedule: Schedule | undefined, templates: Template[] = []) {
+function snapshot(schedule: Schedule | undefined, templates: Template[] = [], phase: TrainingCyclePhase = "build") {
   const byId = new Map(templates.map((template) => [template.id, template]));
   return microcyclePatternFor(schedule).map((step) => {
     const template = step.templateId ? byId.get(step.templateId) : undefined;
     return {
       ...step,
-      ...(template && template.type === step.type ? { templateSnapshot: cloneTemplate(template) } : {}),
+      ...(template && template.type === step.type ? { templateSnapshot: templateForCyclePhase(template, phase) } : {}),
     };
   });
 }
 
-function hydrateSnapshots(steps: MicrocycleStep[], templates: Template[] = []) {
+function hydrateSnapshots(steps: MicrocycleStep[], templates: Template[] = [], phase: TrainingCyclePhase = "build") {
   const byId = new Map(templates.map((template) => [template.id, template]));
   return steps.map((step) => {
     if (step.templateSnapshot) return cloneStep(step);
     const template = step.templateId ? byId.get(step.templateId) : undefined;
     return {
       ...step,
-      ...(template && template.type === step.type ? { templateSnapshot: cloneTemplate(template) } : {}),
+      ...(template && template.type === step.type ? { templateSnapshot: templateForCyclePhase(template, phase) } : {}),
     };
   });
 }
@@ -62,25 +99,122 @@ function hydrateSnapshots(steps: MicrocycleStep[], templates: Template[] = []) {
 export function activeMicrocyclePattern(data: Pick<AppData, "schedule" | "microcycle" | "templates">): MicrocycleStep[] {
   return data.microcycle?.steps?.length ? data.microcycle.steps.map(cloneStep) : snapshot(data.schedule, data.templates);
 }
-export function defaultMicrocycle(today: string, schedule?: Schedule, templates: Template[] = []): MicrocycleState { return { currentId: makeMicrocycleId(1, today), startedAt: today, index: 1, steps: snapshot(schedule, templates) }; }
-export function ensureMicrocycle(data: AppData, today: string): MicrocycleState {
-  return data.microcycle
-    ? { ...data.microcycle, steps: data.microcycle.steps?.length ? hydrateSnapshots(data.microcycle.steps, data.templates) : snapshot(data.schedule, data.templates) }
-    : defaultMicrocycle(today, data.schedule, data.templates);
+export function defaultMesocycle(today: string, index = 1, targetBuildCycles = 4): MesocycleState {
+  return {
+    currentId: makeMesocycleId(index, today),
+    startedAt: today,
+    index,
+    targetBuildCycles: Math.min(8, Math.max(2, Math.round(targetBuildCycles))),
+    currentBuildCycle: 1,
+  };
 }
-export function nextMicrocycle(current: MicrocycleState | undefined, today: string, schedule?: Schedule, templates: Template[] = []): MicrocycleState { const index = (current?.index ?? 0) + 1; return { currentId: makeMicrocycleId(index, today), startedAt: today, index, steps: snapshot(schedule, templates) }; }
+export function ensureMesocycle(data: Pick<AppData, "mesocycle" | "microcycle">, today: string): MesocycleState {
+  if (!data.mesocycle) return defaultMesocycle(data.microcycle?.startedAt ?? today);
+  return {
+    ...data.mesocycle,
+    targetBuildCycles: Math.min(8, Math.max(2, Math.round(data.mesocycle.targetBuildCycles || 4))),
+    currentBuildCycle: Math.min(
+      Math.min(8, Math.max(2, Math.round(data.mesocycle.targetBuildCycles || 4))),
+      Math.max(1, Math.round(data.mesocycle.currentBuildCycle || 1)),
+    ),
+  };
+}
+export function defaultMicrocycle(
+  today: string,
+  schedule?: Schedule,
+  templates: Template[] = [],
+  options?: { phase?: TrainingCyclePhase; mesocycle?: MesocycleState; sourceReviewId?: string },
+): MicrocycleState {
+  const phase = options?.phase ?? "build";
+  return {
+    currentId: makeMicrocycleId(1, today),
+    startedAt: today,
+    index: 1,
+    steps: snapshot(schedule, templates, phase),
+    ...(options?.phase ? { phase } : {}),
+    ...(options?.mesocycle ? { mesocycleId: options.mesocycle.currentId, mesocycleCycleNumber: options.mesocycle.currentBuildCycle } : {}),
+    ...(options?.sourceReviewId ? { sourceReviewId: options.sourceReviewId } : {}),
+  };
+}
+export function ensureMicrocycle(data: AppData, today: string): MicrocycleState {
+  const mesocycle = ensureMesocycle(data, today);
+  const current = data.microcycle
+    ? { ...data.microcycle, steps: data.microcycle.steps?.length ? hydrateSnapshots(data.microcycle.steps, data.templates, data.microcycle.phase) : snapshot(data.schedule, data.templates, data.microcycle.phase) }
+    : defaultMicrocycle(today, data.schedule, data.templates, { mesocycle });
+  return {
+    ...current,
+    phase: current.phase ?? "build",
+    mesocycleId: current.mesocycleId ?? mesocycle.currentId,
+    mesocycleCycleNumber: current.mesocycleCycleNumber ?? mesocycle.currentBuildCycle,
+  };
+}
+export function nextMicrocycle(
+  current: MicrocycleState | undefined,
+  today: string,
+  schedule?: Schedule,
+  templates: Template[] = [],
+  options?: { phase?: TrainingCyclePhase; mesocycle?: MesocycleState; sourceReviewId?: string },
+): MicrocycleState {
+  const index = (current?.index ?? 0) + 1;
+  const phase = options?.phase ?? "build";
+  return {
+    currentId: makeMicrocycleId(index, today),
+    startedAt: today,
+    index,
+    steps: snapshot(schedule, templates, phase),
+    phase,
+    ...(options?.mesocycle ? { mesocycleId: options.mesocycle.currentId, mesocycleCycleNumber: options.mesocycle.currentBuildCycle } : {}),
+    ...(options?.sourceReviewId ? { sourceReviewId: options.sourceReviewId } : {}),
+  };
+}
+
+export function advanceTrainingCycle(
+  data: AppData,
+  today: string,
+  phase: TrainingCyclePhase = "build",
+  sourceReviewId?: string,
+) {
+  const currentMicrocycle = ensureMicrocycle(data, today);
+  const currentMesocycle = ensureMesocycle(data, today);
+  const sourceComplete = shouldAdvanceMicrocycle(data, today);
+  let mesocycle = currentMesocycle;
+  if (phase === "build") {
+    const beginsNewMesocycle = currentMicrocycle.phase === "deload"
+      || (sourceComplete
+        && currentMesocycle.currentBuildCycle >= currentMesocycle.targetBuildCycles);
+    if (beginsNewMesocycle) {
+      mesocycle = defaultMesocycle(today, currentMesocycle.index + 1, currentMesocycle.targetBuildCycles);
+    } else if (sourceComplete) {
+      mesocycle = { ...currentMesocycle, currentBuildCycle: currentMesocycle.currentBuildCycle + 1 };
+    }
+  }
+  const microcycle = nextMicrocycle(
+    currentMicrocycle,
+    today,
+    data.schedule,
+    data.templates,
+    { phase, mesocycle, sourceReviewId },
+  );
+  return { microcycle, mesocycle };
+}
 export function microcycleForScheduleEdit(data: AppData, schedule: Schedule): MicrocycleState | undefined {
   const current = data.microcycle;
   if (!current) return current;
-  const hasRecordedWorkout = Object.values(data.days).some((day) => isActiveMicrocycleDay(data, day));
-  return hasRecordedWorkout ? current : { ...current, steps: snapshot(schedule, data.templates) };
+  const hasRecordedWorkout = Object.values(data.days).some((day) => hasActiveCycleRecord(data, day));
+  return hasRecordedWorkout ? current : { ...current, steps: snapshot(schedule, data.templates, current.phase) };
 }
 
 export function microcycleForTemplateEdit(data: AppData, templates: Template[]): MicrocycleState | undefined {
   const current = data.microcycle;
   if (!current) return current;
-  const hasRecordedWorkout = Object.values(data.days).some((day) => isActiveMicrocycleDay(data, day));
-  return hasRecordedWorkout ? current : { ...current, steps: snapshot(data.schedule, templates) };
+  const hasRecordedWorkout = Object.values(data.days).some((day) => hasActiveCycleRecord(data, day));
+  return hasRecordedWorkout ? current : { ...current, steps: snapshot(data.schedule, templates, current.phase) };
+}
+
+function hasActiveCycleRecord(data: Pick<AppData, "microcycle">, day: DayLog) {
+  if (!isActiveMicrocycleDay(data, day)) return false;
+  if (day.workout?.type === "rest") return day.workout.done !== false;
+  return hasRecordedTrainingWork(day.workout);
 }
 /** Must match the valid-work semantics used by progression and volume. */
 function hasWorkingSet(day: DayLog) {
@@ -176,17 +310,20 @@ export function currentMicrocycleProgress(data: AppData, today = localDate()) {
 /** Keep a completed cycle visible until the next workout is actually created. */
 export function microcycleForNewWorkout(data: AppData, date = localDate()) {
   const current = ensureMicrocycle(data, date);
-  return shouldAdvanceMicrocycle(data, date) ? nextMicrocycle(current, date, data.schedule, data.templates) : current;
+  return shouldAdvanceMicrocycle(data, date) ? advanceTrainingCycle(data, date).microcycle : current;
 }
 
 /** Backfilled workouts before the active cycle keep a stable historical id immediately. */
 export function microcycleAssignmentForNewWorkout(data: AppData, date = localDate()) {
   const current = ensureMicrocycle(data, date);
+  const currentMesocycle = ensureMesocycle(data, date);
   if (date < current.startedAt) {
-    return { microcycle: current, microcycleId: `legacy_mc_${date.replace(/-/g, "")}` };
+    return { microcycle: current, mesocycle: currentMesocycle, microcycleId: `legacy_mc_${date.replace(/-/g, "")}` };
   }
-  const microcycle = microcycleForNewWorkout(data, date);
-  return { microcycle, microcycleId: microcycle.currentId };
+  const advanced = shouldAdvanceMicrocycle(data, date)
+    ? advanceTrainingCycle(data, date)
+    : { microcycle: current, mesocycle: currentMesocycle };
+  return { ...advanced, microcycleId: advanced.microcycle.currentId };
 }
 
 export function assignHistoricalMicrocycles(days: Record<string, DayLog>, schedule: Schedule | undefined, today: string, templates: Template[] = []): { days: Record<string, DayLog>; microcycle: MicrocycleState } {

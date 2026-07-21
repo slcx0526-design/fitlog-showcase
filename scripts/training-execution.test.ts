@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   applyExercisePlannedLoad,
   createNextSetDraft,
+  evaluateProgressionOutcome,
   formatSetCredit,
   summarizeSessionExecution,
 } from "../lib/trainingExecution";
@@ -66,6 +67,63 @@ assert.equal(revisedLoadDrafts.plannedLoadKg, 82.5);
 assert.deepEqual(revisedLoadDrafts.sets.map((set) => set.weight), [82.5, 82.5, 77.5, 40, 0], "Only untouched standard drafts should follow the accepted load");
 assert.equal(applyExercisePlannedLoad(revisedLoadDrafts).plannedLoadKg, undefined);
 assert.deepEqual(applyExercisePlannedLoad(revisedLoadDrafts).sets, revisedLoadDrafts.sets, "Clearing planning context must not erase draft loads");
+assert.equal(applyExercisePlannedLoad(revisedLoadDrafts).progressionPlan, undefined, "Clearing a planned load must also clear its source snapshot");
+
+const acceptedSuggestion = applyExercisePlannedLoad(exercise("accepted", 3, []), 82.5, {
+  origin: "suggestion",
+  acceptedAt: "2026-07-20T10:00:00.000Z",
+  progressionTrackId: "accepted-hypertrophy-3x8-12",
+  sourceDate: "2026-07-15",
+  suggestedLoadKg: 82.5,
+  suggestionStatus: "addWeight",
+});
+assert.equal(acceptedSuggestion.progressionPlan?.origin, "suggestion");
+assert.equal(acceptedSuggestion.progressionPlan?.sourceDate, "2026-07-15");
+assert.equal(acceptedSuggestion.progressionPlan?.suggestionStatus, "addWeight");
+
+const achievedOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  sets: [
+    { weight: 82.5, reps: 8 },
+    { weight: 82.5, reps: 9 },
+    { weight: 82.5, reps: 8 },
+  ],
+}, { done: true, difficulty: "onTarget", cyclePhase: "build" });
+assert.equal(achievedOutcome.status, "achieved");
+assert.equal(achievedOutcome.setsAtTargetFloor, 3);
+
+const partialOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  sets: [
+    { weight: 82.5, reps: 8 },
+    { weight: 82.5, reps: 7 },
+    { weight: 80, reps: 8 },
+  ],
+}, { done: true, cyclePhase: "build" });
+assert.equal(partialOutcome.status, "partial");
+
+const missedOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  sets: [
+    { weight: 82.5, reps: 6 },
+    { weight: 80, reps: 7 },
+    { weight: 80, reps: 7 },
+  ],
+}, { done: true, cyclePhase: "build" });
+assert.equal(missedOutcome.status, "missed");
+
+const manualPlan = applyExercisePlannedLoad(exercise("manual", 3, [{ weight: 80, reps: 10 }]), 80, {
+  origin: "manual",
+  acceptedAt: "2026-07-20T10:00:00.000Z",
+});
+assert.equal(evaluateProgressionOutcome(manualPlan, { done: true }).reason, "manualPlan", "Manual loads must never be counted as system suggestion outcomes");
+const referencePlan = applyExercisePlannedLoad(exercise("reference", 3, [{ weight: 80, reps: 10 }]), 80, {
+  origin: "reference",
+  acceptedAt: "2026-07-20T10:00:00.000Z",
+});
+assert.equal(evaluateProgressionOutcome(referencePlan, { done: true }).reason, "referencePlan", "A history reference must not be counted as a system suggestion outcome");
+assert.equal(evaluateProgressionOutcome({ ...acceptedSuggestion, sets: [{ weight: 82.5, reps: 8 }] }, { done: false }).reason, "workoutOpen");
+assert.equal(evaluateProgressionOutcome({ ...acceptedSuggestion, sets: [{ weight: 82.5, reps: 8 }] }, { done: true, cyclePhase: "deload" }).reason, "unsupportedMode");
 
 const duration = createNextSetDraft({
   performanceMode: "duration",

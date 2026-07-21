@@ -21,12 +21,14 @@ import type {
   NutritionLog,
   Profile,
   RecordMode,
+  MicrocycleState,
   Schedule,
   SessionDifficulty,
   SetRecord,
   Template,
   TemplateItem,
   TrainingIntent,
+  TrainingCyclePhase,
   TrainingType,
   VolumeContribution,
   WorkoutSession,
@@ -41,19 +43,23 @@ import {
   saveData,
 } from "./storage";
 import { DEFAULT_EXERCISES } from "./exercises";
+import { todayKey } from "./date";
 import { MAX_TEMPLATES_PER_TYPE, moveTemplateWithinType } from "./templates";
 import { currentCutSnapshot, cutSetPlan, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
 import {
+  advanceTrainingCycle,
   cloneTemplate,
+  ensureMesocycle,
   ensureMicrocycle,
   microcycleAssignmentForNewWorkout,
   microcycleForScheduleEdit,
   microcycleForTemplateEdit,
-  nextMicrocycle,
+  templateForCyclePhase,
   templateForMicrocycleStep,
 } from "./microcycle";
 import {
   applyPrescriptionSnapshot,
+  deloadPrescription,
   findTrackHistory,
   normalizeTemplateItemPrescription,
   prescriptionForPreset,
@@ -62,7 +68,12 @@ import {
 } from "./prescription";
 import { hasSetPerformance, workingSets } from "./trainingMetrics";
 import { inspectDataHealth } from "./dataHealth";
-import { applyExercisePlannedLoad } from "./trainingExecution";
+import { applyExercisePlannedLoad, type PlannedLoadContext } from "./trainingExecution";
+import {
+  applyCycleReviewToData,
+  requiresCycleReviewBeforeWorkout,
+  type CycleReview,
+} from "./cyclePlanning";
 
 interface StoreApi {
   loaded: boolean;
@@ -84,7 +95,7 @@ interface StoreApi {
     set: SetRecord
   ) => void;
   removeSet: (date: string, exerciseId: string, index: number) => void;
-  setExercisePlannedLoad: (date: string, exerciseId: string, weight?: number) => void;
+  setExercisePlannedLoad: (date: string, exerciseId: string, weight?: number, context?: PlannedLoadContext) => void;
 
   // 营养
   setNutrition: (date: string, log: NutritionLog | undefined) => void;
@@ -157,7 +168,9 @@ interface StoreApi {
   setSchedule: (schedule: Schedule) => void;
   setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
   resetMuscleTarget: (muscle: MuscleGroup) => void;
-  startNewMicrocycle: (date: string) => void;
+  setMesocycleTargetCycles: (cycles: number) => void;
+  startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => void;
+  applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => boolean;
 
   // 跨天 type 查询（"上次也做了"用）
   lastWorkoutByType: (
@@ -173,6 +186,15 @@ interface StoreApi {
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
+
+function workoutCycleContext(microcycle: MicrocycleState, microcycleId: string): Partial<WorkoutSession> {
+  if (microcycleId !== microcycle.currentId) return {};
+  return {
+    ...(microcycle.mesocycleId ? { mesocycleId: microcycle.mesocycleId } : {}),
+    ...(microcycle.mesocycleCycleNumber ? { mesocycleCycleNumber: microcycle.mesocycleCycleNumber } : {}),
+    cyclePhase: microcycle.phase ?? "build",
+  };
+}
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
@@ -248,18 +270,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, fn: (w: WorkoutSession) => WorkoutSession) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout
           ? {
               microcycle: current,
+              mesocycle: ensureMesocycle(prev, date),
               microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
             }
           : microcycleAssignmentForNewWorkout(prev, date);
         const microcycle = assignment.microcycle;
+        const cycleContext = workoutCycleContext(microcycle, assignment.microcycleId);
         const w: WorkoutSession = day.workout ?? {
           type: "push",
           exercises: [],
           microcycleId: assignment.microcycleId,
+          ...cycleContext,
         };
         const next = fn({ ...w, microcycleId: w.microcycleId ?? assignment.microcycleId });
         // Historical edits must preserve the session's original microcycle.
@@ -268,12 +294,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const nextData = {
           ...prev,
           microcycle,
+          mesocycle: assignment.mesocycle,
           days: {
             ...prev.days,
             [date]: {
               ...day,
               date,
-              workout: { ...next, microcycleId },
+              workout: {
+                ...workoutCycleContext(microcycle, microcycleId),
+                ...next,
+                microcycleId,
+              },
             },
           },
         };
@@ -300,10 +331,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout
           ? {
               microcycle: current,
+              mesocycle: ensureMesocycle(prev, date),
               microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
             }
           : microcycleAssignmentForNewWorkout(prev, date);
@@ -311,26 +344,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const requestedStep = options?.microcycleStepId
           ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === type)
           : undefined;
-        const w = day.workout ?? { type, exercises: [], microcycleId: assignment.microcycleId };
+        const w = day.workout ?? {
+          type,
+          exercises: [],
+          microcycleId: assignment.microcycleId,
+          ...workoutCycleContext(microcycle, assignment.microcycleId),
+        };
         if (type === "rest" && w.type !== "rest" && w.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) {
           return prev;
         }
         const nextData: AppData = {
           ...prev,
           microcycle,
+          mesocycle: assignment.mesocycle,
           days: {
             ...prev.days,
             [date]: {
               ...day,
               date,
               workout: {
+                ...workoutCycleContext(microcycle, w.microcycleId ?? assignment.microcycleId),
                 ...w,
                 type,
                 templateId: w.type === type ? w.templateId : undefined,
                 templateSnapshot: w.type === type ? w.templateSnapshot : undefined,
                 microcycleId: w.microcycleId ?? assignment.microcycleId,
                 microcycleStepId: requestedStep?.id ?? (w.type === type ? w.microcycleStepId : undefined),
-                ...(w.type === type ? {} : { done: false }),
+                ...(w.type === type ? {} : { done: false, completedAt: undefined }),
               },
             },
           },
@@ -350,7 +390,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           days: {
             ...prev.days,
-            [date]: { ...day, workout: { ...day.workout, done } },
+            [date]: {
+              ...day,
+              workout: {
+                ...day.workout,
+                done,
+                completedAt: done ? new Date().toISOString() : undefined,
+              },
+            },
           },
         };
       });
@@ -380,7 +427,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ? w.exercises.find((exercise) => exercise.prescription)?.prescription
           : undefined;
         const intent = options?.intent && options.intent !== "context" ? options.intent : undefined;
-        const prescription = prescriptionForPreset(preset, w.type, intent, context);
+        const basePrescription = prescriptionForPreset(preset, w.type, intent, context);
+        const prescription = w.cyclePhase === "deload"
+          ? deloadPrescription(basePrescription)
+          : basePrescription;
         const ex = applyPrescriptionSnapshot({
           id: preset.id,
           name: preset.name,
@@ -391,7 +441,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           volumeContributions: preset.volumeContributions,
           recordModes: preset.recordModes,
         }, prescription);
-        return { ...w, done: false, exercises: [...w.exercises, ex] };
+        return { ...w, done: false, completedAt: undefined, exercises: [...w.exercises, ex] };
       });
     },
     [mutateWorkout]
@@ -402,6 +452,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateWorkout(date, (w) => ({
         ...w,
         done: false,
+        completedAt: undefined,
         exercises: w.exercises.filter((e) => e.id !== exerciseId),
       }));
     },
@@ -414,6 +465,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateWorkout(date, (w) => ({
         ...w,
         done: false,
+        completedAt: undefined,
         exercises: w.exercises.map((e) =>
           e.id === exerciseId
             ? {
@@ -435,6 +487,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateWorkout(date, (workout) => ({
         ...workout,
         done: false,
+        completedAt: undefined,
         exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
           ? { ...exercise, sets: exercise.sets.map((current, currentIndex) => currentIndex === index ? set : current) }
           : exercise),
@@ -448,6 +501,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateWorkout(date, (workout) => ({
         ...workout,
         done: false,
+        completedAt: undefined,
         exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
           ? { ...exercise, sets: exercise.sets.filter((_, currentIndex) => currentIndex !== index) }
           : exercise),
@@ -457,8 +511,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setExercisePlannedLoad = useCallback(
-    (date: string, exerciseId: string, weight?: number) => {
-      mutateExercise(date, exerciseId, (exercise) => applyExercisePlannedLoad(exercise, weight));
+    (date: string, exerciseId: string, weight?: number, context?: PlannedLoadContext) => {
+      mutateExercise(date, exerciseId, (exercise) => applyExercisePlannedLoad(exercise, weight, context));
     },
     [mutateExercise]
   );
@@ -679,7 +733,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   */
   const applyTemplate = useCallback(
     (id: string, date: string, options?: { microcycleStepId?: string }): number => {
-      const tpl = templateForMicrocycleStep(dataRef.current, options?.microcycleStepId, id);
+      const currentData = dataRef.current;
+      const targetWorkout = currentData.days[date]?.workout;
+      if (!targetWorkout && requiresCycleReviewBeforeWorkout(currentData, date)) return 0;
+      const targetPhase = targetWorkout?.cyclePhase
+        ?? (date >= (currentData.microcycle?.startedAt ?? date) ? currentData.microcycle?.phase : "build")
+        ?? "build";
+      const baseTemplate = templateForMicrocycleStep(currentData, options?.microcycleStepId, id);
+      const tpl = baseTemplate
+        ? templateForCyclePhase(baseTemplate, targetPhase)
+        : undefined;
       if (!tpl || !tpl.items.length) return 0;
       const currentExercises = dataRef.current.days[date]?.workout?.exercises ?? [];
       const currentIds = new Set(currentExercises.filter((exercise) => workingSets(exercise.sets).length > 0).map((exercise) => exercise.id));
@@ -687,10 +750,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // 预设池：内置 + 自定义（拿 primaryMuscle / isMain 快照）
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout
           ? {
               microcycle: current,
+              mesocycle: ensureMesocycle(prev, date),
               microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
             }
           : microcycleAssignmentForNewWorkout(prev, date);
@@ -698,8 +763,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const requestedStep = options?.microcycleStepId
           ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === tpl.type && step.templateId === id)
           : undefined;
-        const resolvedTemplate = templateForMicrocycleStep({ ...prev, microcycle }, requestedStep?.id, id);
-        if (!resolvedTemplate) return prev;
+        const sourceTemplate = templateForMicrocycleStep({ ...prev, microcycle }, requestedStep?.id, id);
+        if (!sourceTemplate) return prev;
+        const phase = day.workout?.cyclePhase
+          ?? (date >= microcycle.startedAt ? microcycle.phase : "build")
+          ?? "build";
+        const resolvedTemplate = templateForCyclePhase(sourceTemplate, phase);
         const pool = [...DEFAULT_EXERCISES, ...prev.customExercises];
         const presetById = new Map(pool.map((preset) => [preset.id, preset]));
         const cutSnapshot = currentCutSnapshot(prev.profile, prev.bodyWeights, prev.waistEntries);
@@ -738,6 +807,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return {
           ...prev,
           microcycle,
+          mesocycle: assignment.mesocycle,
           days: {
             ...prev.days,
             [date]: {
@@ -745,12 +815,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               date,
               // Editing an existing historical day must not move it to the current cycle.
               workout: {
+                ...workoutCycleContext(microcycle, day.workout?.microcycleId ?? assignment.microcycleId),
                 type: resolvedTemplate.type,
                 templateId: resolvedTemplate.id,
                 templateSnapshot,
                 microcycleId: day.workout?.microcycleId ?? assignment.microcycleId,
                 microcycleStepId: requestedStep?.id ?? (day.workout?.templateId === resolvedTemplate.id ? day.workout.microcycleStepId : undefined),
                 done: false,
+                completedAt: undefined,
                 ...(day.workout?.difficulty ? { difficulty: day.workout.difficulty } : {}),
                 exercises: [...kept, ...fresh],
               },
@@ -1006,8 +1078,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const startNewMicrocycle = useCallback((date: string) => {
-    setData((prev) => ({ ...prev, microcycle: nextMicrocycle(prev.microcycle, date, prev.schedule, prev.templates) }));
+  const setMesocycleTargetCycles = useCallback((cycles: number) => {
+    setData((prev) => {
+      const current = ensureMesocycle(prev, todayKey());
+      const targetBuildCycles = Math.min(8, Math.max(current.currentBuildCycle, Math.max(2, Math.round(cycles))));
+      return { ...prev, mesocycle: { ...current, targetBuildCycles } };
+    });
+  }, []);
+
+  const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
+    setData((prev) => {
+      const advanced = advanceTrainingCycle(prev, date, phase);
+      return { ...prev, microcycle: advanced.microcycle, mesocycle: advanced.mesocycle };
+    });
+  }, []);
+
+  const applyCycleReview = useCallback((review: CycleReview, date: string, phase?: TrainingCyclePhase) => {
+    const result = applyCycleReviewToData(dataRef.current, review, date, phase);
+    if (!result.applied) return false;
+    dataRef.current = result.data;
+    setData(result.data);
+    return true;
   }, []);
 
   // ---- 跨天 type 查询 ----
@@ -1113,7 +1204,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSchedule,
       setMuscleTarget,
       resetMuscleTarget,
+      setMesocycleTargetCycles,
       startNewMicrocycle,
+      applyCycleReview,
       lastWorkoutByType,
       exportData,
       importFromText,
@@ -1161,7 +1254,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSchedule,
       setMuscleTarget,
       resetMuscleTarget,
+      setMesocycleTargetCycles,
       startNewMicrocycle,
+      applyCycleReview,
       lastWorkoutByType,
       exportData,
       importFromText,

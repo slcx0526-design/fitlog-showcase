@@ -204,7 +204,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
     }
 
     if (cycleComplete) {
-      actions.push({ kind: "cycleComplete", priority: 76, href: "/train", completed: cycle.completed, total: cycle.pattern.length });
+      actions.push({ kind: "cycleComplete", priority: 76, href: "/progress?tab=training", completed: cycle.completed, total: cycle.pattern.length });
     } else if (!todayWorkout && cycle.next) {
       actions.push(cycle.next.type === "rest"
         ? { kind: "recoveryStep", priority: 44, href: "/train?start=rest", label: cycle.next.label, completed: cycle.completed, total: cycle.pattern.length }

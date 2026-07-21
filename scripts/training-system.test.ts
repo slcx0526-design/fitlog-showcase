@@ -155,6 +155,16 @@ assert.deepEqual(nextSnapshot.steps?.map((item) => item.label), ["Future Legs", 
 assert.deepEqual(microcycleForScheduleEdit(snapshottedCycle, snapshottedCycle.schedule)?.steps?.map((item) => item.label), ["Push Strength", "Pull Strength", "Legs", "Push Hypertrophy", "Rest"]);
 const emptySnapshottedCycle: AppData = { ...snapshottedCycle, days: {} };
 assert.deepEqual(microcycleForScheduleEdit(emptySnapshottedCycle, emptySnapshottedCycle.schedule)?.steps?.map((item) => item.label), ["Future Legs", "Future Rest"]);
+const draftShellCycle: AppData = {
+  ...emptySnapshottedCycle,
+  days: {
+    "2026-07-01": {
+      date: "2026-07-01",
+      workout: { type: "push", done: false, microcycleId: emptySnapshottedCycle.microcycle?.currentId, exercises: [] },
+    },
+  },
+};
+assert.deepEqual(microcycleForScheduleEdit(draftShellCycle, draftShellCycle.schedule)?.steps?.map((item) => item.label), ["Future Legs", "Future Rest"], "An empty workout shell must not freeze the active-cycle plan");
 
 const strengthTemplate = { id: "tpl_strength", name: "力量模板", type: "push" as const, items: [{ exerciseId: "incline", name: "上斜卧推", sets: 4, repsLow: 4, repsHigh: 6 }] };
 const boundSchedule = { ...microData.schedule, microcycle: [{ id: "strength_step", type: "push" as const, label: "Push Strength", templateId: strengthTemplate.id }] };

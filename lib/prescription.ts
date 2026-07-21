@@ -4,6 +4,7 @@ import type {
   ExercisePreset,
   PerformanceMode,
   ProgressionPrescription,
+  ProgressionSuggestionStatus,
   SessionDifficulty,
   SetRecord,
   TemplateItem,
@@ -27,7 +28,7 @@ export interface TrackHistoryResult {
 
 export interface ProgressionSuggestion {
   nextWeight: number | null;
-  status: "addWeight" | "addReps" | "stabilize" | "effortCheck" | "finishSets" | "noHistory" | "modeReference" | "manualProgression" | "mixedLoads" | "missingLoad" | "unconfirmedHistory";
+  status: ProgressionSuggestionStatus;
   message: string;
   condition: string;
 }
@@ -253,6 +254,22 @@ export function exerciseTrackId(exercise: Exercise) {
 
 export function exerciseTrackLabel(exercise: Exercise) {
   return exercisePrescription(exercise).progressionTrackLabel;
+}
+
+export function deloadPrescription(prescription: ProgressionPrescription): ProgressionPrescription {
+  const trackId = prescription.progressionTrackId.endsWith(":deload")
+    ? prescription.progressionTrackId
+    : `${prescription.progressionTrackId}:deload`;
+  const label = prescription.progressionTrackLabel.startsWith("恢复 ·")
+    ? prescription.progressionTrackLabel
+    : `恢复 · ${prescription.progressionTrackLabel}`;
+  return {
+    ...prescription,
+    progressionTrackId: trackId,
+    progressionTrackLabel: label,
+    workingSets: Math.max(1, Math.ceil(prescription.workingSets * 0.6)),
+    progressionRule: "custom",
+  };
 }
 
 export function normalizeExercisePrescription(exercise: Exercise): Exercise {

@@ -270,10 +270,59 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 12);
+assert.equal(backup.version, 13);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
+assert.ok(backup.mesocycle, "Schema 13 backups include mesocycle state");
+
+const legacyPlannedLoad = normalizeData({
+  days: {
+    "2026-07-10": {
+      date: "2026-07-10",
+      workout: {
+        type: "push",
+        done: true,
+        exercises: [{ id: "px_barbell_bench", name: "卧推", isMain: true, plannedLoadKg: 80, sets: [{ weight: 80, reps: 8 }] }],
+      },
+    },
+  },
+  bodyWeights: [],
+  waistEntries: [],
+  customExercises: [],
+  schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+});
+assert.equal(legacyPlannedLoad.days["2026-07-10"].workout?.exercises[0].plannedLoadKg, 80);
+assert.equal(legacyPlannedLoad.days["2026-07-10"].workout?.exercises[0].progressionPlan, undefined, "Old planned loads must not be relabeled as accepted system suggestions");
+
+const acceptedPlanRoundTrip = normalizeData({
+  ...legacyPlannedLoad,
+  days: {
+    "2026-07-10": {
+      ...legacyPlannedLoad.days["2026-07-10"],
+      workout: {
+        ...legacyPlannedLoad.days["2026-07-10"].workout,
+        completedAt: "2026-07-10T10:00:00.000Z",
+        cyclePhase: "build",
+        exercises: [{
+          ...legacyPlannedLoad.days["2026-07-10"].workout!.exercises[0],
+          progressionPlan: {
+            origin: "suggestion",
+            acceptedAt: "2026-07-10T09:00:00.000Z",
+            progressionTrackId: "legacy:px_barbell_bench",
+            plannedLoadKg: 80,
+            sourceDate: "2026-07-03",
+            suggestedLoadKg: 80,
+            suggestionStatus: "addReps",
+          },
+        }],
+      },
+    },
+  },
+});
+assert.equal(acceptedPlanRoundTrip.days["2026-07-10"].workout?.completedAt, "2026-07-10T10:00:00.000Z");
+assert.equal(acceptedPlanRoundTrip.days["2026-07-10"].workout?.exercises[0].progressionPlan?.origin, "suggestion");
+assert.equal(toBackup(acceptedPlanRoundTrip).days["2026-07-10"].workout?.exercises[0].progressionPlan?.suggestionStatus, "addReps");
 
 assert.ok(DEFAULT_EXERCISES.length >= 70, "The built-in library should cover common gym movements");
 const builtInIds = new Set(DEFAULT_EXERCISES.map((preset) => preset.id));

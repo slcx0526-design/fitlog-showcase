@@ -12,6 +12,7 @@ import type { ProgressionSuggestion } from "@/lib/prescription";
 import { buildTemplateAdjustmentProposal, type TemplateAdjustmentProposal } from "@/lib/templateAdjustment";
 import { useToast } from "@/lib/toast";
 import type { TemplateItem } from "@/lib/types";
+import { shouldAdvanceMicrocycle } from "@/lib/microcycle";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
@@ -23,6 +24,7 @@ export default function TrainingDecisionBrief({ compact = false }: { compact?: b
   const [previewKind, setPreviewKind] = useState<TrainingDecisionAction["kind"] | null>(null);
   const [undo, setUndo] = useState<{ templateId: string; templateName: string; items: TemplateItem[] } | null>(null);
   const decision = useMemo(() => buildTrainingDecision(data, today, compact ? "home" : "review"), [compact, data, today]);
+  const cycleReady = shouldAdvanceMicrocycle(data, today);
   const actions = decision.actions.slice(0, compact ? 1 : 3);
   if (!actions.length) return null;
 
@@ -38,14 +40,15 @@ export default function TrainingDecisionBrief({ compact = false }: { compact?: b
     <div className="soft-divider border-t">
       {actions.map((action, index) => {
         const copy = actionCopy(action, locale, tr);
-        const proposal = !compact && adjustableAction(action) ? buildTemplateAdjustmentProposal(data, action) : null;
+        const summarizedInReview = !compact && cycleReady && adjustableAction(action);
+        const proposal = !compact && !cycleReady && adjustableAction(action) ? buildTemplateAdjustmentProposal(data, action) : null;
         const content = <>
           <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-bold " + (copy.tone === "warn" ? "bg-warn-soft text-warn" : copy.tone === "accent" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted")}>{index + 1}</span>
           <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-fg">{copy.title}</span><span className="mt-0.5 block text-[10px] leading-relaxed text-muted">{copy.detail}</span></span>
-          <span className="shrink-0 text-[11px] font-semibold text-accent" aria-hidden="true">{proposal ? tx(locale, "预览", "Preview", "確認") : "›"}</span>
+          <span className="shrink-0 text-[11px] font-semibold text-accent" aria-hidden="true">{proposal ? tx(locale, "预览", "Preview", "確認") : summarizedInReview ? tx(locale, "已汇总", "Bundled", "統合済み") : "›"}</span>
         </>;
         return <div key={action.kind} className="soft-divider border-t first:border-t-0">
-          {proposal ? <button type="button" onClick={() => setPreviewKind((current) => current === action.kind ? null : action.kind)} aria-expanded={previewKind === action.kind} className="press flex w-full items-center gap-3 px-3.5 py-3 text-left">{content}</button> : <Link href={action.href} className="press flex items-center gap-3 px-3.5 py-3">{content}</Link>}
+          {proposal ? <button type="button" onClick={() => setPreviewKind((current) => current === action.kind ? null : action.kind)} aria-expanded={previewKind === action.kind} className="press flex w-full items-center gap-3 px-3.5 py-3 text-left">{content}</button> : summarizedInReview ? <div className="flex items-center gap-3 px-3.5 py-3">{content}</div> : <Link href={action.href} className="press flex items-center gap-3 px-3.5 py-3">{content}</Link>}
           {proposal && previewKind === action.kind && <ProposalPreview proposal={proposal} locale={locale} tr={tr} onCancel={() => setPreviewKind(null)} onApply={() => {
             setTemplateItems(proposal.templateId, proposal.nextItems);
             setUndo({ templateId: proposal.templateId, templateName: proposal.templateName, items: proposal.previousItems });

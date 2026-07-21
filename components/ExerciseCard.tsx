@@ -17,11 +17,17 @@ import {
   lastProgressionSet,
   performanceModeFor,
   progressionSuggestion,
+  type ProgressionSuggestion,
   type TrackHistoryResult,
 } from "@/lib/prescription";
 import { progressionPresentation } from "@/lib/progressionPresentation";
 import { plannedWorkingSets, summarizeExerciseWork, workingSets } from "@/lib/trainingMetrics";
-import { createNextSetDraft, formatSetCredit } from "@/lib/trainingExecution";
+import {
+  createNextSetDraft,
+  evaluateProgressionOutcome,
+  formatSetCredit,
+  type ProgressionOutcome,
+} from "@/lib/trainingExecution";
 import NumberField from "./NumberField";
 import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
@@ -73,6 +79,8 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
   const currentWorking = workingSets(exercise.sets);
   const sessionWorkout = data.days[date]?.workout;
+  const isDeload = sessionWorkout?.cyclePhase === "deload"
+    || (sessionWorkout?.microcycleId === data.microcycle?.currentId && data.microcycle?.phase === "deload");
   const currentHistory: TrackHistoryResult | null = currentWorking.length ? {
     date,
     exercise,
@@ -81,7 +89,14 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     sessionDifficulty: sessionWorkout?.difficulty,
   } : null;
   const reviewingCompleted = Boolean(currentHistory && sessionWorkout?.done !== false);
-  const suggestion = progressionSuggestion(prescription, reviewingCompleted ? currentHistory : previous);
+  const suggestion: ProgressionSuggestion = isDeload
+    ? {
+        nextWeight: null,
+        status: "modeReference",
+        message: "恢复周期不触发加重建议",
+        condition: "使用轻松可控的负重完成缩减工作组",
+      }
+    : progressionSuggestion(prescription, reviewingCompleted ? currentHistory : previous);
   const suggestionCopy = progressionPresentation(suggestion, prescription, performanceMode, locale);
   const trend = analyzeTrackTrend(reviewingCompleted && currentHistory ? [currentHistory, ...histories.same] : histories.same);
   const workSummary = summarizeExerciseWork(exercise);
@@ -89,6 +104,9 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
   const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
   const carry = currentLoad ?? (recordsWeight && previous && !previous.implicitCompletion ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
+  const outcome = reviewingCompleted
+    ? evaluateProgressionOutcome(exercise, sessionWorkout)
+    : null;
   const setUnit = tx(locale, "组", "sets", "セット");
   const repUnit = tx(locale, "次", "reps", "回");
 
@@ -128,7 +146,13 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
 
   function acceptSuggestion() {
     if (suggestion.nextWeight == null || suggestion.nextWeight <= 0) return;
-    setExercisePlannedLoad(date, exercise.id, suggestion.nextWeight);
+    setExercisePlannedLoad(date, exercise.id, suggestion.nextWeight, {
+      origin: suggestion.status === "unconfirmedHistory" ? "reference" : "suggestion",
+      progressionTrackId: trackId,
+      sourceDate: previous?.date,
+      suggestedLoadKg: suggestion.nextWeight,
+      suggestionStatus: suggestion.status,
+    });
     toast.show(tx(locale, `本次计划负重已设为 ${suggestion.nextWeight}kg`, `Planned load set to ${suggestion.nextWeight}kg`, `今回の予定重量を ${suggestion.nextWeight}kg に設定しました`));
   }
 
@@ -167,10 +191,10 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
         <p className="mt-1 text-[9px] leading-relaxed text-faint"><span className="font-semibold">{tx(locale, "进步条件", "Progression condition", "進行条件")}</span> · {suggestionCopy.condition}</p>
       </div>
       {trend.sessionCount >= 2 && <p className="mt-1.5 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trackTrendText(trend.status, locale)}</p>}
-      {reviewingCompleted && acceptedWeight != null && <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次采用负重", "Accepted load this session", "今回採用した重量")}</span><b className="tnum">{acceptedWeight}kg</b></div>}
+      {reviewingCompleted && acceptedWeight != null && <ProgressionOutcomeRow outcome={outcome} exercise={exercise} locale={locale} />}
       {!reviewingCompleted && recordsWeight && <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent">
-        <span className="min-w-0 flex-1">{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")}</span>
-        <NumberField value={acceptedWeight ?? 0} onChange={(weight) => setExercisePlannedLoad(date, exercise.id, weight)} placeholder="—" ariaLabel={tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} allowDecimal className="number-cell tnum h-8 w-[72px] rounded-lg border border-accent/30 bg-surface px-2 text-center text-[13px] font-semibold text-fg" />
+        <span className="min-w-0 flex-1"><span className="block">{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")}</span>{exercise.progressionPlan && <span className="mt-0.5 block text-[9px] font-medium text-muted">{planOriginLabel(exercise.progressionPlan.origin, locale)}{exercise.progressionPlan.sourceDate ? ` · ${formatCompact(exercise.progressionPlan.sourceDate, locale).md}` : ""}</span>}</span>
+        <NumberField value={acceptedWeight ?? 0} onChange={(weight) => setExercisePlannedLoad(date, exercise.id, weight, { origin: "manual", progressionTrackId: trackId })} placeholder="—" ariaLabel={tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} allowDecimal className="number-cell tnum h-8 w-[72px] rounded-lg border border-accent/30 bg-surface px-2 text-center text-[13px] font-semibold text-fg" />
         <span className="shrink-0">kg</span>
         {acceptedWeight != null && <button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
       </div>}
@@ -230,4 +254,41 @@ function trackTrendText(status: "insufficient" | "improving" | "stable" | "plate
   if (status === "plateau") return tx(locale, "近期平台，先补目标表现", "Recent plateau; build the target first", "最近停滞。まず目標を積み上げる");
   if (status === "stable") return tx(locale, "表现稳定", "Stable", "安定");
   return tx(locale, "样本不足", "Low sample", "サンプル不足");
+}
+
+function planOriginLabel(origin: NonNullable<Exercise["progressionPlan"]>["origin"], locale: Locale) {
+  if (origin === "suggestion") return tx(locale, "系统建议", "System suggestion", "システム提案");
+  if (origin === "reference") return tx(locale, "历史参考", "History reference", "履歴参考");
+  return tx(locale, "手动计划", "Manual plan", "手動計画");
+}
+
+function outcomeCopy(outcome: ProgressionOutcome, locale: Locale) {
+  if (outcome.status === "achieved") return {
+    label: tx(locale, "建议完成", "Suggestion achieved", "提案達成"),
+    detail: outcome.allAtTargetTop
+      ? tx(locale, "计划组已在目标上限完成，下次可重新计算进步建议。", "All planned sets reached the top of the target; the next suggestion can progress.", "予定セットが目標上限に到達。次回の進行提案を再計算できます。")
+      : tx(locale, "计划负重与目标下限已完成，继续按同轨道推进。", "The planned load and target floor were completed; continue on this track.", "予定重量と目標下限を達成。同一トラックで継続します。"),
+    tone: "text-accent",
+  };
+  if (outcome.status === "partial") return {
+    label: tx(locale, "部分完成", "Partially achieved", "一部達成"),
+    detail: tx(locale, `计划负重完成 ${outcome.setsAtTargetFloor}/${outcome.requiredSets} 个达标组；下次先补齐，不追加变量。`, `${outcome.setsAtTargetFloor}/${outcome.requiredSets} target sets were completed at the planned load; finish the target before changing another variable.`, `予定重量で ${outcome.setsAtTargetFloor}/${outcome.requiredSets} セット達成。次回はまず不足分を補います。`),
+    tone: "text-warn",
+  };
+  if (outcome.status === "missed") return {
+    label: tx(locale, "未完成建议", "Suggestion missed", "提案未達"),
+    detail: tx(locale, "实际工作未在计划负重达到目标下限；下次先维持或回到稳定负重。", "The work did not reach the target floor at the planned load; hold or return to a stable load next time.", "予定重量で目標下限に届きませんでした。次回は維持または安定重量へ戻します。"),
+    tone: "text-warn",
+  };
+  return null;
+}
+
+function ProgressionOutcomeRow({ outcome, exercise, locale }: { outcome: ProgressionOutcome | null; exercise: Exercise; locale: Locale }) {
+  const weight = exercise.plannedLoadKg;
+  const plan = exercise.progressionPlan;
+  const copy = outcome ? outcomeCopy(outcome, locale) : null;
+  return <div className="mt-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px]">
+    <div className="flex items-center justify-between gap-2 text-accent"><span>{plan ? planOriginLabel(plan.origin, locale) : tx(locale, "旧版计划负重", "Legacy planned load", "旧予定重量")}</span><b className="tnum">{weight}kg</b></div>
+    {copy && <div className="mt-1.5 border-t border-accent/20 pt-1.5"><p className={`font-semibold ${copy.tone}`}>{copy.label}</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted">{copy.detail}</p></div>}
+  </div>;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { currentMicrocycleProgress, microcyclePatternFor, microcycleStepHref } from "@/lib/microcycle";
+import { currentMicrocycleProgress, ensureMesocycle, microcyclePatternFor, microcycleStepHref } from "@/lib/microcycle";
 import type { MicrocycleStep, TrainingType } from "@/lib/types";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
@@ -28,11 +28,13 @@ function stepId() {
 }
 
 export default function MicrocycleEditor() {
-  const { data, setSchedule } = useStore();
+  const { data, setSchedule, setMesocycleTargetCycles } = useStore();
   const { locale, tr } = useI18n();
   const today = useToday();
   const steps = microcyclePatternFor(data.schedule);
   const progress = currentMicrocycleProgress(data);
+  const mesocycle = ensureMesocycle(data, today);
+  const phase = data.microcycle?.phase ?? "build";
   const todayWorkout = data.days[today]?.workout;
 
   function save(next: MicrocycleStep[]) {
@@ -78,6 +80,14 @@ export default function MicrocycleEditor() {
       </div>
 
       <div className="control-card p-3">
+        <div className="mb-3 flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2">
+          <div className="min-w-0 flex-1"><p className="text-[11px] font-semibold text-fg">{phase === "deload" ? tx(locale, "当前 · 恢复周期", "Current · Recovery cycle", "現在・回復サイクル") : tx(locale, `中周期 ${mesocycle.index} · 建设 ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`, `Mesocycle ${mesocycle.index} · Build ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`, `メゾサイクル ${mesocycle.index}・構築 ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`)}</p><p className="mt-0.5 text-[9px] text-faint">{tx(locale, "建设周期目标", "Build-cycle target", "構築周期の目標")}</p></div>
+          <div className="flex shrink-0 items-center rounded-lg border border-border bg-surface p-0.5">
+            <button type="button" onClick={() => setMesocycleTargetCycles(mesocycle.targetBuildCycles - 1)} disabled={mesocycle.targetBuildCycles <= Math.max(2, mesocycle.currentBuildCycle)} aria-label={tx(locale, "减少建设周期", "Decrease build cycles", "構築周期を減らす")} className="press grid h-8 w-8 place-items-center text-[16px] text-muted disabled:opacity-20">−</button>
+            <span className="tnum w-7 text-center text-[12px] font-semibold text-fg">{mesocycle.targetBuildCycles}</span>
+            <button type="button" onClick={() => setMesocycleTargetCycles(mesocycle.targetBuildCycles + 1)} disabled={mesocycle.targetBuildCycles >= 8} aria-label={tx(locale, "增加建设周期", "Increase build cycles", "構築周期を増やす")} className="press grid h-8 w-8 place-items-center text-[16px] text-muted disabled:opacity-20">+</button>
+          </div>
+        </div>
         <div className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[11px] text-muted">
           {tx(locale, "下一步：", "Next: ", "次へ：")}<span className="font-semibold text-fg">{progress.next ? tr(progress.next.label) : tx(locale, "本轮已完成", "Cycle complete", "サイクル完了")}</span>
           {progress.next?.templateId && <span className="ml-1 text-faint">· {tr(progress.next.templateSnapshot?.name ?? data.templates?.find((template) => template.id === progress.next?.templateId)?.name ?? "")}</span>}

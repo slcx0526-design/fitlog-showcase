@@ -20,6 +20,10 @@ const TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const templateType = (type: TrainingType | undefined): type is "push" | "pull" | "legs" => type === "push" || type === "pull" || type === "legs";
 const hasEntry = (sets: Parameters<typeof workingSets>[0]) => sets.some(hasSetPerformance);
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
+function microcycleIndex(id: string | undefined) {
+  const match = id?.match(/^mc_(\d+)_/);
+  return match ? Number(match[1]) : undefined;
+}
 function typeName(locale: Locale, type: TrainingType) {
   const names: Record<TrainingType, [string, string, string]> = { push: ["推", "Push", "プッシュ"], pull: ["拉", "Pull", "プル"], legs: ["腿", "Legs", "脚"], rest: ["休息", "Rest", "休息"], custom: ["自定义", "Custom", "カスタム"] };
   const [zh, en, ja] = names[type];
@@ -48,6 +52,10 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const lockedIds = useMemo(() => new Set(exercises.filter((exercise) => hasEntry(exercise.sets)).map((exercise) => exercise.id)), [exercises]);
   const plannedSets = execution.plannedSets;
   const setUnit = tx(locale, "组", "sets", "セット");
+  const activeCycle = workout?.microcycleId === data.microcycle?.currentId ? data.microcycle : undefined;
+  const cyclePhase = workout?.cyclePhase ?? activeCycle?.phase ?? "build";
+  const cycleNumber = workout?.mesocycleCycleNumber ?? activeCycle?.mesocycleCycleNumber;
+  const cycleIndex = activeCycle?.index ?? microcycleIndex(workout?.microcycleId);
 
   useEffect(() => {
     if (!confirmFinish) return;
@@ -117,6 +125,10 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   return <section>
     <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">{tx(locale, "训练", "Training", "トレーニング")}</h2>
     <CutTrainingNotice />
+    {type && type !== "rest" && <div className={"mb-3 rounded-xl border px-3 py-2.5 " + (cyclePhase === "deload" ? "border-warn/30 bg-warn-soft" : "border-border bg-surface") }>
+      <div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-fg">{cyclePhase === "deload" ? tx(locale, "恢复周期", "Recovery cycle", "回復サイクル") : cycleNumber ? tx(locale, `中周期 · 建设 ${cycleNumber}`, `Mesocycle · Build ${cycleNumber}`, `メゾサイクル・構築 ${cycleNumber}`) : tx(locale, "训练周期记录", "Training-cycle record", "トレーニング周期記録")}</p><span className="tnum text-[10px] text-faint">{cycleIndex ? `MC ${cycleIndex}` : ""}</span></div>
+      {cyclePhase === "deload" && <p className="mt-1 text-[10px] leading-relaxed text-muted">{tx(locale, "工作组按恢复快照缩减，本轮不触发加重，也不覆盖正常训练轨道。", "Working sets use a reduced recovery snapshot; this cycle does not trigger load progression or overwrite normal tracks.", "セット数を回復用に縮小し、増量判定や通常トラックへの上書きは行いません。")}</p>}
+    </div>}
     {type === undefined && <div className="control-card mb-3 p-3.5"><p className="text-[14px] font-semibold text-fg">{tx(locale, "开始一场训练", "Start a workout", "トレーニングを始める")}</p><p className="mt-0.5 text-[11px] leading-relaxed text-faint">{suggestedType ? tx(locale, `今天计划：${typeName(locale, suggestedType)}。选择后才写入记录。`, `Scheduled today: ${typeName(locale, suggestedType)}. It is saved only after you choose it.`, `今日の予定：${typeName(locale, suggestedType)}。選択後に記録されます。`) : tx(locale, "先选择训练类型，再添加动作或套用模板。", "Choose a workout type, then add exercises or apply a template.", "トレーニング種別を選んでから、種目を追加またはテンプレートを適用します。")}</p>{suggestedType && <button type="button" onClick={() => selectType(suggestedType)} className="press mt-3 h-11 w-full rounded-xl bg-fg text-[14px] font-semibold text-bg">{tx(locale, `开始${typeName(locale, suggestedType)}训练`, `Start ${typeName(locale, suggestedType)}`, `${typeName(locale, suggestedType)}を開始`)}</button>}</div>}
     <div className="control-strip grid grid-cols-5 gap-1 rounded-2xl p-1">{TYPES.map((item) => <button key={item} type="button" onClick={() => selectType(item)} aria-pressed={type === item} className={"choice-chip press border text-[14px] font-semibold " + (type === item ? "border-accent bg-accent text-accent-fg" : "border-transparent text-muted active:bg-surface")}>{typeName(locale, item)}</button>)}</div>
     {nextType && <div className="mt-2 rounded-xl border border-warn/30 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `切换到${typeName(locale, nextType)}？`, `Switch to ${typeName(locale, nextType)}?`, `${typeName(locale, nextType)}に切り替えますか？`)}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "已有输入和已完成组不会删除，但同一场训练最好保持一个类型。", "Existing inputs and completed sets stay, but one workout should normally keep one type.", "入力済み内容と完了セットは残りますが、1回のトレーニングは通常1つの種別に保ちます。")}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setNextType(null)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={confirmSwitch} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "确认切换", "Confirm switch", "切り替える")}</button></div></div>}

@@ -16,6 +16,7 @@ import NumberField from "./NumberField";
 import ExerciseTrendReview from "./ExerciseTrendReview";
 import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";
+import CycleReviewPanel from "./CycleReviewPanel";
 
 const SCOPE_OPTIONS: Array<{ id: VolumeScope; label: string }> = [
   { id: "microcycle", label: "本周期" },
@@ -36,13 +37,15 @@ export default function TrainingVolumeReview() {
   const [showAllMuscles, setShowAllMuscles] = useState(false);
   const cutActive = isCutModeActive(data.cutPlan);
   const cutScale = data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE;
+  const cycleScale = data.microcycle?.phase === "deload" ? 0.6 : 1;
   const cycleProgress = currentMicrocycleProgress(data, today);
+  const cycleComplete = cycleProgress.pattern.length > 0 && cycleProgress.completed >= cycleProgress.pattern.length;
   const volumeDays = volumeScopeDays(data, scope, today);
   const volume = computeVolumeSummary(
     volumeDays,
     data.profile?.trainingLevel,
     data.muscleTargets,
-    volumeTargetScale(scope, data) * (cutActive ? cutScale : 1),
+    volumeTargetScale(scope, data) * (cutActive ? cutScale : 1) * (scope === "microcycle" ? cycleScale : 1),
   );
   const scopeLabel = volumeScopeLabel(volumeDays);
   const activeRows = volume.rows.filter((row) => row.rawDirectSets > 0 || row.indirectEffectiveSets > 0 || row.rehabSets > 0);
@@ -61,6 +64,8 @@ export default function TrainingVolumeReview() {
   return <div className="space-y-4">
     <TrainingDecisionBrief />
 
+    <CycleReviewPanel />
+
     <section className="grid grid-cols-2 gap-2.5">
       <StatCard label="直接有效" value={String(volume.totalDirectEffectiveSets)} hint="目标完成度" />
       <StatCard label="抗阻恢复负荷" value={String(volume.resistanceRecoveryLoad)} hint={`${volume.totalWorkingSets} 个工作组`} />
@@ -73,18 +78,18 @@ export default function TrainingVolumeReview() {
         <div>
           <p className="text-[14px] font-semibold text-fg">肌群容量处方</p>
           <p className="mt-0.5 text-[11px] text-faint">目标只看直接有效组；连带刺激只用于局部恢复判断，不替代直接训练。</p>
-          <p className="tnum mt-1 text-[11px] text-muted">{scopeLabel} · {volume.trainingDays} 个实际训练日{scope === "28d" ? " · 目标按 4 周累计" : ""}</p>
+          <p className="tnum mt-1 text-[11px] text-muted">{scopeLabel} · {volume.trainingDays} 个实际训练日{scope === "28d" ? " · 目标按 4 周累计" : data.microcycle?.phase === "deload" && scope === "microcycle" ? " · 恢复目标按 60%" : ""}</p>
           <p className="mt-1 text-[11px] text-muted">本轮 {cycleProgress.completed}/{cycleProgress.pattern.length} · 下一步 <span className="font-semibold text-fg">{cycleProgress.next?.label ?? "新一轮"}</span></p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Link href="/schedule" className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-muted">编辑轮次</Link>
-          <button type="button" onClick={() => setConfirmNewCycle(true)} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">新周期</button>
+          <button type="button" onClick={() => setConfirmNewCycle(true)} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">{cycleComplete ? "跳过复盘" : "手动重置"}</button>
         </div>
       </div>
 
       {confirmNewCycle && <div className="mt-3 rounded-xl border border-warn/30 bg-warn-soft px-3 py-2.5">
-        <p className="text-[12px] font-semibold text-warn">现在开始新微周期？</p>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted">本轮已有训练会保留在原周期；之后新建的训练使用当前编辑好的循环顺序。</p>
+        <p className="text-[12px] font-semibold text-warn">{cycleComplete ? "跳过复盘并开始普通周期？" : "手动重置当前微周期？"}</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-muted">{cycleComplete ? "不会应用上方模板调整或恢复周期建议；本轮记录仍完整保留。" : "本轮已有训练会保留在原周期；未完成周期不会计入已完成建设周期。"}</p>
         <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmNewCycle(false)} className="press h-9 rounded-lg border border-border bg-surface text-[12px] font-semibold text-fg">取消</button><button type="button" onClick={() => { startNewMicrocycle(today); setConfirmNewCycle(false); }} className="press h-9 rounded-lg bg-warn text-[12px] font-semibold text-white">确认开始</button></div>
       </div>}
 

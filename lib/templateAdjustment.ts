@@ -18,7 +18,15 @@ export interface TemplateAdjustmentProposal {
   changes: TemplateSetChange[];
 }
 
-type AdjustableAction = Extract<TrainingDecisionAction, { kind: "simplifyPlan" | "reduceVolume" | "addVolume" }>;
+export type AdjustableAction = Extract<TrainingDecisionAction, { kind: "simplifyPlan" | "reduceVolume" | "addVolume" }>;
+
+function withWorkingSets(item: TemplateItem, sets: number): TemplateItem {
+  return {
+    ...item,
+    sets,
+    ...(item.prescription ? { prescription: { ...item.prescription, workingSets: sets } } : {}),
+  };
+}
 
 function recentTemplateIds(data: AppData) {
   return Object.entries(data.days)
@@ -63,7 +71,7 @@ export function buildTemplateAdjustmentProposal(data: AppData, action: Adjustabl
     if (!delta) return null;
     const toSets = action.kind === "reduceVolume" ? source.sets - delta : source.sets + delta;
     const nextItems = template.items.map((item) => item.exerciseId === source.exerciseId
-      ? { ...item, sets: toSets, prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined }
+      ? withWorkingSets(item, toSets)
       : item);
     return proposal(template, nextItems, [{ exerciseId: source.exerciseId, exerciseName: source.name, fromSets: source.sets, toSets }]);
   }
@@ -79,7 +87,7 @@ export function buildTemplateAdjustmentProposal(data: AppData, action: Adjustabl
   const delta = Math.min(action.averageMissingSets, source.sets - 1);
   const toSets = source.sets - delta;
   const nextItems = template.items.map((item) => item.exerciseId === source.exerciseId
-    ? { ...item, sets: toSets, prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined }
+    ? withWorkingSets(item, toSets)
     : item);
   return proposal(template, nextItems, [{ exerciseId: source.exerciseId, exerciseName: source.name, fromSets: source.sets, toSets }]);
 }

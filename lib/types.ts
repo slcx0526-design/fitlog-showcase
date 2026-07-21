@@ -10,6 +10,20 @@ export type RecordMode = "weight" | "reps" | "rir" | "duration" | "distance";
 export type PerformanceMode = Extract<RecordMode, "reps" | "duration" | "distance">;
 export type SessionDifficulty = "easy" | "onTarget" | "hard";
 export type ProgressionRule = "doubleProgression" | "repsFirst" | "custom";
+export type ProgressionSuggestionStatus =
+  | "addWeight"
+  | "addReps"
+  | "stabilize"
+  | "effortCheck"
+  | "finishSets"
+  | "noHistory"
+  | "modeReference"
+  | "manualProgression"
+  | "mixedLoads"
+  | "missingLoad"
+  | "unconfirmedHistory";
+export type PlannedLoadOrigin = "suggestion" | "reference" | "manual";
+export type TrainingCyclePhase = "build" | "deload";
 export type MovementPattern =
   | "horizontalPush"
   | "inclinePush"
@@ -51,6 +65,17 @@ export interface ProgressionPrescription {
   progressionRule: ProgressionRule;
   /** Reps is the legacy default. Duration and distance use the same target range fields as display targets. */
   performanceMode?: PerformanceMode;
+}
+
+/** Immutable context captured when a session load is explicitly accepted or entered. */
+export interface ProgressionPlanSnapshot {
+  origin: PlannedLoadOrigin;
+  acceptedAt: string;
+  progressionTrackId: string;
+  plannedLoadKg: number;
+  sourceDate?: string;
+  suggestedLoadKg?: number;
+  suggestionStatus?: ProgressionSuggestionStatus;
 }
 
 /** 减脂计划的日常活动水平。专门有氧与手动活动消耗单独记录，避免重复计入。 */
@@ -152,6 +177,8 @@ export interface Exercise {
   progressionRule?: ProgressionRule;
   /** Accepted recommendation for this session. It is planning context, not a completed set. */
   plannedLoadKg?: number;
+  /** Source snapshot for the planned load. Legacy planned loads intentionally have no snapshot. */
+  progressionPlan?: ProgressionPlanSnapshot;
 }
 
 export type TemplateSlot = "push1" | "push2" | "pull1" | "pull2" | "legs1";
@@ -209,6 +236,12 @@ export interface WorkoutSession {
   done?: boolean;
   /** Optional session-level effort signal; replaces repetitive per-set RIR entry. */
   difficulty?: SessionDifficulty;
+  /** Explicit completion timestamp. Legacy completed sessions may not have one. */
+  completedAt?: string;
+  /** Periodization snapshot. Historical records never depend on the current plan. */
+  mesocycleId?: string;
+  mesocycleCycleNumber?: number;
+  cyclePhase?: TrainingCyclePhase;
 }
 
 export interface NutritionLog {
@@ -288,6 +321,37 @@ export interface MicrocycleState {
   index: number;
   /** Ordered loop captured when this cycle started. Schedule edits apply to the next cycle. */
   steps?: MicrocycleStep[];
+  /** Build cycles use normal prescriptions; deload cycles use isolated recovery snapshots. */
+  phase?: TrainingCyclePhase;
+  mesocycleId?: string;
+  mesocycleCycleNumber?: number;
+  /** Review that atomically created this cycle, when applicable. */
+  sourceReviewId?: string;
+}
+
+export interface MesocycleState {
+  currentId: string;
+  startedAt: string;
+  index: number;
+  /** Number of normal build microcycles before a new mesocycle starts. */
+  targetBuildCycles: number;
+  /** Current build-cycle position. A deload does not increment this value. */
+  currentBuildCycle: number;
+}
+
+export interface AppliedCycleTemplateChange {
+  templateId: string;
+  exerciseId: string;
+  fromSets: number;
+  toSets: number;
+}
+
+export interface AppliedCycleReview {
+  id: string;
+  sourceMicrocycleId: string;
+  appliedAt: string;
+  nextPhase: TrainingCyclePhase;
+  changes: AppliedCycleTemplateChange[];
 }
 
 export interface MicrocycleStep {
@@ -319,6 +383,9 @@ export interface AppData {
   schedule: Schedule;
   muscleTargets?: MuscleTargetMap;
   microcycle?: MicrocycleState;
+  mesocycle?: MesocycleState;
+  /** Last atomic review application; prevents the same cycle from changing templates twice. */
+  lastCycleReview?: AppliedCycleReview;
   /** Local-only backup reminder. Excluded from portable backup payloads. */
   lastBackupAt?: string;
 }

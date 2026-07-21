@@ -9,6 +9,7 @@ import { typeLabel } from "@/lib/exercises";
 import { exerciseTrackId, exerciseTrackLabel, performanceModeFor } from "@/lib/prescription";
 import { inspectDataHealth } from "@/lib/dataHealth";
 import { workingSets } from "@/lib/trainingMetrics";
+import { evaluateProgressionOutcome } from "@/lib/trainingExecution";
 
 export default function DataManagement() {
   const { tr, locale } = useI18n();
@@ -361,21 +362,24 @@ function dateStamp() {
 }
 
 function downloadTrainingCsv(data: AppData) {
-  const rows: (string | number | undefined | null)[][] = [["date", "type", "template_id", "microcycle_id", "microcycle_step_id", "session_difficulty", "exercise", "track_id", "track_label", "performance_mode", "set", "weight_kg", "reps", "duration_seconds", "distance_meters", "completion", "technique"]];
+  const rows: (string | number | undefined | null)[][] = [["date", "type", "template_id", "microcycle_id", "mesocycle_id", "mesocycle_cycle", "cycle_phase", "microcycle_step_id", "completed_at", "session_difficulty", "exercise", "track_id", "track_label", "performance_mode", "planned_load_kg", "planned_load_origin", "suggestion_status", "suggestion_outcome", "set", "weight_kg", "reps", "duration_seconds", "distance_meters", "completion", "technique"]];
   Object.keys(data.days).sort().forEach((date) => {
     const workout = data.days[date].workout;
     if (!workout) return;
+    const session = [date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.mesocycleId, workout.mesocycleCycleNumber, workout.cyclePhase, workout.microcycleStepId, workout.completedAt, workout.difficulty];
     if (workout.type === "rest") {
-      rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.microcycleStepId, workout.difficulty, "休息", "", "", "", "", "", "", "", "", "", ""]);
+      rows.push([...session, "休息", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
       return;
     }
     workout.exercises.forEach((exercise) => {
+      const outcome = evaluateProgressionOutcome(exercise, workout);
+      const exerciseContext = [exercise.name, exerciseTrackId(exercise), exerciseTrackLabel(exercise), exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), exercise.plannedLoadKg, exercise.progressionPlan?.origin, exercise.progressionPlan?.suggestionStatus, outcome.status === "unassessable" ? "" : outcome.status];
       if (!exercise.sets.length) {
-        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.microcycleStepId, workout.difficulty, exercise.name, exerciseTrackId(exercise), exerciseTrackLabel(exercise), exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), "", "", "", "", "", "", ""]);
+        rows.push([...session, ...exerciseContext, "", "", "", "", "", "", ""]);
         return;
       }
       exercise.sets.forEach((set, index) => {
-        rows.push([date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.microcycleStepId, workout.difficulty, exercise.name, exerciseTrackId(exercise), exerciseTrackLabel(exercise), exercise.prescription?.performanceMode ?? performanceModeFor(exercise.recordModes), index + 1, set.weight, set.reps, set.durationSeconds, set.distanceMeters, set.completion, set.technique]);
+        rows.push([...session, ...exerciseContext, index + 1, set.weight, set.reps, set.durationSeconds, set.distanceMeters, set.completion, set.technique]);
       });
     });
   });
