@@ -1,6 +1,6 @@
 {
   "name": "fitlog",
-  "version": "8.0.0",
+  "version": "9.0.0",
   "private": true,
   "description": "Local-first fitness, nutrition, cardio, and body-composition dashboard deployable on Vercel.",
   "engines": {
@@ -18,19 +18,19 @@
     "audit:prod": "npm audit --omit=dev --audit-level=moderate"
   },
   "dependencies": {
-    "next": "15.5.19",
-    "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "next": "15.5.21",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@next/eslint-plugin-next": "^15.5.19",
+    "@next/eslint-plugin-next": "^15.5.21",
     "@types/node": "^20.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.63.0",
-    "@typescript-eslint/parser": "^8.63.0",
-    "autoprefixer": "^10.4.19",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "autoprefixer": "^10.5.4",
     "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.5",

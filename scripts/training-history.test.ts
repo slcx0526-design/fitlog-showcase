@@ -119,7 +119,8 @@ assert.equal(workoutLogState(days["2026-07-04"].workout), "inProgress");
 assert.equal(workoutLogState(days["2026-07-04"].workout, "2026-07-04", "2026-07-05"), "unclosed");
 assert.equal(workoutLogState({ type: "pull", exercises: [] }), "draft");
 assert.equal(workoutLogState({ type: "rest", exercises: [] }), "rest");
-assert.equal(dayHasLogContent({ date: "2026-07-06", workout: { type: "pull", exercises: [] } }), true);
+assert.equal(dayHasLogContent({ date: "2026-07-06", workout: { type: "pull", exercises: [] } }), false, "An empty workout shell is not a real log entry");
+assert.equal(dayHasLogContent({ date: "2026-07-06", recovery: { energy: 3, stress: 2 } }), true, "Recovery-only days remain visible in history");
 assert.equal(daySearchText(days["2026-07-02"]).includes("增肌"), true);
 
 function history(date: string, exercise: Exercise): TrackHistoryResult {

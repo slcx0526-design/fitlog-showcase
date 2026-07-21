@@ -39,14 +39,16 @@ const corroborated: AppData = {
   cutPlan: { enabled: true, baselineActivity: "moderate", weeklyLossPct: 0.5 },
   bodyWeights: [{ date: TODAY, weight: 80 }],
   days: {
+    "2026-07-19": { date: "2026-07-19", nutrition: { calories: 500, protein: 30, carbs: 50, fat: 15 } },
     "2026-07-20": { date: "2026-07-20", nutrition: { calories: 500, protein: 30, carbs: 50, fat: 15 } },
     "2026-07-21": { date: "2026-07-21", nutrition: { calories: 500, protein: 30, carbs: 50, fat: 15 } },
-    [TODAY]: { date: TODAY, recovery: low, nutrition: { calories: 500, protein: 30, carbs: 50, fat: 15 } },
+    [TODAY]: { date: TODAY, recovery: low, nutrition: { calories: 100, protein: 0, carbs: 0, fat: 0 } },
   },
 };
 const corroboratedAnalysis = buildIntegratedCoachAnalysis(corroborated, TODAY);
 assert.equal(corroboratedAnalysis.triggers.includes("subjectiveLow"), true);
 assert.equal(corroboratedAnalysis.triggers.includes("fuelGap"), true);
 assert.equal(corroboratedAnalysis.status, "recover", "Subjective and explicitly logged nutrition pressure can corroborate recovery advice");
+assert.equal(corroboratedAnalysis.nutrition.loggedDays7d, 3, "An in-progress current-day intake must not be judged as a completed low-energy day");
 
 console.log("integrated coach tests passed");

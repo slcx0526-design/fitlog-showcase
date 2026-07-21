@@ -11,6 +11,7 @@ import {
   type TrackTrend,
 } from "./prescription";
 import {
+  hasSetPerformance,
   isHistoryEligibleWorkout,
   isPastUnclosedWorkout,
   summarizeExerciseWork,
@@ -84,7 +85,12 @@ export function workoutLogState(
 export function dayHasLogContent(day: DayLog | undefined) {
   if (!day) return false;
   const workout = day.workout;
-  const hasWorkout = Boolean(workout);
+  const hasWorkout = Boolean(
+    workout && (
+      workout.type === "rest"
+      || workout.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))
+    )
+  );
   const hasNutrition = Boolean(day.nutrition && (
     day.nutrition.calories > 0 || day.nutrition.protein > 0 || day.nutrition.carbs > 0 || day.nutrition.fat > 0
   ));

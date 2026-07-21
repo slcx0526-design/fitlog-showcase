@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
-import { daysAgo } from "@/lib/date";
+import { daysAgo, todayKey } from "@/lib/date";
 import { SCHEMA_VERSION, type AppData, downloadBackup, parseBackupWithMeta } from "@/lib/storage";
 import { typeLabel } from "@/lib/exercises";
 import { exerciseTrackId, exerciseTrackLabel, performanceModeFor } from "@/lib/prescription";
 import { inspectDataHealth } from "@/lib/dataHealth";
-import { workingSets } from "@/lib/trainingMetrics";
 import { evaluateProgressionOutcome } from "@/lib/trainingExecution";
+import { dayHasLogContent } from "@/lib/trainingHistory";
 
 export default function DataManagement() {
   const { tr, locale } = useI18n();
@@ -34,12 +34,7 @@ export default function DataManagement() {
   const lastBackup = daysAgo(data.lastBackupAt, locale);
   const stale = !lastBackup || lastBackup.days >= 30;
   const health = useMemo(() => inspectDataHealth(data), [data]);
-  const currentDayCount = Object.keys(data.days).length;
-  const filledDayCount = Object.values(data.days).filter((day) => {
-    const sets = day.workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
-    const cardioMinutes = (day.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
-    return sets > 0 || day.workout?.type === "rest" || (day.nutrition?.calories ?? 0) > 0 || cardioMinutes > 0 || Boolean(day.recovery);
-  }).length;
+  const logDayCount = Object.values(data.days).filter(dayHasLogContent).length;
 
   function flash(kind: "ok" | "err", text: string) {
     if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -63,7 +58,7 @@ export default function DataManagement() {
       const preview = parseBackupWithMeta(text);
       setPendingImport({
         text,
-        dayCount: Object.keys(preview.data.days).length,
+        dayCount: Object.values(preview.data.days).filter(dayHasLogContent).length,
         bodyWeightCount: preview.data.bodyWeights.length,
         waistCount: preview.data.waistEntries.length,
         recoveryCount: Object.values(preview.data.days).filter((day) => Boolean(day.recovery)).length,
@@ -95,7 +90,7 @@ export default function DataManagement() {
 
       <div className="control-card space-y-2 p-3">
         <div className="grid grid-cols-3 gap-1.5">
-          <ArchiveMetric label={tr("日志")} value={String(filledDayCount)} />
+          <ArchiveMetric label={tr("日志")} value={String(logDayCount)} />
           <ArchiveMetric label={tr("状态")} value={String(Object.values(data.days).filter((day) => Boolean(day.recovery)).length)} />
           <ArchiveMetric label={tr("体重")} value={String(data.bodyWeights.length)} />
           <ArchiveMetric label={tr("腰围")} value={String(data.waistEntries.length)} />
@@ -252,7 +247,7 @@ export default function DataManagement() {
               {tr("导入将")}<strong>{tr("覆盖当前全部数据")}</strong>
             </p>
             <p className="tnum mt-0.5 px-1 text-[12px] text-accent/80">
-              {tr("当前 {a} 天记录 → 替换为备份的 {b} 天", { a: currentDayCount, b: pendingImport.dayCount })}
+              {tr("当前 {a} 天记录 → 替换为备份的 {b} 天", { a: logDayCount, b: pendingImport.dayCount })}
             </p>
             <div className="mt-2 grid grid-cols-3 gap-1.5">
               <ImportMetric label={tr("版本")} value={pendingImport.version ? `v${pendingImport.version}` : "—"} />
@@ -362,12 +357,12 @@ function downloadCsv(filename: string, rows: (string | number | undefined | null
 }
 
 function dateStamp() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKey();
 }
 
 function downloadTrainingCsv(data: AppData) {
   const rows: (string | number | undefined | null)[][] = [["date", "type", "template_id", "microcycle_id", "mesocycle_id", "mesocycle_cycle", "cycle_phase", "microcycle_step_id", "completed_at", "session_difficulty", "exercise", "track_id", "track_label", "performance_mode", "planned_load_kg", "planned_load_origin", "suggestion_status", "suggestion_outcome", "set", "weight_kg", "reps", "duration_seconds", "distance_meters", "completion", "technique"]];
-  Object.keys(data.days).sort().forEach((date) => {
+  Object.keys(data.days).filter((date) => dayHasLogContent(data.days[date])).sort().forEach((date) => {
     const workout = data.days[date].workout;
     if (!workout) return;
     const session = [date, typeLabel(workout.type), workout.templateId, workout.microcycleId, workout.mesocycleId, workout.mesocycleCycleNumber, workout.cyclePhase, workout.microcycleStepId, workout.completedAt, workout.difficulty];
@@ -408,7 +403,7 @@ function downloadBodyCsv(data: AppData) {
 
 function downloadDailyCsv(data: AppData) {
   const rows: (string | number | undefined | null)[][] = [["date", "calories", "protein", "carbs", "fat", "cardio_minutes", "cardio_modes", "sleep_hours", "sleep_quality", "energy", "soreness", "stress", "recovery_logged_at"]];
-  Object.keys(data.days).sort().forEach((date) => {
+  Object.keys(data.days).filter((date) => dayHasLogContent(data.days[date])).sort().forEach((date) => {
     const day = data.days[date];
     rows.push([
       date,

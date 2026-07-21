@@ -1,1 +1,1 @@
-FitLog 8.0.0 integrated recovery coaching release
+FitLog 9.0.0 final quality release

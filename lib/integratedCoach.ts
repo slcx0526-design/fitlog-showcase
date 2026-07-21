@@ -53,7 +53,8 @@ function nutritionSummary(data: AppData, today: string): IntegratedNutritionSumm
   const energy = cutActive
     ? resolveCutEnergyPlan(data.profile, data.cutPlan, data.days, data.bodyWeights, today)
     : null;
-  const logs = datesEndingAt(today, 7)
+  // Today's intake may still be in progress. Recovery decisions use only closed calendar days.
+  const logs = datesEndingAt(shiftDate(today, -1), 7)
     .map((date) => data.days[date]?.nutrition)
     .filter((log): log is NonNullable<typeof log> => Boolean(log && log.calories > 0));
   const proteinTarget = energy?.macros?.protein ?? null;

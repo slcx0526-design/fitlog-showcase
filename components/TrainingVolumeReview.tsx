@@ -17,6 +17,7 @@ import ExerciseTrendReview from "./ExerciseTrendReview";
 import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";
 import CycleReviewPanel from "./CycleReviewPanel";
+import IntegratedCoachBrief from "./IntegratedCoachBrief";
 
 const SCOPE_OPTIONS: Array<{ id: VolumeScope; label: string }> = [
   { id: "microcycle", label: "本周期" },
@@ -62,6 +63,8 @@ export default function TrainingVolumeReview() {
     .slice(0, 8);
 
   return <div className="space-y-4">
+    <IntegratedCoachBrief compact showAction={false} />
+
     <TrainingDecisionBrief />
 
     <CycleReviewPanel />

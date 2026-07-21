@@ -36,7 +36,7 @@ export default function ExerciseTrendReview() {
               <p className="truncate text-[13px] font-semibold text-fg">{tr(item.exerciseName)}</p>
               <p className="mt-0.5 truncate text-[10px] text-faint">{tr(item.trackLabel)} · {item.trend.sessionCount} {tx(locale, "次", "sessions", "回")}</p>
             </div>
-            <MiniTrend histories={item.histories} />
+            <MiniTrend histories={item.histories} locale={locale} />
             <div className="w-[72px] shrink-0 text-right">
               <p className="tnum truncate text-[12px] font-semibold text-fg">{formatMetricValue(item.trend.metricKind, item.trend.latestValue, locale)}</p>
               <p className={"tnum mt-0.5 text-[10px] " + trendColor(item.trend)}>{item.trend.changePct == null ? metricName(item.trend.metricKind, locale) : `${item.trend.changePct > 0 ? "+" : ""}${item.trend.changePct}%`}</p>
@@ -72,7 +72,7 @@ function sessionMetric(history: TrackHistoryResult) {
   return trackPerformanceMetric(history);
 }
 
-function MiniTrend({ histories }: { histories: TrackHistoryResult[] }) {
+function MiniTrend({ histories, locale }: { histories: TrackHistoryResult[]; locale: Locale }) {
   const metrics = histories.slice(0, 6).map(sessionMetric).filter((value): value is TrackPerformanceMetric => value != null);
   const kind = metrics[0]?.kind;
   const values = metrics.filter((metric) => metric.kind === kind).map((metric) => metric.value).reverse();
@@ -81,7 +81,7 @@ function MiniTrend({ histories }: { histories: TrackHistoryResult[] }) {
   const max = Math.max(...values);
   const span = Math.max(max - min, 1);
   const points = values.map((value, index) => `${(index / Math.max(values.length - 1, 1)) * 76 + 2},${24 - ((value - min) / span) * 20}`).join(" ");
-  return <svg width="80" height="28" viewBox="0 0 80 28" className="shrink-0" role="img" aria-label="e1RM trend"><polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  return <svg width="80" height="28" viewBox="0 0 80 28" className="shrink-0" role="img" aria-label={tx(locale, "表现趋势", "Performance trend", "パフォーマンス推移")}><polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function HistoryPoint({ history, locale }: { history: TrackHistoryResult; locale: Locale }) {
