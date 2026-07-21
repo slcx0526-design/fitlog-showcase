@@ -26,6 +26,7 @@ import { assignHistoricalMicrocycles, defaultMicrocycle, microcyclePatternFor } 
 import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { normalizeExercisePrescription, normalizeTemplateItemPrescription } from "./prescription";
+import { hasSetPerformance } from "./trainingMetrics";
 
 export type { AppData } from "./types";
 
@@ -207,8 +208,12 @@ export function normalizeData(input: unknown): AppData {
               return normalizeExercisePrescription({ ...exercise, sets, recordModes, prescription });
             })
           : [];
+        const parsedType = VALID_TYPES.includes(workout.type) ? workout.type : "custom";
+        const type = parsedType === "rest" && exercises.some((exercise) => exercise.sets.some(hasSetPerformance))
+          ? "custom"
+          : parsedType;
         next.workout = {
-          type: VALID_TYPES.includes(workout.type) ? workout.type : "custom",
+          type,
           ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
           ...(typeof workout.microcycleId === "string" ? { microcycleId: workout.microcycleId } : {}),
           ...(typeof workout.done === "boolean" ? { done: workout.done } : {}),

@@ -10,9 +10,11 @@ import { MUSCLE_LABELS, type MuscleGroup } from "@/lib/muscles";
 import { typeLabel } from "@/lib/exercises";
 import { DEFAULT_CUT_VOLUME_SCALE, isCutModeActive } from "@/lib/cutMode";
 import { currentMicrocycleProgress } from "@/lib/microcycle";
-import { workingSets } from "@/lib/trainingMetrics";
+import { isHistoryEligibleWorkout } from "@/lib/trainingMetrics";
+import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import NumberField from "./NumberField";
 import ExerciseTrendReview from "./ExerciseTrendReview";
+import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";
 
 const SCOPE_OPTIONS: Array<{ id: VolumeScope; label: string }> = [
@@ -46,9 +48,12 @@ export default function TrainingVolumeReview() {
   const activeRows = volume.rows.filter((row) => row.rawDirectSets > 0 || row.indirectEffectiveSets > 0 || row.rehabSets > 0);
   const visibleRows = showAllMuscles ? volume.rows : activeRows;
   const recent = Object.entries(data.days)
-    .filter(([, day]) => {
+    .filter(([date, day]) => {
       const workout = day.workout;
-      return !!workout && (workout.type === "rest" || workout.exercises.some((exercise) => workingSets(exercise.sets).length > 0));
+      return Boolean(date <= today && workout && (
+        isHistoryEligibleWorkout(workout) ||
+        (workout.type === "rest" && workout.done !== false)
+      ));
     })
     .sort(([a], [b]) => b.localeCompare(a))
     .slice(0, 8);
@@ -133,11 +138,13 @@ export default function TrainingVolumeReview() {
       </div>
     </section>
 
+    <ExerciseHistoryArchive />
+
     <ExerciseTrendReview />
 
     <section>
       <div className="mb-2"><h2 className="text-[14px] font-semibold text-fg">近期训练</h2><p className="mt-0.5 text-[11px] text-faint">计划工作组与实际完成分开记录；重量和吨位只用于表现趋势。</p></div>
-      {recent.length ? <div className="control-card overflow-hidden">{recent.map(([date, day]) => { const workout = day.workout!; const sets = workout.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0); return <Link key={date} href={`/train?date=${date}`} className="press soft-divider flex items-center gap-3 border-t px-3.5 py-3 first:border-t-0"><span className="w-12 text-[12px] font-medium text-muted">{relativeLabel(date)}</span><span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{typeLabel(workout.type)}</span><span className="tnum ml-auto text-[12px] text-muted">{workout.type === "rest" ? "休息" : `${sets} 组`}</span><span className="text-faint">›</span></Link>; })}</div> : <div className="control-card border-dashed px-4 py-7 text-center"><p className="text-[12px] text-faint">尚无训练记录。</p><Link href="/train" className="press mt-3 inline-flex rounded-lg bg-fg px-3 py-2 text-[12px] font-semibold text-bg">开始训练</Link></div>}
+      {recent.length ? <div className="control-card overflow-hidden">{recent.map(([date, day]) => { const workout = day.workout!; const summary = summarizeSessionExecution(workout); const result = summary.plannedSets ? `${formatSetCredit(summary.planCredits)}/${summary.plannedSets} 组` : `${formatSetCredit(summary.completionCredits)} 组`; return <Link key={date} href={`/train?date=${date}`} className="press soft-divider flex items-center gap-3 border-t px-3.5 py-3 first:border-t-0"><span className="w-12 text-[12px] font-medium text-muted">{relativeLabel(date)}</span><span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold text-accent">{typeLabel(workout.type)}</span><span className="tnum ml-auto text-[12px] text-muted">{workout.type === "rest" ? "休息" : result}</span><span className="text-faint">›</span></Link>; })}</div> : <div className="control-card border-dashed px-4 py-7 text-center"><p className="text-[12px] text-faint">尚无已完成训练记录。</p><Link href="/train" className="press mt-3 inline-flex rounded-lg bg-fg px-3 py-2 text-[12px] font-semibold text-bg">开始训练</Link></div>}
     </section>
   </div>;
 }

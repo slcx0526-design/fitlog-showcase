@@ -49,7 +49,19 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const plannedSets = execution.plannedSets;
   const setUnit = tx(locale, "组", "sets", "セット");
 
-  function selectType(next: TrainingType) { if (next === type) return; if (recordEntries) { setNextType(next); return; } draftIds.forEach((id) => removeExercise(date, id)); if (next === "rest") rest.stop(true); setWorkoutType(date, next); haptic(8); }
+  function selectType(next: TrainingType) {
+    if (next === type) return;
+    if (next === "rest" && recordEntries) {
+      toast.show(tx(locale, "已有训练组，不能改为休息日；删除记录后再切换", "A workout with logged sets cannot become a rest day. Remove the sets first.", "セット記録があるトレーニングは休息日に変更できません。先に記録を削除してください"));
+      haptic([12, 28, 12]);
+      return;
+    }
+    if (recordEntries) { setNextType(next); return; }
+    draftIds.forEach((id) => removeExercise(date, id));
+    if (next === "rest") rest.stop(true);
+    setWorkoutType(date, next);
+    haptic(8);
+  }
   function confirmSwitch() { if (!nextType) return; if (nextType === "rest") rest.stop(); setWorkoutType(date, nextType); setNextType(null); setConfirmFinish(false); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
   function finishWorkout() {
     if (!workout?.difficulty) setWorkoutDifficulty(date, "onTarget");

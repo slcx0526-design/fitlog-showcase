@@ -1,1 +1,1 @@
-FitLog 4.3.0 workout execution release
+FitLog 4.4.0 track-safe history release

@@ -66,6 +66,17 @@ const activeDecision = buildTrainingDecision(app({ [TODAY]: active }), TODAY, "r
 assert.equal(activeDecision.actions[0].kind, "continueSession");
 assert.equal(activeDecision.confidence, "starter");
 
+const activeWithHighHistory = buildTrainingDecision(app({
+  "2026-07-10": bench("2026-07-10", 18),
+  [TODAY]: active,
+}), TODAY, "review");
+assert.deepEqual(activeWithHighHistory.actions.map((action) => action.kind), ["continueSession"], "Plan-changing advice must wait until the active session is finished");
+
+const legacyToday = bench(TODAY, 2);
+delete legacyToday.workout!.done;
+const legacyTodayDecision = buildTrainingDecision(app({ [TODAY]: legacyToday }), TODAY, "review");
+assert.equal(legacyTodayDecision.actions.some((action) => action.kind === "continueSession"), false, "Legacy sessions without a done flag remain completed history");
+
 const activeMustNotLowerAdherence = recentPlanAdherence(app({
   "2026-07-06": bench("2026-07-06", 4),
   "2026-07-09": bench("2026-07-09", 4),

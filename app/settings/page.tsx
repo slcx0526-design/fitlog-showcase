@@ -14,8 +14,19 @@ import pkg from "../../package.json";
 
 export default function SettingsPage() {
   const { tr } = useI18n();
-  const { data } = useStore();
+  const { data, loaded } = useStore();
   const [editId, setEditId] = useState<string | null>(null);
+
+  if (!loaded) {
+    return (
+      <div className="space-y-3" aria-busy="true">
+        <div className="h-24 rounded-2xl bg-surface-2" />
+        <div className="h-24 rounded-2xl bg-surface-2" />
+        <div className="h-52 rounded-2xl bg-surface-2" />
+        <div className="h-40 rounded-2xl bg-surface-2" />
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -1,6 +1,6 @@
 import type { AppData, Exercise, TemplateItem } from "./types";
 import { exerciseTrackId } from "./prescription";
-import { hasRecordedTrainingWork, summarizeWorkoutWork } from "./trainingMetrics";
+import { hasRecordedTrainingWork, hasSetPerformance, summarizeWorkoutWork } from "./trainingMetrics";
 
 export type DataHealthIssueCode =
   | "duplicateCustomExerciseIds"
@@ -9,7 +9,8 @@ export type DataHealthIssueCode =
   | "nonCanonicalExercisePrescriptions"
   | "nonCanonicalTemplatePrescriptions"
   | "invalidSetValues"
-  | "duplicateBodyDates";
+  | "duplicateBodyDates"
+  | "workOnRestDays";
 
 export interface DataHealthIssue {
   code: DataHealthIssueCode;
@@ -99,11 +100,13 @@ export function inspectDataHealth(data: AppData): DataHealthReport {
   let draftSets = 0;
   let unfinishedSessions = 0;
   let legacyTrackExercises = 0;
+  let workOnRestDays = 0;
 
   for (const day of Object.values(data.days)) {
     const workout = day.workout;
     if (!workout) continue;
     const summary = summarizeWorkoutWork(workout);
+    if (workout.type === "rest" && workout.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) workOnRestDays += 1;
     if (hasRecordedTrainingWork(workout)) trainingSessions += 1;
     if (workout.done === false && summary.workingSets > 0) unfinishedSessions += 1;
     workingSetCount += summary.workingSets;
@@ -142,6 +145,7 @@ export function inspectDataHealth(data: AppData): DataHealthReport {
   add("nonCanonicalTemplatePrescriptions", nonCanonicalTemplates, "待统一的模板处方");
   add("invalidSetValues", invalidSets, "异常的训练组数值");
   add("duplicateBodyDates", weightDuplicates + waistDuplicates, "重复日期的身体记录");
+  add("workOnRestDays", workOnRestDays, "被休息日类型隐藏的训练记录");
 
   const issueCount = issues.reduce((sum, issue) => sum + issue.count, 0);
   return {

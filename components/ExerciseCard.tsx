@@ -144,7 +144,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     <div className="border-t border-border px-3.5 py-2.5">
       <p className="text-[11px] text-faint">{previous ? tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`) : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
       <p className="mt-1 text-[10px] text-muted">{suggestionText()}</p>
-      {trend.sessionCount >= 2 && <p className="mt-1 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {trend.latestE1rm != null ? `e1RM ${trend.latestE1rm}kg` : "—"} · {trend.message}</p>}
+      {trend.sessionCount >= 2 && <p className="mt-1 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trend.message}</p>}
       {acceptedWeight != null && <div className="mt-2 flex items-center justify-between rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent"><span>{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} · <b>{acceptedWeight}kg</b></span><button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press font-semibold">{tx(locale, "清除", "Clear", "解除")}</button></div>}
       {currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
@@ -184,4 +184,12 @@ function HistoryRows({ title, rows, locale, showTrack = false }: { title: string
 
 function Chip({ label, accent = false }: { label: string; accent?: boolean }) {
   return <span className={"rounded px-1.5 py-0.5 text-[10px] " + (accent ? "bg-accent-soft font-semibold text-accent" : "bg-surface-2 text-faint")}>{label}</span>;
+}
+
+function formatTrendMetric(kind: "e1rm" | "reps" | "duration" | "distance" | null, value: number | null, locale: Locale) {
+  if (value == null) return "—";
+  if (kind === "e1rm") return `e1RM ${value}kg`;
+  if (kind === "duration") return `${value} ${tx(locale, "秒", "sec", "秒")}`;
+  if (kind === "distance") return `${value}m`;
+  return `${value} ${tx(locale, "次", "reps", "回")}`;
 }

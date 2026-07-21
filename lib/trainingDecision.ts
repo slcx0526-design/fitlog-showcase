@@ -141,61 +141,66 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
   const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
+  const activeSession = Boolean(todayWorkout?.type !== "rest" && todaySets > 0 && todayWorkout?.done === false);
 
-  if (context === "review" && todayWorkout?.type !== "rest" && todaySets > 0 && !todayWorkout?.done) {
+  if (context === "review" && activeSession) {
     actions.push({ kind: "continueSession", priority: 120, href: "/train", setCount: todaySets });
   }
 
-  if (adherence.sessions >= 3 && adherence.completionPct != null && adherence.completionPct < 75) {
-    actions.push({
-      kind: "simplifyPlan",
-      priority: 100,
-      href: "/templates",
-      completionPct: adherence.completionPct,
-      sessions: adherence.sessions,
-      averageMissingSets: Math.max(1, adherence.averageMissingSets),
-    });
-  }
+  // Do not issue plan-changing advice from a volume snapshot while today's
+  // session is still being recorded. Finish it first, then reassess.
+  if (!activeSession) {
+    if (adherence.sessions >= 3 && adherence.completionPct != null && adherence.completionPct < 75) {
+      actions.push({
+        kind: "simplifyPlan",
+        priority: 100,
+        href: "/templates",
+        completionPct: adherence.completionPct,
+        sessions: adherence.sessions,
+        averageMissingSets: Math.max(1, adherence.averageMissingSets),
+      });
+    }
 
-  if (sessions28d > 0) actions.push(...correctionActions(data, cycleRatio, cycleComplete));
+    if (sessions28d > 0) actions.push(...correctionActions(data, cycleRatio, cycleComplete));
 
-  const regressing = trends.find((item) => item.trend.status === "regressing");
-  const plateau = trends.find((item) => item.trend.status === "plateau");
-  if (regressing) {
-    actions.push({
-      kind: "trackRegression",
-      priority: 86,
-      href: "/progress?tab=training",
-      exerciseName: regressing.exerciseName,
-      trackLabel: regressing.trackLabel,
-      changePct: regressing.trend.changePct,
-      sessions: regressing.trend.sessionCount,
-    });
-  } else if (plateau) {
-    actions.push({
-      kind: "trackPlateau",
-      priority: 62,
-      href: "/progress?tab=training",
-      exerciseName: plateau.exerciseName,
-      trackLabel: plateau.trackLabel,
-      changePct: plateau.trend.changePct,
-      sessions: plateau.trend.sessionCount,
-    });
-  }
+    const regressing = trends.find((item) => item.trend.status === "regressing");
+    const plateau = trends.find((item) => item.trend.status === "plateau");
+    if (regressing) {
+      actions.push({
+        kind: "trackRegression",
+        priority: 86,
+        href: "/progress?tab=training",
+        exerciseName: regressing.exerciseName,
+        trackLabel: regressing.trackLabel,
+        changePct: regressing.trend.changePct,
+        sessions: regressing.trend.sessionCount,
+      });
+    } else if (plateau) {
+      actions.push({
+        kind: "trackPlateau",
+        priority: 62,
+        href: "/progress?tab=training",
+        exerciseName: plateau.exerciseName,
+        trackLabel: plateau.trackLabel,
+        changePct: plateau.trend.changePct,
+        sessions: plateau.trend.sessionCount,
+      });
+    }
 
-  if (cycleComplete) {
-    actions.push({ kind: "cycleComplete", priority: 76, href: "/train", completed: cycle.completed, total: cycleTotal });
-  } else if (!todayWorkout && cycle.next) {
-    actions.push(cycle.next.type === "rest"
-      ? { kind: "recoveryStep", priority: 44, href: "/train?start=rest", label: cycle.next.label, completed: cycle.completed, total: cycleTotal }
-      : { kind: "nextStep", priority: 46, href: microcycleStepHref(cycle.next), type: cycle.next.type, label: cycle.next.label, completed: cycle.completed, total: cycleTotal });
-  }
+    if (cycleComplete) {
+      actions.push({ kind: "cycleComplete", priority: 76, href: "/train", completed: cycle.completed, total: cycleTotal });
+    } else if (!todayWorkout && cycle.next) {
+      actions.push(cycle.next.type === "rest"
+        ? { kind: "recoveryStep", priority: 44, href: "/train?start=rest", label: cycle.next.label, completed: cycle.completed, total: cycleTotal }
+        : { kind: "nextStep", priority: 46, href: microcycleStepHref(cycle.next), type: cycle.next.type, label: cycle.next.label, completed: cycle.completed, total: cycleTotal });
+    }
 
-  const corrective = actions.some((action) => ["simplifyPlan", "reduceVolume", "addVolume", "trackRegression", "trackPlateau"].includes(action.kind));
-  if (!corrective && sessions28d < 2) {
-    actions.push({ kind: "buildHistory", priority: 52, href: "/train", sessions: sessions28d });
-  } else if (!corrective && sessions28d >= 2) {
-    actions.push({ kind: "maintain", priority: 38, href: "/progress?tab=training", sessions: sessions28d, completed: cycle.completed, total: cycleTotal });
+    const corrective = actions.some((action) => ["simplifyPlan", "reduceVolume", "addVolume", "trackRegression", "trackPlateau"].includes(action.kind));
+    if (!corrective && sessions28d < 2) {
+      actions.push({ kind: "buildHistory", priority: 52, href: "/train", sessions: sessions28d });
+    } else if (!corrective && sessions28d >= 2) {
+      actions.push({ kind: "maintain", priority: 38, href: "/progress?tab=training", sessions: sessions28d, completed: cycle.completed, total: cycleTotal });
+    }
   }
 
   return {

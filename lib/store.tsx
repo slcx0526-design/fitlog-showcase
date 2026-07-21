@@ -52,7 +52,7 @@ import {
   prescriptionFromTemplateItem,
   type TrackHistoryResult,
 } from "./prescription";
-import { workingSets } from "./trainingMetrics";
+import { hasSetPerformance, workingSets } from "./trainingMetrics";
 import { inspectDataHealth } from "./dataHealth";
 
 interface StoreApi {
@@ -288,6 +288,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           ? ensureMicrocycle(prev, date)
           : microcycleForNewWorkout(prev, date);
         const w = day.workout ?? { type, exercises: [], microcycleId: microcycle.currentId };
+        if (type === "rest" && w.type !== "rest" && w.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) {
+          return prev;
+        }
         const nextData: AppData = {
           ...prev,
           microcycle,

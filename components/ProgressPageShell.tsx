@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import ProgressHub from "@/components/ProgressHub";
 import TrainingVolumeReview from "@/components/TrainingVolumeReview";
+import LogReview from "@/components/LogReview";
 import NumberField from "@/components/NumberField";
 import WeightChart from "@/components/WeightChart";
 import WaistChart from "@/components/WaistChart";
@@ -56,7 +56,7 @@ export default function ProgressPageShell({ initialTab = "body" }: { initialTab?
     </div>
     {tab === "body" && <EditableBodyReview locale={locale} />}
     {tab === "training" && <TrainingVolumeReview />}
-    {tab === "log" && <div className="progress-shell__legacy"><ProgressHub key={tab} initialTab={tab} /></div>}
+    {tab === "log" && <LogReview />}
   </div>;
 }
 

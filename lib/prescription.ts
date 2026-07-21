@@ -40,10 +40,19 @@ export interface TrackHistoryCollection {
 export interface TrackTrend {
   status: "insufficient" | "improving" | "stable" | "plateau" | "regressing";
   sessionCount: number;
+  metricKind: "e1rm" | "reps" | "duration" | "distance" | null;
+  latestValue: number | null;
+  previousValue: number | null;
   latestE1rm: number | null;
   previousE1rm: number | null;
   changePct: number | null;
   message: string;
+}
+
+export interface TrackPerformanceMetric {
+  kind: Exclude<TrackTrend["metricKind"], null>;
+  value: number;
+  set: SetRecord;
 }
 
 export interface ExerciseTrackTrendSummary {
@@ -339,26 +348,67 @@ export function estimatedOneRepMax(set: SetRecord) {
   return +(set.weight * (1 + Math.min(set.reps, 15) / 30)).toFixed(1);
 }
 
-function historyE1rm(history: TrackHistoryResult) {
-  const values = progressionSets(history.sets).map(estimatedOneRepMax).filter((value): value is number => value != null);
-  return values.length ? Math.max(...values) : null;
+export function trackPerformanceMetric(history: TrackHistoryResult): TrackPerformanceMetric | null {
+  const sets = progressionSets(history.sets);
+  if (!sets.length) return null;
+  const mode = exercisePrescription(history.exercise).performanceMode ?? performanceModeFor(history.exercise.recordModes);
+  if (mode === "duration") {
+    const set = sets.reduce((winner, current) => (current.durationSeconds ?? 0) > (winner.durationSeconds ?? 0) ? current : winner);
+    return (set.durationSeconds ?? 0) > 0 ? { kind: "duration", value: set.durationSeconds!, set } : null;
+  }
+  if (mode === "distance") {
+    const set = sets.reduce((winner, current) => (current.distanceMeters ?? 0) > (winner.distanceMeters ?? 0) ? current : winner);
+    return (set.distanceMeters ?? 0) > 0 ? { kind: "distance", value: set.distanceMeters!, set } : null;
+  }
+  const weighted = sets
+    .map((set) => ({ set, value: estimatedOneRepMax(set) }))
+    .filter((item): item is { set: SetRecord; value: number } => item.value != null);
+  if (weighted.length) {
+    const best = weighted.reduce((winner, current) => current.value > winner.value ? current : winner);
+    return { kind: "e1rm", value: best.value, set: best.set };
+  }
+  const set = sets.reduce((winner, current) => current.reps > winner.reps ? current : winner);
+  return set.reps > 0 ? { kind: "reps", value: set.reps, set } : null;
 }
 
 export function analyzeTrackTrend(histories: TrackHistoryResult[]): TrackTrend {
-  const sessions = histories
-    .map((history) => ({ history, e1rm: historyE1rm(history) }))
-    .filter((item): item is { history: TrackHistoryResult; e1rm: number } => item.e1rm != null);
-  if (sessions.length < 2) return { status: "insufficient", sessionCount: sessions.length, latestE1rm: sessions[0]?.e1rm ?? null, previousE1rm: null, changePct: null, message: "至少完成 2 次同轨道训练后判断趋势" };
-  const latest = sessions[0].e1rm;
-  const previous = sessions[1].e1rm;
+  const measured = histories
+    .map((history) => ({ history, metric: trackPerformanceMetric(history) }))
+    .filter((item): item is { history: TrackHistoryResult; metric: TrackPerformanceMetric } => item.metric != null);
+  const metricKind = measured[0]?.metric.kind ?? null;
+  const sessions = metricKind ? measured.filter((item) => item.metric.kind === metricKind) : [];
+  const latestValue = sessions[0]?.metric.value ?? null;
+  const latestE1rm = metricKind === "e1rm" ? latestValue : null;
+  if (sessions.length < 2) return {
+    status: "insufficient",
+    sessionCount: sessions.length,
+    metricKind,
+    latestValue,
+    previousValue: null,
+    latestE1rm,
+    previousE1rm: null,
+    changePct: null,
+    message: "至少完成 2 次同轨道训练后判断趋势",
+  };
+  const latest = sessions[0].metric.value;
+  const previous = sessions[1].metric.value;
   const changePct = +(((latest - previous) / Math.max(previous, 1)) * 100).toFixed(1);
-  const recent = sessions.slice(0, 3).map((item) => item.e1rm);
+  const recent = sessions.slice(0, 3).map((item) => item.metric.value);
   const rangePct = recent.length >= 3 ? ((Math.max(...recent) - Math.min(...recent)) / Math.max(recent[recent.length - 1], 1)) * 100 : null;
-  if (recent.length >= 3 && recent[0] < recent[1] && recent[1] < recent[2] && changePct <= -2) return { status: "regressing", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "连续表现回落，下一次先稳住重量并检查恢复" };
-  if (recent.length >= 3 && rangePct != null && rangePct <= 1.5) return { status: "plateau", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "连续 3 次变化很小，优先补次数或调整动作顺序" };
-  if (changePct >= 1.5) return { status: "improving", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "同轨道表现正在提升，继续当前进度规则" };
-  if (changePct <= -2) return { status: "regressing", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "本次表现回落，先维持重量观察下一次" };
-  return { status: "stable", sessionCount: sessions.length, latestE1rm: latest, previousE1rm: previous, changePct, message: "表现基本稳定，按目标次数继续推进" };
+  const base = {
+    sessionCount: sessions.length,
+    metricKind,
+    latestValue: latest,
+    previousValue: previous,
+    latestE1rm: metricKind === "e1rm" ? latest : null,
+    previousE1rm: metricKind === "e1rm" ? previous : null,
+    changePct,
+  };
+  if (recent.length >= 3 && recent[0] < recent[1] && recent[1] < recent[2] && changePct <= -2) return { ...base, status: "regressing", message: "连续表现回落，下一次先稳住训练变量并检查恢复" };
+  if (recent.length >= 3 && rangePct != null && rangePct <= 1.5) return { ...base, status: "plateau", message: "连续 3 次变化很小，优先补目标表现或调整动作顺序" };
+  if (changePct >= 1.5) return { ...base, status: "improving", message: "同轨道表现正在提升，继续当前进度规则" };
+  if (changePct <= -2) return { ...base, status: "regressing", message: "本次表现回落，先维持训练变量观察下一次" };
+  return { ...base, status: "stable", message: "表现基本稳定，按当前目标继续推进" };
 }
 
 export function summarizeExerciseTrackTrends(
