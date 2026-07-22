@@ -10,6 +10,7 @@ import CustomExerciseEditor from "@/components/CustomExerciseEditor";
 import { useI18n, LOCALE_LABELS, type Locale } from "@/lib/i18n";
 import DataManagement from "@/components/DataManagement";
 import DataManagementLocaleBridge from "@/components/DataManagementLocaleBridge";
+import ThemeModeSelector from "@/components/ThemeModeSelector";
 import pkg from "../../package.json";
 
 export default function SettingsPage() {
@@ -42,6 +43,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
+      <ThemeModeSelector />
       <LanguageSection />
       <ProfileSection />
       <TrainingLevelSection />
@@ -145,5 +147,6 @@ function TrainingLevelSection() {
 function LanguageSection() {
   const { locale, setLocale, tr } = useI18n();
   const locales: Locale[] = ["zh", "ja", "en"];
-  return <section className="mb-6"><h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{tr("语言")} · Language</h2><div className="control-card p-3"><div className="grid grid-cols-3 gap-2">{locales.map((item) => { const selected = locale === item; return <button type="button" key={item} onClick={() => setLocale(item)} className={`choice-chip press border px-2 py-2.5 text-center text-[13px] font-bold ${selected ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2 text-fg"}`}>{LOCALE_LABELS[item]}</button>; })}</div></div></section>;
+  const heading = locale === "en" ? "Language" : `${tr("语言")} · Language`;
+  return <section className="mb-6"><h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{heading}</h2><div className="control-card p-3"><div className="grid grid-cols-3 gap-2">{locales.map((item) => { const selected = locale === item; return <button type="button" key={item} onClick={() => setLocale(item)} className={`choice-chip press border px-2 py-2.5 text-center text-[13px] font-bold ${selected ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2 text-fg"}`}>{LOCALE_LABELS[item]}</button>; })}</div></div></section>;
 }

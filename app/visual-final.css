@@ -1,0 +1,145 @@
+/* Final presentation layer: shared rhythm and state behavior, without changing flows. */
+:root {
+  --ui-control-height: 2.75rem;
+  --ui-focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.app-main,
+.app-main *,
+.app-nav,
+.app-nav * {
+  letter-spacing: 0 !important;
+}
+
+.app-main {
+  isolation: isolate;
+}
+
+.app-main :is(button, a, input, select, textarea) {
+  min-width: 0;
+}
+
+.app-main :is(button, a) {
+  touch-action: manipulation;
+}
+
+.control-card,
+.control-strip,
+.choice-chip,
+.set-row {
+  min-width: 0;
+}
+
+.control-card {
+  transition: border-color 140ms ease, box-shadow 160ms ease, background-color 140ms ease;
+}
+
+.control-card::before,
+.control-card::after,
+.metric-sheen::before,
+.metric-sheen::after,
+.action-card::before,
+.action-card::after {
+  pointer-events: none;
+}
+
+.choice-chip {
+  overflow-wrap: anywhere;
+  line-height: 1.18;
+}
+
+.choice-chip:disabled,
+.press:disabled,
+[aria-disabled="true"] {
+  filter: saturate(.55);
+  opacity: .48;
+}
+
+.app-main :is(button, a, input, select, textarea):focus-visible,
+.app-nav :is(button, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--ui-focus-ring);
+}
+
+.app-main details > summary {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.app-main :is(input, select, textarea) {
+  max-width: 100%;
+}
+
+.app-main :is(h1, h2, h3, p, span) {
+  overflow-wrap: break-word;
+}
+
+.nav-item {
+  min-width: 0;
+  min-height: 3.7rem;
+}
+
+.nav-item > span:last-child {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.05;
+  text-align: center;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .control-card:is(button, a):hover,
+  button.control-card:hover,
+  a.control-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .choice-chip:not(:disabled):hover {
+    border-color: var(--border-strong);
+  }
+}
+
+:root[data-mode="lite"] .press:active {
+  transform: translateY(1px) scale(.985);
+}
+
+:root[data-mode="lite"] .control-card:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+:root[data-mode="pulse"] .app-main :is(button, a, input, select, textarea):focus-visible,
+:root[data-mode="pulse"] .app-nav :is(button, a):focus-visible {
+  outline-color: #fff4e5;
+  box-shadow: 0 0 0 3px rgba(239, 58, 49, .52);
+}
+
+:root[data-mode="midnight"] .app-main :is(button, a, input, select, textarea):focus-visible,
+:root[data-mode="midnight"] .app-nav :is(button, a):focus-visible {
+  outline-color: #b4eaff;
+  box-shadow: 0 0 0 3px rgba(131, 229, 255, .2), 0 0 18px rgba(131, 229, 255, .16);
+}
+
+:root[data-mode="survival"] .app-main :is(button, a, input, select, textarea):focus-visible,
+:root[data-mode="survival"] .app-nav :is(button, a):focus-visible {
+  outline-color: #536f49;
+  outline-style: dashed;
+  box-shadow: 0 0 0 3px rgba(83, 111, 73, .16);
+}
+
+@media (max-width: 390px) {
+  .app-main {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control-card,
+  .choice-chip,
+  .press,
+  .nav-item,
+  .nav-icon-shell {
+    transition: none !important;
+  }
+}

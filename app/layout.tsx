@@ -8,6 +8,7 @@ import "./survival-field.css";
 import "./mode-switchboard.css";
 import "./ui-safety.css";
 import "./motion-tuning.css";
+import "./visual-final.css";
 import { StoreProvider } from "@/lib/store";
 import { ToastProvider } from "@/lib/toast";
 import { UIModeProvider } from "@/lib/uiMode";
@@ -19,7 +20,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import BootSignal from "@/components/BootSignal";
 import MidnightModeControl from "@/components/MidnightModeControl";
 
-export const metadata: Metadata = { title: "FitLog 9.0.0", description: "本地优先的训练、进度与减脂控制台", manifest: "/manifest.webmanifest", appleWebApp: { capable: true, statusBarStyle: "default", title: "FitLog" }, icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }], apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }] } };
+export const metadata: Metadata = { title: "FitLog 9.1.0", description: "本地优先的训练、进度与减脂控制台", manifest: "/manifest.webmanifest", appleWebApp: { capable: true, statusBarStyle: "default", title: "FitLog" }, icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }], apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }] } };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: [{ media: "(prefers-color-scheme: light)", color: "#f6f4ee" }, { media: "(prefers-color-scheme: dark)", color: "#0e0d0b" }] };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

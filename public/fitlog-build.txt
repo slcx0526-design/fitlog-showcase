@@ -1,1 +1,1 @@
-FitLog 9.0.0 final quality release
+FitLog 9.1.0 visual finalization release

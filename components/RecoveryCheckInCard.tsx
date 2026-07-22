@@ -16,7 +16,7 @@ export default function RecoveryCheckInCard({ date }: { date: string }) {
   const { locale } = useI18n();
   const toast = useToast();
   const current = data.days[date]?.recovery;
-  const [open, setOpen] = useState(!current);
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<RecoveryCheckIn>(current ?? {});
 
   useEffect(() => setDraft(current ?? {}), [current]);
