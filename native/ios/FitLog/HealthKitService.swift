@@ -231,29 +231,46 @@ final class HealthKitService {
         completion: @escaping ([String: Double], Error?) -> Void
     ) {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
-        let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { [calendar] _, samples, error in
-            let asleepValues = Set(HKCategoryValueSleepAnalysis.allAsleepValues.map(\.rawValue))
-            var intervalsByDayAndSource: [String: [String: [DateInterval]]] = [:]
-            for sample in samples as? [HKCategorySample] ?? [] where asleepValues.contains(sample.value) {
-                let day = Self.dateKey(sample.endDate, calendar: calendar)
-                let source = sample.sourceRevision.source.bundleIdentifier
-                intervalsByDayAndSource[day, default: [:]][source, default: []].append(
-                    DateInterval(start: sample.startDate, end: sample.endDate)
-                )
-            }
-            var totals: [String: Double] = [:]
-            for (day, bySource) in intervalsByDayAndSource {
-                let best = bySource.values
-                    .map(Self.mergedDuration)
-                    .filter { $0 > 0 && $0 <= 16 * 60 * 60 }
-                    .max() ?? 0
-                if best > 0 {
-                    totals[day] = best / 60
-                }
-            }
+        let resultsHandler: (HKSampleQuery, [HKSample]?, Error?) -> Void = { [calendar] _, samples, error in
+            let categorySamples = samples as? [HKCategorySample] ?? []
+            let totals = Self.sleepTotals(from: categorySamples, calendar: calendar)
             completion(totals, error)
         }
+        let query = HKSampleQuery(
+            sampleType: type,
+            predicate: predicate,
+            limit: HKObjectQueryNoLimit,
+            sortDescriptors: nil,
+            resultsHandler: resultsHandler
+        )
         store.execute(query)
+    }
+
+    private static func sleepTotals(
+        from samples: [HKCategorySample],
+        calendar: Calendar
+    ) -> [String: Double] {
+        let asleepValues = Set(HKCategoryValueSleepAnalysis.allAsleepValues.map(\.rawValue))
+        var intervalsByDayAndSource: [String: [String: [DateInterval]]] = [:]
+
+        for sample in samples where asleepValues.contains(sample.value) {
+            let day = dateKey(sample.endDate, calendar: calendar)
+            let source = sample.sourceRevision.source.bundleIdentifier
+            let interval = DateInterval(start: sample.startDate, end: sample.endDate)
+            intervalsByDayAndSource[day, default: [:]][source, default: []].append(interval)
+        }
+
+        var totals: [String: Double] = [:]
+        for (day, bySource) in intervalsByDayAndSource {
+            let best = bySource.values
+                .map(mergedDuration)
+                .filter { $0 > 0 && $0 <= 16 * 60 * 60 }
+                .max() ?? 0
+            if best > 0 {
+                totals[day] = best / 60
+            }
+        }
+        return totals
     }
 
     private static func mergedDuration(_ intervals: [DateInterval]) -> TimeInterval {
