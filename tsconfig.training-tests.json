@@ -28,6 +28,10 @@
     "lib/cyclePlanning.ts",
     "lib/trainingHistory.ts",
     "lib/dataHealth.ts",
+    "lib/dataMerge.ts",
+    "lib/personalization.ts",
+    "lib/plateCalculator.ts",
+    "lib/starterPlans.ts",
     "lib/templates.ts",
     "scripts/data-foundation.test.ts",
     "scripts/training-execution.test.ts",
@@ -38,6 +42,7 @@
     "scripts/training-decision.test.ts",
     "scripts/training-analysis.test.ts",
     "scripts/integrated-coach.test.ts",
-    "scripts/cut-system.test.ts"
+    "scripts/cut-system.test.ts",
+    "scripts/finalization.test.ts"
   ]
 }

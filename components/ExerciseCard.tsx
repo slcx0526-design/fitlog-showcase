@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Exercise, PerformanceMode, SetRecord } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -31,6 +31,7 @@ import {
 import NumberField from "./NumberField";
 import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
+import PlateCalculator from "./PlateCalculator";
 
 const fmt = (value: number) => String(value);
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
@@ -60,7 +61,19 @@ function techniqueLabel(value: NonNullable<SetRecord["technique"]>, locale: Loca
   return "";
 }
 
-export default function ExerciseCard({ date, exercise }: { date: string; exercise: Exercise }) {
+export default function ExerciseCard({
+  date,
+  exercise,
+  nextExercise,
+  navigationTarget = false,
+  onNavigate,
+}: {
+  date: string;
+  exercise: Exercise;
+  nextExercise?: Exercise;
+  navigationTarget?: boolean;
+  onNavigate?: (exerciseId: string) => void;
+}) {
   const { tr, locale } = useI18n();
   const { persona } = usePersona();
   const { mode } = useUIMode();
@@ -156,12 +169,38 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
     toast.show(tx(locale, `本次计划负重已设为 ${suggestion.nextWeight}kg`, `Planned load set to ${suggestion.nextWeight}kg`, `今回の予定重量を ${suggestion.nextWeight}kg に設定しました`));
   }
 
-  return <section className="control-card">
+  function goToNextExercise() {
+    if (!nextExercise) return;
+    setOpen(false);
+    onNavigate?.(nextExercise.id);
+    if (onNavigate) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(`exercise-${nextExercise.id}`)?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+  }
+
+  useEffect(() => {
+    if (!navigationTarget) return;
+    setOpen(true);
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`exercise-${exercise.id}`)?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [exercise.id, navigationTarget]);
+
+  return <section id={`exercise-${exercise.id}`} className="control-card scroll-mt-3">
     <div className="flex items-center gap-2 px-3.5 py-3">
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press min-w-0 flex-1 text-left">
         <p className="truncate text-[15px] font-semibold text-fg">{tr(exercise.name)}</p>
         <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
           {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
+          {exercise.supersetGroup && <Chip label={`${tx(locale, "超级组", "Superset", "スーパーセット")} ${exercise.supersetGroup}`} accent />}
           <Chip label={tr(trackLabel)} accent />
           <Chip label={tx(locale, `计划 ${plannedSets} 组`, `Plan ${plannedSets} sets`, `予定 ${plannedSets} セット`)} />
           {workSummary.completionCredits > 0 && <span className="tnum text-faint">{formatSetCredit(workSummary.completionCredits)} {setUnit}</span>}
@@ -201,6 +240,7 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
       {!reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{suggestion.status === "unconfirmedHistory"
         ? tx(locale, `采用参考 · ${suggestion.nextWeight}kg`, `Use reference · ${suggestion.nextWeight}kg`, `参考を採用 · ${suggestion.nextWeight}kg`)
         : tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
+      {!reviewingCompleted && recordsWeight && <PlateCalculator exercise={exercise} targetKg={acceptedWeight ?? (carry?.weight && carry.weight > 0 ? carry.weight : null)} />}
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
         <div className="mt-2 space-y-2">
@@ -227,6 +267,12 @@ export default function ExerciseCard({ date, exercise }: { date: string; exercis
       </div>)}
       <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>
       {recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
+      {nextExercise && plannedSets > 0 && workSummary.completionCredits >= plannedSets && <button type="button" onClick={goToNextExercise} className="press mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-accent-soft px-3 text-[12px] font-semibold text-accent">
+        {exercise.supersetGroup && nextExercise.supersetGroup === exercise.supersetGroup
+          ? tx(locale, `切换超级组 ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `Superset ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `スーパーセット ${exercise.supersetGroup}・${tr(nextExercise.name)}`)
+          : tx(locale, `本动作完成 · 下一项 ${tr(nextExercise.name)}`, `Exercise complete · Next ${tr(nextExercise.name)}`, `種目完了・次は ${tr(nextExercise.name)}`)}
+        <span className="ml-1.5" aria-hidden="true">→</span>
+      </button>}
     </div>}
   </section>;
 }

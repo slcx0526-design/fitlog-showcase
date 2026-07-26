@@ -18,6 +18,8 @@ import type {
   RecoveryRating,
   Schedule,
   SetRecord,
+  StarterPlanPreset,
+  SupersetGroup,
   Template,
   TemplateItem,
   TemplateSlot,
@@ -37,7 +39,7 @@ export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -45,6 +47,8 @@ const VALID_TECHNIQUES = new Set(["normal", "dropSet", "restPause", "myoReps", "
 const VALID_COMPLETIONS = new Set(["completed", "partial", "skipped"]);
 const VALID_RECORD_MODES = new Set<RecordMode>(["weight", "reps", "rir", "duration", "distance"]);
 const VALID_EQUIPMENT = new Set<Equipment>(["free", "machine", "cable", "bodyweight"]);
+const VALID_SUPERSET_GROUPS = new Set<SupersetGroup>(["A", "B", "C", "D"]);
+const VALID_STARTER_PLANS = new Set<StarterPlanPreset>(["compact3", "balanced5", "highFrequency6"]);
 const VALID_PATTERNS = new Set<MovementPattern>([
   "horizontalPush", "inclinePush", "verticalPush", "fly", "verticalPull", "horizontalPull",
   "hipHinge", "squat", "lunge", "kneeExtension", "kneeFlexion", "armCurl", "armExtension",
@@ -324,12 +328,39 @@ export function normalizeData(input: unknown): AppData {
               const exercise = rawExercise as Exercise;
               const sets = Array.isArray(exercise.sets) ? exercise.sets.map(parseSet).filter((set): set is SetRecord => !!set) : [];
               const recordModes = parseRecordModes(exercise.recordModes);
+              const primaryMuscle = parseMuscle(exercise.primaryMuscle);
+              const secondaryMuscles = parseMuscleList(exercise.secondaryMuscles, primaryMuscle);
+              const volumeContributions = parseVolumeContributions(exercise.volumeContributions);
+              const equipment = typeof exercise.equipment === "string" && VALID_EQUIPMENT.has(exercise.equipment as Equipment)
+                ? exercise.equipment as Equipment
+                : undefined;
+              const movementPattern = typeof exercise.movementPattern === "string" && VALID_PATTERNS.has(exercise.movementPattern as MovementPattern)
+                ? exercise.movementPattern as MovementPattern
+                : undefined;
+              const alternatives = parseStringList(exercise.alternatives);
+              const supersetGroup = typeof exercise.supersetGroup === "string" && VALID_SUPERSET_GROUPS.has(exercise.supersetGroup as SupersetGroup)
+                ? exercise.supersetGroup as SupersetGroup
+                : undefined;
               const prescription = parsePrescription(exercise.prescription);
               const plannedLoadKg = typeof exercise.plannedLoadKg === "number" && Number.isFinite(exercise.plannedLoadKg) && exercise.plannedLoadKg > 0
                 ? Math.round(exercise.plannedLoadKg * 100) / 100
                 : undefined;
               const progressionPlan = parseProgressionPlan(exercise.progressionPlan, plannedLoadKg);
-              return normalizeExercisePrescription({ ...exercise, sets, recordModes, prescription, plannedLoadKg, progressionPlan });
+              return normalizeExercisePrescription({
+                ...exercise,
+                sets,
+                recordModes,
+                primaryMuscle,
+                secondaryMuscles,
+                volumeContributions,
+                equipment,
+                movementPattern,
+                alternatives,
+                supersetGroup,
+                prescription,
+                plannedLoadKg,
+                progressionPlan,
+              });
             })
           : [];
         const parsedType = VALID_TYPES.includes(workout.type) ? workout.type : "custom";
@@ -443,6 +474,9 @@ export function normalizeData(input: unknown): AppData {
         primaryMuscle: exercise.primaryMuscle,
         secondaryMuscles: exercise.secondaryMuscles,
         volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+        alternatives: exercise.alternatives,
         recordModes: exercise.recordModes,
       });
     }
@@ -458,6 +492,9 @@ export function normalizeData(input: unknown): AppData {
     const equipment = typeof value.equipment === "string" && VALID_EQUIPMENT.has(value.equipment as Equipment) ? value.equipment as Equipment : undefined;
     const movementPattern = typeof value.movementPattern === "string" && VALID_PATTERNS.has(value.movementPattern as MovementPattern) ? value.movementPattern as MovementPattern : undefined;
     const alternatives = parseStringList(value.alternatives);
+    const supersetGroup = typeof value.supersetGroup === "string" && VALID_SUPERSET_GROUPS.has(value.supersetGroup as SupersetGroup)
+      ? value.supersetGroup as SupersetGroup
+      : undefined;
     const prescription = parsePrescription(value.prescription);
     const performanceMode = prescription?.performanceMode ?? (recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps");
     let low = 8;
@@ -488,6 +525,7 @@ export function normalizeData(input: unknown): AppData {
       ...(equipment ? { equipment } : {}),
       ...(movementPattern ? { movementPattern } : {}),
       ...(alternatives ? { alternatives } : {}),
+      ...(supersetGroup ? { supersetGroup } : {}),
       ...(prescription ? { prescription } : {}),
       ...(typeof value.progressionTrackId === "string" ? { progressionTrackId: value.progressionTrackId } : {}),
       ...(typeof value.progressionTrackLabel === "string" ? { progressionTrackLabel: value.progressionTrackLabel } : {}),
@@ -644,6 +682,42 @@ export function normalizeData(input: unknown): AppData {
     }
   }
 
+  if (obj.onboarding && typeof obj.onboarding === "object") {
+    const value = obj.onboarding as Record<string, unknown>;
+    const starterPlan = typeof value.starterPlan === "string" && VALID_STARTER_PLANS.has(value.starterPlan as StarterPlanPreset)
+      ? value.starterPlan as StarterPlanPreset
+      : undefined;
+    const completedAt = typeof value.completedAt === "string" && value.completedAt ? value.completedAt : undefined;
+    const dismissedAt = typeof value.dismissedAt === "string" && value.dismissedAt ? value.dismissedAt : undefined;
+    if (completedAt || dismissedAt || starterPlan) {
+      out.onboarding = {
+        ...(completedAt ? { completedAt } : {}),
+        ...(dismissedAt ? { dismissedAt } : {}),
+        ...(starterPlan ? { starterPlan } : {}),
+      };
+    }
+  }
+
+  if (obj.trainingPreferences && typeof obj.trainingPreferences === "object") {
+    const value = obj.trainingPreferences as Record<string, unknown>;
+    const barbellWeightKg = typeof value.barbellWeightKg === "number" && Number.isFinite(value.barbellWeightKg)
+      ? Math.min(50, Math.max(1, Math.round(value.barbellWeightKg * 4) / 4))
+      : undefined;
+    const plateSizesKg = Array.isArray(value.plateSizesKg)
+      ? [...new Set(value.plateSizesKg
+          .filter((plate): plate is number => typeof plate === "number" && Number.isFinite(plate) && plate >= 0.25 && plate <= 50)
+          .map((plate) => Math.round(plate * 4) / 4))]
+          .sort((a, b) => b - a)
+          .slice(0, 16)
+      : undefined;
+    if (barbellWeightKg || plateSizesKg?.length) {
+      out.trainingPreferences = {
+        ...(barbellWeightKg ? { barbellWeightKg } : {}),
+        ...(plateSizesKg?.length ? { plateSizesKg } : {}),
+      };
+    }
+  }
+
   const today = todayKey();
   const workouts = Object.entries(out.days).filter(([, day]) => !!day.workout).sort(([a], [b]) => a.localeCompare(b));
   if (!out.microcycle && workouts.length) {
@@ -702,7 +776,7 @@ export function normalizeData(input: unknown): AppData {
 
 export function toBackup(data: AppData): BackupData {
   const normalized = normalizeData(data);
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview };
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview, onboarding: normalized.onboarding, trainingPreferences: normalized.trainingPreferences };
 }
 
 export function downloadBackup(data: AppData): void {

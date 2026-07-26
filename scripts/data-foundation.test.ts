@@ -272,12 +272,12 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 14);
+assert.equal(backup.version, 15);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
 assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");
-assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 14 backups preserve recovery check-ins");
+assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 15 backups preserve recovery check-ins");
 
 const legacyPlannedLoad = normalizeData({
   days: {

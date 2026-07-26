@@ -42,6 +42,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const difficulty = workout?.difficulty ?? "onTarget";
   const [nextType, setNextType] = useState<TrainingType | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
   const finishConfirmationRef = useRef<HTMLDivElement>(null);
   const execution = useMemo(() => summarizeSessionExecution(workout), [workout]);
   const effectiveSets = execution.workingSets;
@@ -103,7 +104,15 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
         sets: sets.length,
         repsLow,
         repsHigh: Math.max(repsLow, repsHigh),
+        isMain: exercise.isMain,
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+        alternatives: exercise.alternatives,
         recordModes: exercise.recordModes,
+        supersetGroup: exercise.supersetGroup,
         prescription,
       }];
     });
@@ -135,7 +144,16 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     {type === "rest" && <div className="control-card mt-3 p-3.5"><p className="text-[14px] font-semibold text-fg">{tx(locale, "今天记录为休息日", "Today is logged as rest", "今日は休息日として記録されます")}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "无需用训练组数补偿。保持饮食计划，按恢复状态做轻松活动即可。", "Do not compensate with extra sets. Keep nutrition on plan and do light activity based on recovery.", "トレーニングセットで補う必要はありません。食事計画を保ち、回復状態に合わせて軽い活動を行ってください。")}</p></div>}
     {type && type !== "rest" && <div className="mt-3 space-y-2.5">
       {templates.length > 0 && <div className="flex flex-wrap gap-2">{templates.map((template) => <button key={template.id} type="button" onClick={() => applySelectedTemplate(template.id, template.name)} className="choice-chip press min-w-0 flex-1 rounded-lg border border-accent/30 bg-accent-soft px-2 py-2 text-[12px] font-semibold text-accent"><span className="truncate">{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}</span></button>)}<Link href="/templates" className="press grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>✎</Link></div>}
-      {exercises.map((exercise) => <ExerciseCard key={exercise.id} date={date} exercise={exercise} />)}
+      {exercises.map((exercise, index) => <ExerciseCard
+        key={exercise.id}
+        date={date}
+        exercise={exercise}
+        navigationTarget={navigationTarget === exercise.id}
+        onNavigate={setNavigationTarget}
+        nextExercise={exercise.supersetGroup
+          ? exercises.slice(index + 1).find((candidate) => candidate.supersetGroup === exercise.supersetGroup) ?? exercises[index + 1]
+          : exercises[index + 1]}
+      />)}
       {typeHasExercises(type) && <AddExercisePanel date={date} type={type} addedIds={addedIds} lockedIds={lockedIds} />}
       {exercises.length > 0 && <div className="control-card px-3.5 py-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[13px] font-semibold text-fg">{tx(locale, "本次记录", "Session log", "今回の記録")}</p><p className="mt-0.5 text-[11px] text-faint">{tx(locale, "完整组按 1，部分完成按 0.5；跳过和空白组不计入。", "Complete sets count as 1 and partial sets as 0.5; skipped and blank sets do not count.", "完了セットは1、部分完了は0.5。スキップと空欄は集計しません。")}</p></div><span className="tnum shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-muted">{formatSetCredit(completedSets)}{plannedSets ? ` / ${plannedSets}` : ""} {setUnit}</span></div></div>}
       {effectiveSets > 0 && <div className="control-card p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[12px] font-semibold text-fg">{tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}</p><p className="mt-0.5 text-[10px] text-faint">{tx(locale, "只影响下次建议，不改动已填数据", "Used only for the next suggestion; your entries stay unchanged", "次回提案にのみ使用し、入力データは変更しません")}</p></div></div><div className="control-strip mt-2 grid grid-cols-3 gap-1 rounded-xl p-1" role="group" aria-label={tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}>{(["easy", "onTarget", "hard"] as const).map((value) => <button key={value} type="button" onClick={() => setWorkoutDifficulty(date, value)} aria-pressed={difficulty === value} className={"choice-chip press h-9 text-[12px] font-semibold " + (difficulty === value ? "bg-fg text-bg" : "text-muted")}>{value === "easy" ? tx(locale, "轻松", "Easy", "余裕") : value === "hard" ? tx(locale, "吃力", "Hard", "きつい") : tx(locale, "合适", "On target", "適正")}</button>)}</div></div>}

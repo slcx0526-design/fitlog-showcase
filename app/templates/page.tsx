@@ -22,7 +22,7 @@ import {
   type Equipment,
   type MuscleGroup,
 } from "@/lib/muscles";
-import type { ExercisePreset, RecordMode, Template, TemplateItem } from "@/lib/types";
+import type { ExercisePreset, RecordMode, SupersetGroup, Template, TemplateItem } from "@/lib/types";
 
 const EQUIP_ORDER: Equipment[] = ["machine", "cable", "free", "bodyweight"];
 type CustomRecordKind = "weightReps" | "reps" | "duration" | "distance";
@@ -52,7 +52,7 @@ function templateToText(tpl: Template, tr: Tr): string {
   const head = `${tpl.name.trim() || tr("未命名模板")} · ${tr(TYPE_LABEL[tpl.type as "push" | "pull" | "legs"])}`;
   const lines = tpl.items.map(
     (it, i) => {
-      return `${i + 1}. ${tr(it.name)}  ${it.sets} × ${formatReps(it.repsLow, it.repsHigh)} ${targetUnit(it, tr)}`;
+      return `${i + 1}. ${it.supersetGroup ? `[${tr("超级组")} ${it.supersetGroup}] ` : ""}${tr(it.name)}  ${it.sets} × ${formatReps(it.repsLow, it.repsHigh)} ${targetUnit(it, tr)}`;
     }
   );
   return [head, ...lines].join("\n");
@@ -570,6 +570,18 @@ function TemplateCard({
                   <Stepper label={tr("加重")} value={it.prescription?.loadIncrementKg ?? it.loadIncrementKg ?? 2.5} min={0} max={10} step={0.5} onChange={(v) => update(idx, { loadIncrementKg: v })} />
                   <span className="text-[11px] text-faint">kg</span>
                 </div>}
+                <div className="flex items-center gap-2">
+                  <span className="w-9 shrink-0 text-[12px] text-faint">{tr("编组")}</span>
+                  <select
+                    value={it.supersetGroup ?? ""}
+                    onChange={(event) => update(idx, { supersetGroup: (event.target.value || undefined) as SupersetGroup | undefined })}
+                    aria-label={`${tr(it.name)} · ${tr("超级组")}`}
+                    className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 text-[12px] text-fg outline-none focus:border-accent"
+                  >
+                    <option value="">{tr("普通顺序")}</option>
+                    {(["A", "B", "C", "D"] as const).map((group) => <option key={group} value={group}>{tr("超级组")} {group}</option>)}
+                  </select>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="w-9 shrink-0 text-[12px] text-faint">{tr("轨道")}</span>
                   {(() => {

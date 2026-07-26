@@ -28,6 +28,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /.tmp-training-tests/
+/playwright-report/
+/test-results/
 
 # repository recovery artifacts / local deployment metadata
 .git_broken_backup*/

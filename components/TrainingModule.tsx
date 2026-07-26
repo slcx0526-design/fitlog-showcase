@@ -45,6 +45,7 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
   const done = workout?.done ?? false;
 
   const [pendingType, setPendingType] = useState<TrainingType | null>(null);
+  const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
 
   const addedIds = useMemo(
     () => new Set(exercises.map((e) => e.id)),
@@ -79,6 +80,15 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
           sets: sets.length,
           repsLow,
           repsHigh: Math.max(repsLow, repsHigh),
+          isMain: exercise.isMain,
+          primaryMuscle: exercise.primaryMuscle,
+          secondaryMuscles: exercise.secondaryMuscles,
+          volumeContributions: exercise.volumeContributions,
+          equipment: exercise.equipment,
+          movementPattern: exercise.movementPattern,
+          alternatives: exercise.alternatives,
+          recordModes: exercise.recordModes,
+          supersetGroup: exercise.supersetGroup,
           prescription,
         };
       });
@@ -195,11 +205,16 @@ export default function TrainingModule({ date, suggestedType }: { date: string; 
           {/* 套用模板：该类型已设置的模板（推→推1/推2 …），合并去重 */}
           <TemplateApplyRow date={date} type={type} addedIds={addedIds} />
 
-          {exercises.map((ex) => (
+          {exercises.map((ex, index) => (
             <ExerciseCard
               key={ex.id}
               date={date}
               exercise={ex}
+              navigationTarget={navigationTarget === ex.id}
+              onNavigate={setNavigationTarget}
+              nextExercise={ex.supersetGroup
+                ? exercises.slice(index + 1).find((candidate) => candidate.supersetGroup === ex.supersetGroup) ?? exercises[index + 1]
+                : exercises[index + 1]}
             />
           ))}
           {typeHasExercises(type) && (

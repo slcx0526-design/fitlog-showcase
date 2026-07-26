@@ -4,21 +4,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { daysAgo, todayKey } from "@/lib/date";
-import { SCHEMA_VERSION, type AppData, downloadBackup, parseBackupWithMeta } from "@/lib/storage";
+import { SCHEMA_VERSION, type AppData, parseBackupWithMeta } from "@/lib/storage";
 import { typeLabel } from "@/lib/exercises";
 import { exerciseTrackId, exerciseTrackLabel, performanceModeFor } from "@/lib/prescription";
 import { inspectDataHealth } from "@/lib/dataHealth";
 import { evaluateProgressionOutcome } from "@/lib/trainingExecution";
 import { dayHasLogContent } from "@/lib/trainingHistory";
+import { estimateDataFootprint, mergeAppData, type DataMergeSummary } from "@/lib/dataMerge";
 
 export default function DataManagement() {
   const { tr, locale } = useI18n();
-  const { exportData, importFromText, repairData, clearAll, data } = useStore();
+  const { exportData, importData, mergeData, repairData, clearAll, data } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [pendingImport, setPendingImport] = useState<{
-    text: string;
+    data: AppData;
     dayCount: number;
     bodyWeightCount: number;
     waistCount: number;
@@ -26,6 +27,7 @@ export default function DataManagement() {
     templateCount: number;
     exportedAt?: string;
     version?: number;
+    mergeSummary: DataMergeSummary;
   } | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(
     null
@@ -34,6 +36,7 @@ export default function DataManagement() {
   const lastBackup = daysAgo(data.lastBackupAt, locale);
   const stale = !lastBackup || lastBackup.days >= 30;
   const health = useMemo(() => inspectDataHealth(data), [data]);
+  const footprint = useMemo(() => estimateDataFootprint(data), [data]);
   const logDayCount = Object.values(data.days).filter(dayHasLogContent).length;
 
   function flash(kind: "ok" | "err", text: string) {
@@ -56,8 +59,9 @@ export default function DataManagement() {
       const text = await file.text();
       // 先解析校验 + 统计，但不立即应用 —— 等用户确认覆盖
       const preview = parseBackupWithMeta(text);
+      const mergePreview = mergeAppData(data, preview.data);
       setPendingImport({
-        text,
+        data: preview.data,
         dayCount: Object.values(preview.data.days).filter(dayHasLogContent).length,
         bodyWeightCount: preview.data.bodyWeights.length,
         waistCount: preview.data.waistEntries.length,
@@ -65,6 +69,7 @@ export default function DataManagement() {
         templateCount: preview.data.templates?.length ?? 0,
         exportedAt: preview.exportedAt,
         version: preview.version,
+        mergeSummary: mergePreview.summary,
       });
     } catch (err) {
       flash("err", err instanceof Error ? tr(err.message) : tr("文件无法解析"));
@@ -74,10 +79,28 @@ export default function DataManagement() {
   function confirmImport() {
     if (!pendingImport) return;
     try {
-      importFromText(pendingImport.text);
+      importData(pendingImport.data);
       flash("ok", tr("导入成功，数据已恢复"));
     } catch (err) {
       flash("err", err instanceof Error ? tr(err.message) : tr("导入失败"));
+    }
+    setPendingImport(null);
+  }
+
+  function confirmMerge() {
+    if (!pendingImport) return;
+    try {
+      const summary = mergeData(pendingImport.data);
+      const imported = summary.importedDays
+        + summary.updatedDays
+        + summary.importedBodyWeights
+        + summary.importedWaistEntries
+        + summary.importedTemplates
+        + summary.importedCustomExercises
+        + summary.importedSettings;
+      flash("ok", tr("安全合并完成：新增或补全 {n} 项", { n: imported }));
+    } catch (err) {
+      flash("err", err instanceof Error ? tr(err.message) : tr("合并失败"));
     }
     setPendingImport(null);
   }
@@ -147,7 +170,7 @@ export default function DataManagement() {
                 {tr(health.status === "healthy" ? "数据结构正常" : "发现 {n} 项数据需要整理", { n: health.issueCount })}
               </p>
               <p className="tnum mt-0.5 truncate text-[10px] text-faint">
-                Schema {SCHEMA_VERSION} · {tr("{n} 次训练", { n: health.totals.trainingSessions })} · {tr("{n} 个有效组", { n: health.totals.workingSets })}
+                Schema {SCHEMA_VERSION} · {tr("{n} 次训练", { n: health.totals.trainingSessions })} · {tr("{n} 个有效组", { n: health.totals.workingSets })} · {footprint.kilobytes} KB
               </p>
             </div>
             {health.status === "attention" && (
@@ -171,6 +194,16 @@ export default function DataManagement() {
           {health.totals.legacyTrackExercises > 0 && (
             <p className="mt-1 text-[10px] text-faint">
               {tr("保留 {n} 条旧轨道历史作为参考，不参与新轨道自动建议。", { n: health.totals.legacyTrackExercises })}
+            </p>
+          )}
+          {footprint.status !== "normal" && (
+            <p className={"mt-1 text-[10px] leading-relaxed " + (footprint.status === "high" ? "text-warn" : "text-faint")}>
+              {tr(
+                footprint.status === "high"
+                  ? "本地数据约 {n} MB，建议立即导出备份并清理不需要的旧记录。"
+                  : "本地数据约 {n} MB，正在接近常见浏览器存储上限，建议保持近期备份。",
+                { n: footprint.megabytes },
+              )}
             </p>
           )}
         </div>
@@ -261,7 +294,17 @@ export default function DataManagement() {
                 {tr("导出时间")}：{new Date(pendingImport.exportedAt).toLocaleString()}
               </p>
             )}
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 rounded-lg bg-surface/70 px-2 py-1.5 text-[10px] leading-relaxed text-accent/80">
+              {tr("安全合并会保留当前冲突项，仅导入缺少的日期、记录、模板和资料。")}
+              <span className="tnum ml-1 font-semibold">
+                {tr("预计新增 {n} 天，补全 {m} 天，冲突 {c} 项。", {
+                  n: pendingImport.mergeSummary.importedDays,
+                  m: pendingImport.mergeSummary.updatedDays,
+                  c: pendingImport.mergeSummary.conflicts,
+                })}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button"
                 onClick={() => setPendingImport(null)}
                 className="press h-9 flex-1 rounded-md border border-border bg-surface text-[13px] text-fg"
@@ -270,7 +313,7 @@ export default function DataManagement() {
               </button>
               <button type="button"
                 onClick={() => {
-                  downloadBackup(data);
+                  exportData();
                   flash("ok", tr("当前数据已导出"));
                 }}
                 className="press h-9 flex-1 rounded-md border border-border bg-surface text-[13px] font-medium text-accent"
@@ -278,8 +321,14 @@ export default function DataManagement() {
                 {tr("先导出当前")}
               </button>
               <button type="button"
+                onClick={confirmMerge}
+                className="press h-10 rounded-md border border-accent/40 bg-surface text-[12px] font-semibold text-accent"
+              >
+                {tr("安全合并缺少数据")}
+              </button>
+              <button type="button"
                 onClick={confirmImport}
-                className="press h-9 flex-1 rounded-md bg-accent text-[13px] font-semibold text-accent-fg"
+                className="press h-10 rounded-md bg-accent text-[12px] font-semibold text-accent-fg"
               >
                 {tr("确认覆盖导入")}
               </button>

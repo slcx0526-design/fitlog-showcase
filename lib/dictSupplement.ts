@@ -2,6 +2,9 @@
 // Keys remain Simplified Chinese so all callers continue to use tr(zhKey).
 
 export const DICT_JA_SUPPLEMENT: Record<string, string> = {
+  "编组": "グループ", "超级组": "スーパーセット", "普通顺序": "通常順序",
+  "安全合并完成：新增或补全 {n} 项": "安全なマージが完了しました：{n}件を追加または補完", "合并失败": "マージに失敗しました", "安全合并会保留当前冲突项，仅导入缺少的日期、记录、模板和资料。": "安全なマージでは現在の競合データを保持し、不足している日付・記録・テンプレート・設定のみを取り込みます。", "预计新增 {n} 天，补全 {m} 天，冲突 {c} 项。": "追加予定 {n}日、補完 {m}日、競合 {c}件。", "安全合并缺少数据": "不足データを安全にマージ", "先导出当前": "現在のデータを先に書き出す", "导出时间": "書き出し日時", "版本": "バージョン",
+  "本地数据约 {n} MB，建议立即导出备份并清理不需要的旧记录。": "ローカルデータは約 {n} MB です。すぐにバックアップを書き出し、不要な古い記録を整理してください。", "本地数据约 {n} MB，正在接近常见浏览器存储上限，建议保持近期备份。": "ローカルデータは約 {n} MB で、一般的なブラウザ保存上限に近づいています。最近のバックアップを維持してください。",
   "主导航": "メインナビゲーション", "进度": "進捗", "减脂": "減量", "日志": "ログ", "身体": "身体",
   "查看训练": "トレーニングを見る", "继续训练": "トレーニングを続ける", "记录休息日": "休息日を記録", "开始{type}": "{type}を開始",
   "补齐基本资料": "基本情報を入力", "身高、生理性别与出生年份用于热量和心率估算。": "身長・生物学的性別・生年はカロリーと心拍数の推定に使用します。", "去填写": "入力する",
@@ -30,6 +33,9 @@ export const DICT_JA_SUPPLEMENT: Record<string, string> = {
 };
 
 export const DICT_EN_SUPPLEMENT: Record<string, string> = {
+  "编组": "Grouping", "超级组": "Superset", "普通顺序": "Normal order",
+  "安全合并完成：新增或补全 {n} 项": "Safe merge complete: added or filled {n} items", "合并失败": "Merge failed", "安全合并会保留当前冲突项，仅导入缺少的日期、记录、模板和资料。": "Safe merge keeps current values for conflicts and imports only missing dates, records, templates, and settings.", "预计新增 {n} 天，补全 {m} 天，冲突 {c} 项。": "Expected: {n} new days, {m} completed days, and {c} conflicts.", "安全合并缺少数据": "Safely merge missing data", "先导出当前": "Export current first", "导出时间": "Exported", "版本": "Version",
+  "本地数据约 {n} MB，建议立即导出备份并清理不需要的旧记录。": "Local data is about {n} MB. Export a backup now and remove old records you no longer need.", "本地数据约 {n} MB，正在接近常见浏览器存储上限，建议保持近期备份。": "Local data is about {n} MB and is approaching common browser storage limits. Keep a recent backup.",
   "主导航": "Main navigation", "进度": "Progress", "减脂": "Cut", "日志": "Log", "身体": "Body",
   "查看训练": "View workout", "继续训练": "Continue workout", "记录休息日": "Log rest day", "开始{type}": "Start {type}",
   "补齐基本资料": "Complete basic profile", "身高、生理性别与出生年份用于热量和心率估算。": "Height, biological sex, and birth year are used for calorie and heart-rate estimates.", "去填写": "Set up",

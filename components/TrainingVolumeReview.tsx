@@ -18,6 +18,7 @@ import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";
 import CycleReviewPanel from "./CycleReviewPanel";
 import IntegratedCoachBrief from "./IntegratedCoachBrief";
+import PersonalCalibrationPanel from "./PersonalCalibrationPanel";
 
 const SCOPE_OPTIONS: Array<{ id: VolumeScope; label: string }> = [
   { id: "microcycle", label: "本周期" },
@@ -151,6 +152,8 @@ export default function TrainingVolumeReview() {
         }) : <div className="rounded-xl border border-dashed border-border px-3 py-5 text-center"><p className="text-[12px] text-faint">完成有效工作组后，这里会显示实际涉及的肌群。</p><button type="button" onClick={() => setShowAllMuscles(true)} className="press mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[11px] font-semibold text-accent">查看并编辑全部目标</button></div>}
       </div>
     </section>
+
+    <PersonalCalibrationPanel />
 
     <ExerciseHistoryArchive />
 

@@ -26,8 +26,10 @@ import type {
   Schedule,
   SessionDifficulty,
   SetRecord,
+  StarterPlanPreset,
   Template,
   TemplateItem,
+  TrainingPreferences,
   TrainingIntent,
   TrainingCyclePhase,
   TrainingType,
@@ -50,6 +52,8 @@ import { currentCutSnapshot, cutSetPlan, isCutModeActive, suggestedCutVolumeScal
 import {
   advanceTrainingCycle,
   cloneTemplate,
+  defaultMesocycle,
+  defaultMicrocycle,
   ensureMesocycle,
   ensureMicrocycle,
   microcycleAssignmentForNewWorkout,
@@ -75,6 +79,8 @@ import {
   requiresCycleReviewBeforeWorkout,
   type CycleReview,
 } from "./cyclePlanning";
+import { starterPlanById } from "./starterPlans";
+import { mergeAppData, type DataMergeSummary } from "./dataMerge";
 
 interface StoreApi {
   loaded: boolean;
@@ -175,6 +181,9 @@ interface StoreApi {
   setMesocycleTargetCycles: (cycles: number) => void;
   startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => void;
   applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => boolean;
+  completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => void;
+  dismissSetup: () => void;
+  setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
 
   // 跨天 type 查询（"上次也做了"用）
   lastWorkoutByType: (
@@ -185,6 +194,8 @@ interface StoreApi {
   // 数据管理
   exportData: () => void;
   importFromText: (text: string) => void;
+  importData: (data: AppData) => void;
+  mergeData: (data: AppData) => DataMergeSummary;
   repairData: () => number;
   clearAll: () => void;
 }
@@ -444,6 +455,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           secondaryMuscles: preset.secondaryMuscles,
           volumeContributions: preset.volumeContributions,
           recordModes: preset.recordModes,
+          equipment: preset.equipment,
+          movementPattern: preset.movementPattern,
+          alternatives: preset.alternatives,
         }, prescription);
         return { ...w, done: false, completedAt: undefined, exercises: [...w.exercises, ex] };
       });
@@ -812,6 +826,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             secondaryMuscles: it.secondaryMuscles ?? preset?.secondaryMuscles,
             volumeContributions: it.volumeContributions ?? preset?.volumeContributions,
             recordModes: it.recordModes ?? preset?.recordModes,
+            equipment: it.equipment ?? preset?.equipment,
+            movementPattern: it.movementPattern ?? preset?.movementPattern,
+            alternatives: it.alternatives ?? preset?.alternatives,
+            supersetGroup: it.supersetGroup,
           }, { ...prescription, workingSets: adjustedSets.get(it.exerciseId) ?? prescription.workingSets }));
         }
         const templateSnapshot = cloneTemplate(resolvedTemplate);
@@ -1097,6 +1115,67 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const completeSetup = useCallback((options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => {
+    const prev = dataRef.current;
+    const plan = starterPlanById(options.starterPlan);
+    const hasTraining = Object.values(prev.days).some((day) => day.workout?.exercises.some((exercise) => workingSets(exercise.sets).length > 0));
+    const installPlan = !hasTraining && !(prev.templates?.length);
+    const templates = installPlan ? plan.templates.map(cloneTemplate) : prev.templates;
+    const schedule = installPlan
+      ? {
+          split: [...plan.schedule.split],
+          microcycle: plan.schedule.microcycle?.map((step) => ({ ...step })),
+        }
+      : prev.schedule;
+    const mesocycle = installPlan ? defaultMesocycle(options.date) : prev.mesocycle;
+    const microcycle = installPlan
+      ? defaultMicrocycle(options.date, schedule, templates, { mesocycle })
+      : prev.microcycle;
+    const profile = { ...(prev.profile ?? {}), ...options.profile };
+    const next: AppData = {
+      ...prev,
+      profile,
+      ...(installPlan ? { templates, schedule, mesocycle, microcycle } : {}),
+      onboarding: {
+        completedAt: new Date().toISOString(),
+        starterPlan: options.starterPlan,
+      },
+    };
+    dataRef.current = next;
+    setData(next);
+    saveData(next);
+  }, []);
+
+  const dismissSetup = useCallback(() => {
+    setData((prev) => ({
+      ...prev,
+      onboarding: { ...prev.onboarding, dismissedAt: new Date().toISOString() },
+    }));
+  }, []);
+
+  const setTrainingPreferences = useCallback((patch: Partial<TrainingPreferences>) => {
+    setData((prev) => {
+      const current = prev.trainingPreferences ?? {};
+      const barbellWeightKg = patch.barbellWeightKg == null
+        ? current.barbellWeightKg
+        : Math.min(50, Math.max(1, Math.round(patch.barbellWeightKg * 4) / 4));
+      const plateSizesKg = patch.plateSizesKg == null
+        ? current.plateSizesKg
+        : [...new Set(patch.plateSizesKg
+            .filter((plate) => Number.isFinite(plate) && plate >= 0.25 && plate <= 50)
+            .map((plate) => Math.round(plate * 4) / 4))]
+            .sort((a, b) => b - a)
+            .slice(0, 16);
+      return {
+        ...prev,
+        trainingPreferences: {
+          ...(barbellWeightKg ? { barbellWeightKg } : {}),
+          ...(plateSizesKg?.length ? { plateSizesKg } : {}),
+        },
+      };
+    });
+  }, []);
+
   const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
     setData((prev) => {
       const advanced = advanceTrainingCycle(prev, date, phase);
@@ -1145,12 +1224,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
   }, [data]);
 
-  const importFromText = useCallback((text: string) => {
-    const next = parseBackup(text);
+  const importData = useCallback((input: AppData) => {
+    const next = normalizeData(input);
     // 把导入时刻当作新的"已同步"基点
     next.lastBackupAt = new Date().toISOString();
+    dataRef.current = next;
     setData(next);
     saveData(next);
+  }, []);
+
+  const importFromText = useCallback((text: string) => {
+    importData(parseBackup(text));
+  }, [importData]);
+
+  const mergeData = useCallback((incoming: AppData) => {
+    const result = mergeAppData(dataRef.current, incoming);
+    result.data.lastBackupAt = new Date().toISOString();
+    dataRef.current = result.data;
+    setData(result.data);
+    saveData(result.data);
+    return result.summary;
   }, []);
 
   const repairData = useCallback(() => {
@@ -1219,9 +1312,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setMesocycleTargetCycles,
       startNewMicrocycle,
       applyCycleReview,
+      completeSetup,
+      dismissSetup,
+      setTrainingPreferences,
       lastWorkoutByType,
       exportData,
       importFromText,
+      importData,
+      mergeData,
       repairData,
       clearAll,
     }),
@@ -1270,9 +1368,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setMesocycleTargetCycles,
       startNewMicrocycle,
       applyCycleReview,
+      completeSetup,
+      dismissSetup,
+      setTrainingPreferences,
       lastWorkoutByType,
       exportData,
       importFromText,
+      importData,
+      mergeData,
       repairData,
       clearAll,
     ]

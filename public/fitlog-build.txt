@@ -1,1 +1,1 @@
-FitLog 9.1.0 visual finalization release
+FitLog 10.0.0 terminal local-first release

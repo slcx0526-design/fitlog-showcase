@@ -25,6 +25,8 @@ export type ProgressionSuggestionStatus =
   | "unconfirmedHistory";
 export type PlannedLoadOrigin = "suggestion" | "reference" | "manual";
 export type TrainingCyclePhase = "build" | "deload";
+export type StarterPlanPreset = "compact3" | "balanced5" | "highFrequency6";
+export type SupersetGroup = "A" | "B" | "C" | "D";
 export type MovementPattern =
   | "horizontalPush"
   | "inclinePush"
@@ -150,6 +152,11 @@ export interface Exercise {
   secondaryMuscles?: MuscleGroup[];
   volumeContributions?: VolumeContribution[];
   recordModes?: RecordMode[];
+  equipment?: Equipment;
+  movementPattern?: MovementPattern;
+  alternatives?: string[];
+  /** Optional execution grouping. Exercises with the same label alternate as one superset. */
+  supersetGroup?: SupersetGroup;
   /** @deprecated Schema <= 10 import compatibility. Canonical targets live in prescription. */
   planned?: { sets: number; repsLow: number; repsHigh: number; rpe?: number };
   /** @deprecated Unused pre-4.2 cut overlay field. */
@@ -206,6 +213,8 @@ export interface TemplateItem {
   equipment?: Equipment;
   movementPattern?: MovementPattern;
   alternatives?: string[];
+  /** Optional execution grouping copied into each workout snapshot. */
+  supersetGroup?: SupersetGroup;
   /** Canonical prescription definition. sets/repsLow/repsHigh remain editable template targets. */
   prescription?: ProgressionPrescription;
   /** @deprecated Schema <= 10 import compatibility. Read from prescription instead. */
@@ -282,6 +291,19 @@ export interface Profile {
   restingHR?: number;
   maxHR?: number;
   trainingLevel?: TrainingLevel;
+}
+
+export interface OnboardingState {
+  completedAt?: string;
+  dismissedAt?: string;
+  starterPlan?: StarterPlanPreset;
+}
+
+export interface TrainingPreferences {
+  /** Empty bar weight used by the plate calculator. */
+  barbellWeightKg?: number;
+  /** Available individual plate sizes. The calculator uses matching pairs. */
+  plateSizesKg?: number[];
 }
 
 export interface DayLog {
@@ -398,6 +420,8 @@ export interface AppData {
   mesocycle?: MesocycleState;
   /** Last atomic review application; prevents the same cycle from changing templates twice. */
   lastCycleReview?: AppliedCycleReview;
+  onboarding?: OnboardingState;
+  trainingPreferences?: TrainingPreferences;
   /** Local-only backup reminder. Excluded from portable backup payloads. */
   lastBackupAt?: string;
 }

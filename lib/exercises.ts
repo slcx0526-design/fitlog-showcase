@@ -145,6 +145,9 @@ export function presetForHistoricalExercise(exercise: Exercise, type: TrainingTy
     primaryMuscle: exercise.primaryMuscle,
     secondaryMuscles: exercise.secondaryMuscles,
     volumeContributions: exercise.volumeContributions,
+    equipment: exercise.equipment,
+    movementPattern: exercise.movementPattern,
+    alternatives: exercise.alternatives,
     recordModes: exercise.recordModes,
   };
 }

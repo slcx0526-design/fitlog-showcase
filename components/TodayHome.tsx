@@ -20,6 +20,8 @@ import MidnightAmbientStatus from "./MidnightAmbientStatus";
 import SurvivalFieldBoard from "./SurvivalFieldBoard";
 import IntegratedCoachBrief from "./IntegratedCoachBrief";
 import RecoveryCheckInCard from "./RecoveryCheckInCard";
+import SetupGuide from "./SetupGuide";
+import { needsStarterSetup } from "@/lib/starterPlans";
 
 type Translate = (zh: string, params?: Record<string, string | number>) => string;
 
@@ -40,6 +42,7 @@ export default function TodayHome() {
   const cutActive = isCutModeActive(data.cutPlan);
   const energy = useMemo(() => resolveCutEnergyPlan(data.profile, data.cutPlan, data.days, data.bodyWeights, today), [data.profile, data.cutPlan, data.days, data.bodyWeights, today]);
   const profileMissing = !(data.profile?.sex && data.profile.heightCm && data.profile.birthYear);
+  const setupNeeded = needsStarterSetup(data);
   const workoutHref = workout?.type ? "/train" : activeType ? `/train?start=${activeType}` : "/train";
   const primaryLabel = workout?.done
     ? tr("查看训练")
@@ -62,7 +65,9 @@ export default function TodayHome() {
       <Link href="/settings" aria-label={tr("设置")} className="press grid h-10 w-10 place-items-center rounded-xl border border-border bg-surface text-faint shadow-sm"><svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" /><path d="M12 2.75V5M12 19V21.25M4.75 12H2.5M21.5 12H19.25M6.9 6.9L5.3 5.3M18.7 18.7L17.1 17.1M6.9 17.1L5.3 18.7M18.7 5.3L17.1 6.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg></Link>
     </header>
 
-    {profileMissing && <section className="control-card mb-4 flex items-center gap-3 px-3.5 py-3"><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{tr("补齐基本资料")}</p><p className="mt-0.5 text-[11px] text-faint">{tr("身高、生理性别与出生年份用于热量和心率估算。")}</p></div><Link href="/settings" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{tr("去填写")}</Link></section>}
+    {setupNeeded && <div className="mb-4"><SetupGuide /></div>}
+
+    {!setupNeeded && profileMissing && <section className="control-card mb-4 flex items-center gap-3 px-3.5 py-3"><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{tr("补齐基本资料")}</p><p className="mt-0.5 text-[11px] text-faint">{tr("身高、生理性别与出生年份用于热量和心率估算。")}</p></div><Link href="/settings" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{tr("去填写")}</Link></section>}
 
     {mode === "pulse" ? <PulseDailyBrief /> : mode === "survival" ? <SurvivalFieldBoard /> : <><MidnightAmbientStatus /><MorningCheckIn date={today} /></>}
 
