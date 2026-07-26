@@ -262,10 +262,14 @@ final class HealthKitService {
 
         var totals: [String: Double] = [:]
         for (day, bySource) in intervalsByDayAndSource {
-            let best = bySource.values
-                .map(mergedDuration)
-                .filter { $0 > 0 && $0 <= 16 * 60 * 60 }
-                .max() ?? 0
+            var best: TimeInterval = 0
+            let maximumSleepDuration: TimeInterval = 16 * 60 * 60
+            for intervals in bySource.values {
+                let duration = mergedDuration(intervals)
+                if duration > best, duration <= maximumSleepDuration {
+                    best = duration
+                }
+            }
             if best > 0 {
                 totals[day] = best / 60
             }
