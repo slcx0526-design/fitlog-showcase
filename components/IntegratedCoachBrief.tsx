@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import type { HealthMetricInsight } from "@/lib/healthInsights";
 import { useToday } from "@/lib/hooks";
 import { buildIntegratedCoachAnalysis, type IntegratedCoachAnalysis } from "@/lib/integratedCoach";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
@@ -57,6 +58,8 @@ function triggerLabels(locale: Locale, analysis: IntegratedCoachAnalysis) {
   const labels = {
     subjectiveLow: tx(locale, "今日状态", "today's check-in", "今日の状態"),
     sustainedLow: tx(locale, "近 7 天状态", "7-day recovery", "7日間の状態"),
+    healthCaution: tx(locale, "Apple Health 个人基线", "Apple Health personal baseline", "Apple Health 個人基準"),
+    healthLow: tx(locale, "Apple Health 多项基线", "multiple Apple Health baselines", "Apple Health の複数基準"),
     trainingPressure: tx(locale, "训练表现与容量", "training performance and volume", "パフォーマンスとボリューム"),
     fuelGap: tx(locale, "已记录饮食", "logged nutrition", "記録済みの食事"),
     cardioPressure: tx(locale, "近期高强度有氧", "recent high-intensity cardio", "直近の高強度有酸素"),
@@ -73,6 +76,7 @@ function EvidenceRows({ locale, analysis }: { locale: Locale; analysis: Integrat
   const recovery = analysis.recovery.today
     ? tx(locale, `今日 ${analysis.recovery.today.score}，近 7 天 ${analysis.recovery.average7d ?? "—"}；记录 ${analysis.recovery.scoredDays7d} 天。`, `Today ${analysis.recovery.today.score}, 7-day average ${analysis.recovery.average7d ?? "—"}; ${analysis.recovery.scoredDays7d} logged days.`, `今日 ${analysis.recovery.today.score}、7日平均 ${analysis.recovery.average7d ?? "—"}、記録 ${analysis.recovery.scoredDays7d} 日。`)
     : tx(locale, `今日未记录；近 7 天有 ${analysis.recovery.scoredDays7d} 天可评分。`, `No check-in today; ${analysis.recovery.scoredDays7d} scorable days in the last 7.`, `今日は未記録。直近7日で評価可能なのは ${analysis.recovery.scoredDays7d} 日です。`);
+  const health = healthEvidence(locale, analysis);
   const training = tx(locale, `近 7 天 ${analysis.training.load.sessions7d} 次训练；吃力 ${analysis.training.load.hardSessions}/${analysis.training.load.difficultySamples}，持续回落动作 ${analysis.training.recovery.regressingExercises} 个。`, `${analysis.training.load.sessions7d} sessions in 7 days; ${analysis.training.load.hardSessions}/${analysis.training.load.difficultySamples} felt hard and ${analysis.training.recovery.regressingExercises} exercises regressed.`, `直近7日 ${analysis.training.load.sessions7d} 回。きつい ${analysis.training.load.hardSessions}/${analysis.training.load.difficultySamples}、低下種目 ${analysis.training.recovery.regressingExercises}。`);
   const nutrition = analysis.nutrition.calorieTarget == null
     ? tx(locale, "减脂模式未提供热量目标，饮食不会被用来判断恢复不足。", "Without an active cut calorie target, nutrition is not used to infer poor recovery.", "減量のカロリー目標がないため、食事から回復不足を推測しません。")
@@ -80,10 +84,63 @@ function EvidenceRows({ locale, analysis }: { locale: Locale; analysis: Integrat
   const cardio = tx(locale, `近 7 天有氧 ${analysis.cardio.minutes7d} 分；近 3 天 Z4–Z5 ${analysis.cardio.highIntensityMinutes3d} 分。`, `${analysis.cardio.minutes7d} cardio minutes in 7 days; ${analysis.cardio.highIntensityMinutes3d} minutes in Z4-Z5 over 3 days.`, `直近7日 有酸素 ${analysis.cardio.minutes7d} 分、直近3日 Z4-Z5 ${analysis.cardio.highIntensityMinutes3d} 分。`);
   return <>{[
     [tx(locale, "状态", "Recovery", "状態"), recovery],
+    [tx(locale, "健康", "Health", "ヘルス"), health],
     [tx(locale, "训练", "Training", "トレーニング"), training],
     [tx(locale, "饮食", "Nutrition", "食事"), nutrition],
     [tx(locale, "有氧", "Cardio", "有酸素"), cardio],
   ].map(([label, detail]) => <div key={label} className="flex gap-2 text-[10px] leading-relaxed"><span className="w-9 shrink-0 font-semibold text-fg">{label}</span><span className="text-muted">{detail}</span></div>)}</>;
+}
+
+function healthEvidence(locale: Locale, analysis: IntegratedCoachAnalysis) {
+  const summary = analysis.health;
+  if (!summary.observationDate) {
+    return tx(locale, "近两天没有可用的 Apple Health 数据，不参与判断。", "No recent Apple Health data is available, so it is excluded.", "直近2日間に利用可能な Apple Health データがないため、判断から除外します。");
+  }
+  const comparisons = summary.metrics
+    .filter((metric) => metric.current != null)
+    .map((metric) => healthMetricCopy(locale, metric));
+  const status = summary.status === "low"
+    ? tx(locale, "多项偏离", "multiple deviations", "複数項目が乖離")
+    : summary.status === "caution"
+      ? tx(locale, "单项偏离", "one deviation", "単項目が乖離")
+      : summary.status === "stable"
+        ? tx(locale, "处于个人基线附近", "near personal baseline", "個人基準の範囲内")
+        : tx(locale, "基线建立中", "baseline building", "基準を構築中");
+  const prefix = tx(
+    locale,
+    `${summary.baselineDays} 天样本 · ${status}`,
+    `${summary.baselineDays} baseline days · ${status}`,
+    `${summary.baselineDays} 日分・${status}`,
+  );
+  return comparisons.length ? `${prefix}；${comparisons.join(" · ")}` : prefix;
+}
+
+function healthMetricCopy(locale: Locale, metric: HealthMetricInsight) {
+  const current = healthMetricValue(metric.metric, metric.current);
+  const baseline = healthMetricValue(metric.metric, metric.baseline);
+  const state = metric.state === "stable"
+    ? tx(locale, "接近", "near", "近い")
+    : metric.metric === "restingHeartRate"
+      ? tx(locale, "偏高", "above", "高め")
+      : tx(locale, "偏低", "below", "低め");
+  const label = metric.metric === "sleep"
+    ? tx(locale, "睡眠", "sleep", "睡眠")
+    : metric.metric === "heartRateVariability"
+      ? "HRV"
+      : tx(locale, "静息心率", "resting HR", "安静時心拍");
+  return tx(
+    locale,
+    `${label} ${current}，基线 ${baseline}（${state}）`,
+    `${label} ${current}, baseline ${baseline} (${state})`,
+    `${label} ${current}、基準 ${baseline}（${state}）`,
+  );
+}
+
+function healthMetricValue(metric: HealthMetricInsight["metric"], value: number | null) {
+  if (value == null) return "—";
+  if (metric === "sleep") return `${(value / 60).toFixed(1)}h`;
+  if (metric === "heartRateVariability") return `${Math.round(value)}ms`;
+  return `${Math.round(value)}bpm`;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

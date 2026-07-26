@@ -334,7 +334,7 @@ export interface DayLog {
   workout?: WorkoutSession;
   nutrition?: NutritionLog;
   recovery?: RecoveryCheckIn;
-  /** Read-only external facts. Never silently promoted into a recovery score or training decision. */
+  /** Read-only external facts. May support gated advice, but never silently change a score or prescription. */
   health?: HealthDailySummary;
   cardio?: CardioEntry[];
   activityEnergy?: ActivityEnergyEntry[];

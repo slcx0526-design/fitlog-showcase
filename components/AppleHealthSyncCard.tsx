@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
+import { useAppleHealthSync } from "@/lib/appleHealthSync";
 import { formatDisplay } from "@/lib/date";
-import {
-  APPLE_HEALTH_ERROR_EVENT,
-  APPLE_HEALTH_NATIVE_READY_EVENT,
-  APPLE_HEALTH_SNAPSHOT_EVENT,
-  isAppleHealthBridgeAvailable,
-  requestAppleHealthSync,
-} from "@/lib/appleHealthBridge";
+import { buildHealthReadiness, type HealthReadinessSummary } from "@/lib/healthInsights";
+import { useToday } from "@/lib/hooks";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -16,82 +12,23 @@ import { useToast } from "@/lib/toast";
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
 export default function AppleHealthSyncCard() {
-  const { data, importAppleHealthSnapshot } = useStore();
+  const { data } = useStore();
+  const { available, syncing, lastError, startSync } = useAppleHealthSync();
   const { locale } = useI18n();
   const { show } = useToast();
-  const [available, setAvailable] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const today = useToday();
 
   const latest = useMemo(() => Object.values(data.days)
     .filter((day) => Boolean(day.health))
     .sort((left, right) => right.date.localeCompare(left.date))[0], [data.days]);
-
-  useEffect(() => {
-    const detect = () => setAvailable(isAppleHealthBridgeAvailable());
-    const clearSyncTimeout = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    };
-    const onSnapshot = (event: Event) => {
-      try {
-        const detail = (event as CustomEvent<unknown>).detail;
-        const summary = importAppleHealthSnapshot(detail);
-        clearSyncTimeout();
-        setSyncing(false);
-        const changed = summary.importedDays + summary.updatedDays + summary.importedWeights + summary.updatedWeights;
-        show(changed
-          ? tx(
-              locale,
-              `Apple Health 同步完成 · 更新 ${changed} 项`,
-              `Apple Health synced · ${changed} updates`,
-              `Apple Health 同期完了・${changed}件更新`,
-            )
-          : tx(
-              locale,
-              "Apple Health 同步完成 · 没有可读的新数据",
-              "Apple Health synced · no new readable data",
-              "Apple Health 同期完了・読み取れる新規データなし",
-            ));
-      } catch (error) {
-        clearSyncTimeout();
-        setSyncing(false);
-        show(error instanceof Error ? error.message : tx(locale, "Apple Health 数据无法读取", "Apple Health data could not be read", "Apple Health データを読み込めません"));
-      }
-    };
-    const onError = (event: Event) => {
-      clearSyncTimeout();
-      setSyncing(false);
-      const detail = (event as CustomEvent<unknown>).detail;
-      show(typeof detail === "string" && detail
-        ? detail
-        : tx(locale, "Apple Health 同步失败", "Apple Health sync failed", "Apple Health の同期に失敗しました"));
-    };
-    detect();
-    window.addEventListener(APPLE_HEALTH_NATIVE_READY_EVENT, detect);
-    window.addEventListener(APPLE_HEALTH_SNAPSHOT_EVENT, onSnapshot);
-    window.addEventListener(APPLE_HEALTH_ERROR_EVENT, onError);
-    return () => {
-      clearSyncTimeout();
-      window.removeEventListener(APPLE_HEALTH_NATIVE_READY_EVENT, detect);
-      window.removeEventListener(APPLE_HEALTH_SNAPSHOT_EVENT, onSnapshot);
-      window.removeEventListener(APPLE_HEALTH_ERROR_EVENT, onError);
-    };
-  }, [importAppleHealthSnapshot, locale, show]);
+  const readiness = useMemo(() => buildHealthReadiness(data, today), [data, today]);
 
   if (!available) return null;
 
-  const startSync = () => {
-    if (!requestAppleHealthSync(90)) {
+  const handleSync = () => {
+    if (!startSync(90)) {
       show(tx(locale, "原生 HealthKit 桥不可用", "The native HealthKit bridge is unavailable", "ネイティブ HealthKit ブリッジを利用できません"));
-      return;
     }
-    setSyncing(true);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      setSyncing(false);
-      show(tx(locale, "Apple Health 响应超时，请重试", "Apple Health timed out. Try again.", "Apple Health がタイムアウトしました。再試行してください"));
-    }, 30_000);
   };
 
   return (
@@ -109,7 +46,7 @@ export default function AppleHealthSyncCard() {
                 : tx(locale, "同步 Apple Health", "Sync Apple Health", "Apple Health を同期")}
             </p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
-              {tx(locale, "读取最近 90 天的活动、睡眠、心率与体重；只作事实参考，不会自动修改训练处方。", "Reads 90 days of activity, sleep, heart-rate, and weight facts. It never changes prescriptions automatically.", "直近90日の活動・睡眠・心拍・体重を読み込みます。処方は自動変更しません。")}
+              {tx(locale, "首次读取 90 天数据，之后打开原生 App 时自动更新；个人基线只提供建议，不会修改训练处方。", "Reads 90 days first, then refreshes while the native app is open. Personal baselines only inform advice and never alter prescriptions.", "初回は90日分を読み込み、その後はネイティブ App の利用中に自動更新します。個人基準は提案だけに使い、処方を変更しません。")}
             </p>
           </div>
         </div>
@@ -125,6 +62,8 @@ export default function AppleHealthSyncCard() {
           </div>
         )}
 
+        {latest?.health && <ReadinessStrip locale={locale} readiness={readiness} />}
+
         <div className="mt-3 flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-[10px] text-faint">
@@ -138,10 +77,11 @@ export default function AppleHealthSyncCard() {
                 : tx(locale, "首次同步时由系统请求逐项授权", "iOS requests permission for each data type on first sync", "初回同期時にデータ項目ごとの許可を求めます")}
             </p>
             {latest && <p className="mt-0.5 text-[10px] text-faint">{formatDisplay(latest.date, locale)}</p>}
+            {lastError && <p className="mt-0.5 line-clamp-2 text-[10px] text-warn">{lastError}</p>}
           </div>
           <button
             type="button"
-            onClick={startSync}
+            onClick={handleSync}
             disabled={syncing}
             className="choice-chip press h-10 shrink-0 border border-border bg-surface-2 px-3 text-[12px] font-semibold text-fg disabled:opacity-50"
           >
@@ -155,6 +95,35 @@ export default function AppleHealthSyncCard() {
       </div>
     </section>
   );
+}
+
+function ReadinessStrip({ locale, readiness }: { locale: Locale; readiness: HealthReadinessSummary }) {
+  const status = readiness.status === "low"
+    ? tx(locale, "多项偏离", "Multiple deviations", "複数項目が乖離")
+    : readiness.status === "caution"
+      ? tx(locale, "单项偏离", "One deviation", "単項目が乖離")
+      : readiness.status === "stable"
+        ? tx(locale, "基线附近", "Near baseline", "基準範囲内")
+        : tx(locale, "建立中", "Building", "構築中");
+  const tone = readiness.status === "low" || readiness.status === "caution"
+    ? "text-warn"
+    : readiness.status === "stable"
+      ? "text-accent"
+      : "text-muted";
+  return <div className="control-strip mt-2 flex items-center gap-3 rounded-xl px-3 py-2">
+    <div className="min-w-0 flex-1">
+      <p className="text-[10px] font-semibold text-fg">{tx(locale, "个人恢复基线", "Personal recovery baseline", "個人回復基準")}</p>
+      <p className="mt-0.5 text-[9px] text-faint">
+        {tx(
+          locale,
+          `${readiness.baselineDays} 天样本 · ${readiness.qualifiedSignals}/3 项可判断`,
+          `${readiness.baselineDays} days · ${readiness.qualifiedSignals}/3 signals qualified`,
+          `${readiness.baselineDays} 日分・${readiness.qualifiedSignals}/3 項目`,
+        )}
+      </p>
+    </div>
+    <span className={"shrink-0 text-[10px] font-semibold " + tone}>{status}</span>
+  </div>;
 }
 
 function HealthMetric({ label, value }: { label: string; value: string }) {

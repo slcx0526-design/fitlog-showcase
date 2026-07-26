@@ -16,6 +16,9 @@ export default function RecoveryCheckInCard({ date }: { date: string }) {
   const { locale } = useI18n();
   const toast = useToast();
   const current = data.days[date]?.recovery;
+  const importedSleepHours = data.days[date]?.health?.sleepMinutes == null
+    ? null
+    : Math.round((data.days[date].health!.sleepMinutes! / 60) * 10) / 10;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<RecoveryCheckIn>(current ?? {});
 
@@ -52,7 +55,7 @@ export default function RecoveryCheckInCard({ date }: { date: string }) {
       <svg className={"shrink-0 text-faint transition-transform " + (open ? "rotate-180" : "")} width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
     </button>
     {open && <div className="soft-divider animate-slidedown border-t px-3.5 py-3">
-      <label className="block"><span className="mb-1 block text-[11px] font-medium text-faint">{tx(locale, "睡眠时长 · 小时（可选）", "Sleep duration · hours (optional)", "睡眠時間・時間（任意）")}</span><NumberField value={draft.sleepHours ?? 0} onChange={(value) => patch("sleepHours", value > 0 ? value : undefined)} allowDecimal ariaLabel={tx(locale, "睡眠时长", "Sleep duration", "睡眠時間")} placeholder="0.0" className="number-cell tnum h-10 w-full rounded-xl border border-border bg-surface-2 px-3 text-center text-[15px] font-semibold text-fg outline-none focus:border-accent" /></label>
+      <div className="block"><div className="mb-1 flex flex-wrap items-center justify-between gap-1 text-[11px] font-medium text-faint"><span>{tx(locale, "睡眠时长 · 小时（可选）", "Sleep duration · hours (optional)", "睡眠時間・時間（任意）")}</span>{importedSleepHours != null && <button type="button" onClick={() => patch("sleepHours", importedSleepHours)} className="press text-[10px] font-semibold text-accent">{tx(locale, `采用 Health ${importedSleepHours}h`, `Use Health ${importedSleepHours}h`, `Health ${importedSleepHours}h を使用`)}</button>}</div><NumberField value={draft.sleepHours ?? 0} onChange={(value) => patch("sleepHours", value > 0 ? value : undefined)} allowDecimal ariaLabel={tx(locale, "睡眠时长", "Sleep duration", "睡眠時間")} placeholder="0.0" className="number-cell tnum h-10 w-full rounded-xl border border-border bg-surface-2 px-3 text-center text-[15px] font-semibold text-fg outline-none focus:border-accent" /></div>
       <div className="mt-3 space-y-3">
         <RatingRow locale={locale} label={tx(locale, "睡眠质量", "Sleep quality", "睡眠の質")} low={tx(locale, "差", "Poor", "低い")} high={tx(locale, "好", "Good", "良い")} value={draft.sleepQuality} onChange={(value) => patch("sleepQuality", value)} />
         <RatingRow locale={locale} label={tx(locale, "精力", "Energy", "活力")} low={tx(locale, "低", "Low", "低い")} high={tx(locale, "充足", "High", "高い")} value={draft.energy} onChange={(value) => patch("energy", value)} />

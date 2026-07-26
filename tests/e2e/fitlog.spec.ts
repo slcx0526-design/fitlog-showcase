@@ -277,3 +277,115 @@ test("native Apple Health bridge imports facts without replacing manual weight",
   });
   expect(stored.healthSync.provider).toBe("appleHealth");
 });
+
+test("authorized native host refreshes stale Apple Health data automatically", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+      healthSync: {
+        provider: "appleHealth",
+        lastSyncedAt: "2020-01-01T00:00:00.000Z",
+        importedDays: 1,
+        importedWeights: 0,
+      },
+    }));
+    const hostWindow = window as Window & { fitlogHealthRequests?: unknown[] };
+    hostWindow.fitlogHealthRequests = [];
+    Object.defineProperty(window, "fitlogNative", {
+      value: { platform: "ios", healthKit: true, bridgeVersion: 1 },
+      configurable: true,
+    });
+    Object.defineProperty(window, "webkit", {
+      value: {
+        messageHandlers: {
+          fitlogHealth: {
+            postMessage: (message: unknown) => {
+              hostWindow.fitlogHealthRequests!.push(message);
+              window.setTimeout(() => window.dispatchEvent(new CustomEvent("fitlog:health-snapshot", {
+                detail: {
+                  schemaVersion: 1,
+                  generatedAt: "2026-07-26T09:30:00.000Z",
+                  rangeStart: "2026-07-13",
+                  rangeEnd: "2026-07-26",
+                  days: [{ date: "2026-07-26", steps: 8800, sleepMinutes: 440 }],
+                  bodyWeights: [],
+                },
+              })), 10);
+            },
+          },
+        },
+      },
+      configurable: true,
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { fitlogHealthRequests?: unknown[] }
+  ).fitlogHealthRequests?.length ?? 0)).toBe(1);
+  const request = await page.evaluate(() => (
+    window as Window & { fitlogHealthRequests?: { days?: number }[] }
+  ).fitlogHealthRequests?.[0]);
+  expect(request?.days).toBe(14);
+  await expect.poll(() => page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return stored.days?.["2026-07-26"]?.health?.steps;
+  })).toBe(8800);
+});
+
+test("personal health baselines explain conservative training without editing the plan", async ({ page }) => {
+  await page.addInitScript(() => {
+    const dateKey = (date: Date) => (
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+    );
+    const todayDate = new Date();
+    const today = dateKey(todayDate);
+    const days: Record<string, unknown> = {};
+    for (let offset = 1; offset <= 20; offset += 1) {
+      const date = new Date(todayDate);
+      date.setDate(date.getDate() - offset);
+      const key = dateKey(date);
+      days[key] = {
+        date: key,
+        health: {
+          source: "appleHealth",
+          sleepMinutes: 450,
+          heartRateVariabilityMs: 60,
+          restingHeartRate: 55,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }
+    days[today] = {
+      date: today,
+      health: {
+        source: "appleHealth",
+        sleepMinutes: 300,
+        heartRateVariabilityMs: 38,
+        restingHeartRate: 67,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days,
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "今天保守推进" })).toBeVisible();
+  await page.getByRole("button", { name: "判断依据" }).click();
+  await expect(page.getByText(/20 天样本 · 多项偏离/)).toBeVisible();
+  await page.getByRole("button", { name: /恢复状态/ }).click();
+  await page.getByRole("button", { name: "采用 Health 5h" }).click();
+  await expect(page.getByRole("textbox", { name: "睡眠时长" })).toHaveValue("5");
+});

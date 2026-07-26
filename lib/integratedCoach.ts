@@ -3,6 +3,7 @@ import { cardioMinutes } from "./cardio";
 import { resolveCutEnergyPlan } from "./cut";
 import { buildCutCoachReview, type CutCoachState } from "./cutCoach";
 import { isCutModeActive } from "./cutMode";
+import { buildHealthReadiness, type HealthReadinessSummary } from "./healthInsights";
 import { summarizeRecovery, type RecoverySummary } from "./recovery";
 import { buildTrainingAnalysis, type TrainingAnalysis } from "./trainingAnalysis";
 import { shiftDate } from "./weight";
@@ -13,6 +14,8 @@ export type IntegratedCoachTrigger =
   | "subjectiveLow"
   | "sustainedLow"
   | "trainingPressure"
+  | "healthCaution"
+  | "healthLow"
   | "fuelGap"
   | "cardioPressure"
   | "cutTooFast";
@@ -38,6 +41,7 @@ export interface IntegratedCoachAnalysis {
   primaryAction: "logRecovery" | "trainAsPlanned" | "trainConservatively" | "takeRecovery";
   triggers: IntegratedCoachTrigger[];
   recovery: RecoverySummary;
+  health: HealthReadinessSummary;
   training: TrainingAnalysis;
   nutrition: IntegratedNutritionSummary;
   cardio: IntegratedCardioSummary;
@@ -97,6 +101,7 @@ function cardioSummary(data: AppData, today: string): IntegratedCardioSummary {
 
 export function buildIntegratedCoachAnalysis(data: AppData, today: string): IntegratedCoachAnalysis {
   const recovery = summarizeRecovery(data.days, today);
+  const health = buildHealthReadiness(data, today);
   const training = buildTrainingAnalysis(data, today);
   const nutrition = nutritionSummary(data, today);
   const cardio = cardioSummary(data, today);
@@ -108,6 +113,9 @@ export function buildIntegratedCoachAnalysis(data: AppData, today: string): Inte
 
   const subjectiveLow = Boolean(recovery.today && recovery.today.signalCount >= 2 && recovery.today.score < 50);
   const sustainedLow = recovery.sustainedLow;
+  const healthCaution = health.status === "caution";
+  const healthLow = health.status === "low";
+  const healthPressure = healthCaution || healthLow;
   const trainingPressure = training.recovery.active;
   const fuelGap = nutrition.calorieTarget != null && nutrition.loggedDays7d >= 3 && nutrition.lowEnergyDays7d >= 2;
   const cardioPressure = cardio.highIntensityMinutes3d >= 45 && training.load.sessions7d >= 4;
@@ -115,16 +123,19 @@ export function buildIntegratedCoachAnalysis(data: AppData, today: string): Inte
   const triggers: IntegratedCoachTrigger[] = [
     ...(subjectiveLow ? ["subjectiveLow" as const] : []),
     ...(sustainedLow ? ["sustainedLow" as const] : []),
+    ...(healthCaution ? ["healthCaution" as const] : []),
+    ...(healthLow ? ["healthLow" as const] : []),
     ...(trainingPressure ? ["trainingPressure" as const] : []),
     ...(fuelGap ? ["fuelGap" as const] : []),
     ...(cardioPressure ? ["cardioPressure" as const] : []),
     ...(cutTooFast ? ["cutTooFast" as const] : []),
   ];
-  const corroboratingPressure = Number(trainingPressure) + Number(fuelGap) + Number(cardioPressure) + Number(cutTooFast);
+  const corroboratingPressure = Number(healthPressure) + Number(trainingPressure) + Number(fuelGap) + Number(cardioPressure) + Number(cutTooFast);
 
   let status: IntegratedCoachStatus;
   if ((subjectiveLow || sustainedLow) && corroboratingPressure > 0) status = "recover";
-  else if (trainingPressure && (fuelGap || cardioPressure || cutTooFast)) status = "recover";
+  else if (trainingPressure && (healthPressure || fuelGap || cardioPressure || cutTooFast)) status = "recover";
+  else if (healthLow && (fuelGap || cardioPressure || cutTooFast)) status = "recover";
   else if (triggers.length) status = "caution";
   else if (!recovery.today && training.confidence === "starter") status = "collect";
   else status = "ready";
@@ -132,6 +143,8 @@ export function buildIntegratedCoachAnalysis(data: AppData, today: string): Inte
   let evidencePoints = 0;
   if (recovery.today?.signalCount) evidencePoints += 1;
   if (recovery.scoredDays7d >= 3) evidencePoints += 1;
+  if (health.confidence === "building") evidencePoints += 1;
+  if (health.confidence === "ready") evidencePoints += 2;
   if (training.load.sessions28d >= 2) evidencePoints += 1;
   if (training.load.sessions28d >= 6) evidencePoints += 1;
   if (cutActive && nutrition.loggedDays7d >= 3) evidencePoints += 1;
@@ -145,5 +158,5 @@ export function buildIntegratedCoachAnalysis(data: AppData, today: string): Inte
         ? "trainAsPlanned"
         : "logRecovery";
 
-  return { status, confidence, primaryAction, triggers, recovery, training, nutrition, cardio, cutState };
+  return { status, confidence, primaryAction, triggers, recovery, health, training, nutrition, cardio, cutState };
 }
