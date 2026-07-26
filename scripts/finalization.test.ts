@@ -165,6 +165,42 @@ assert.equal(merged.summary.importedDays, 1);
 assert.equal(merged.summary.importedBodyWeights, 1);
 assert.ok(merged.summary.conflicts >= 2);
 
+const partialDayMerge = mergeAppData({
+  ...emptyData(),
+  days: {
+    "2026-07-23": {
+      date: "2026-07-23",
+      recovery: { energy: 3, at: "2026-07-23T08:00:00.000Z" },
+      health: {
+        source: "appleHealth",
+        steps: 9000,
+        updatedAt: "2026-07-23T08:00:00.000Z",
+      },
+    },
+  },
+}, {
+  ...emptyData(),
+  days: {
+    "2026-07-23": {
+      date: "2026-07-23",
+      recovery: { sleepHours: 7.5, energy: 4, at: "2026-07-23T09:00:00.000Z" },
+      health: {
+        source: "appleHealth",
+        steps: 8500,
+        sleepMinutes: 450,
+        heartRateVariabilityMs: 62,
+        updatedAt: "2026-07-23T09:00:00.000Z",
+      },
+    },
+  },
+});
+assert.equal(partialDayMerge.data.days["2026-07-23"].health?.steps, 9000, "Current metric wins a direct conflict");
+assert.equal(partialDayMerge.data.days["2026-07-23"].health?.sleepMinutes, 450, "Missing Health fields merge independently");
+assert.equal(partialDayMerge.data.days["2026-07-23"].health?.heartRateVariabilityMs, 62);
+assert.equal(partialDayMerge.data.days["2026-07-23"].recovery?.energy, 3);
+assert.equal(partialDayMerge.data.days["2026-07-23"].recovery?.sleepHours, 7.5, "Missing recovery fields merge independently");
+assert.ok(partialDayMerge.summary.conflicts >= 2);
+
 const profileOnlyCurrent: AppData = {
   ...emptyData(),
   profile: { heightCm: 180, trainingLevel: "intermediate" },

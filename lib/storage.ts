@@ -38,7 +38,7 @@ import { hasSetPerformance } from "./trainingMetrics";
 
 export type { AppData } from "./types";
 
-const KEY = "fitlog:v1";
+export const STORAGE_KEY = "fitlog:v1";
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
 export const SCHEMA_VERSION = 16;
 
@@ -315,7 +315,7 @@ export function emptyData(): AppData { return { days: {}, bodyWeights: [], waist
 export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     const data = raw ? normalizeData(JSON.parse(raw)) : emptyData();
     let legacyFavorites: string[] = [];
     try {
@@ -331,7 +331,7 @@ export function loadData(): AppData {
 export function saveData(data: AppData): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(data));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
   }
   catch (error) { console.warn("保存失败：", error); }
@@ -401,9 +401,13 @@ export function normalizeData(input: unknown): AppData {
           ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
           ...(typeof workout.microcycleId === "string" ? { microcycleId: workout.microcycleId } : {}),
           ...(typeof workout.microcycleStepId === "string" ? { microcycleStepId: workout.microcycleStepId } : {}),
-          ...(typeof workout.done === "boolean" ? { done: workout.done } : {}),
+          ...(type === "rest"
+            ? { done: true }
+            : typeof workout.done === "boolean"
+              ? { done: workout.done }
+              : {}),
           ...(workout.difficulty === "easy" || workout.difficulty === "onTarget" || workout.difficulty === "hard" ? { difficulty: workout.difficulty } : {}),
-          ...(workout.done !== false && typeof workout.completedAt === "string" ? { completedAt: workout.completedAt } : {}),
+          ...((type === "rest" || workout.done !== false) && typeof workout.completedAt === "string" ? { completedAt: workout.completedAt } : {}),
           ...(typeof workout.mesocycleId === "string" && workout.mesocycleId ? { mesocycleId: workout.mesocycleId } : {}),
           ...(typeof workout.mesocycleCycleNumber === "number" && Number.isFinite(workout.mesocycleCycleNumber) ? { mesocycleCycleNumber: Math.max(1, Math.round(workout.mesocycleCycleNumber)) } : {}),
           ...(workout.cyclePhase === "build" || workout.cyclePhase === "deload" ? { cyclePhase: workout.cyclePhase } : {}),

@@ -60,6 +60,21 @@ assert.equal(singleSignal.status, "caution", "One objective anomaly may warn but
 assert.equal(singleSignal.confidence, "low");
 assert.equal(singleSignal.suggestedAdjustment, "conservative");
 
+const readinessPlusSteps = emptyData();
+for (let offset = 1; offset <= 14; offset += 1) {
+  const date = shiftDate(TODAY, -offset);
+  readinessPlusSteps.days[date] = {
+    date,
+    health: offset <= 7
+      ? health(450, 60, 55)
+      : { source: "appleHealth", steps: 8000, updatedAt },
+  };
+}
+readinessPlusSteps.days[TODAY] = { date: TODAY, health: health(455, 62, 54) };
+const building = buildHealthReadiness(readinessPlusSteps, TODAY);
+assert.equal(building.baselineDays, 7, "Steps-only days must not inflate the readiness baseline");
+assert.equal(building.confidence, "building", "Seven readiness samples are not enough for ready confidence");
+
 const stale = emptyData();
 const staleDate = shiftDate(TODAY, -2);
 stale.days[staleDate] = { date: staleDate, health: health(300, 30, 70) };

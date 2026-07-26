@@ -1,4 +1,5 @@
-import type { Template, TrainingType } from "./types";
+import { normalizeTemplateItemPrescription } from "./prescription";
+import type { ExercisePreset, RecordMode, Template, TrainingType } from "./types";
 
 // ============================================================
 // 训练模板（B 层）：自由命名 + 归属类型（推/拉/腿）的模板列表。
@@ -40,4 +41,52 @@ export function moveTemplateWithinType(list: Template[], id: string, direction: 
   const next = [...list];
   [next[sourceIndex], next[targetIndex]] = [next[targetIndex], next[sourceIndex]];
   return next;
+}
+
+const recordModesEqual = (left: RecordMode[] | undefined, right: RecordMode[] | undefined) => (
+  JSON.stringify(left ?? ["weight", "reps"]) === JSON.stringify(right ?? ["weight", "reps"])
+);
+
+/** Keep future template snapshots aligned when a custom library entry is edited. */
+export function updateCustomExerciseTemplateReferences(
+  templates: Template[] | undefined,
+  preset: ExercisePreset,
+): Template[] | undefined {
+  if (!templates) return templates;
+  let changed = false;
+  const next = templates.map((template) => {
+    let itemsChanged = false;
+    const items = template.items.map((item) => {
+      if (item.exerciseId !== preset.id) return item;
+      itemsChanged = true;
+      changed = true;
+      const modeChanged = !recordModesEqual(item.recordModes, preset.recordModes);
+      const mode = preset.recordModes?.includes("duration")
+        ? "duration"
+        : preset.recordModes?.includes("distance")
+          ? "distance"
+          : "reps";
+      return normalizeTemplateItemPrescription({
+        ...item,
+        name: preset.name,
+        isMain: preset.isMain,
+        primaryMuscle: preset.primaryMuscle,
+        secondaryMuscles: preset.secondaryMuscles,
+        volumeContributions: preset.volumeContributions,
+        equipment: preset.equipment,
+        movementPattern: preset.movementPattern,
+        alternatives: preset.alternatives,
+        recordModes: preset.recordModes,
+        ...(modeChanged ? {
+          repsLow: mode === "duration" ? 30 : mode === "distance" ? 20 : 8,
+          repsHigh: mode === "duration" ? 60 : mode === "distance" ? 50 : 12,
+          prescription: undefined,
+          progressionTrackId: undefined,
+          progressionTrackLabel: undefined,
+        } : {}),
+      }, preset);
+    });
+    return itemsChanged ? { ...template, items } : template;
+  });
+  return changed ? next : templates;
 }

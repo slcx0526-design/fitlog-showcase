@@ -145,7 +145,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
   const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
-  const activeSession = Boolean(todayWorkout?.type !== "rest" && todaySets > 0 && todayWorkout?.done === false);
+  const activeSession = Boolean(todayWorkout?.type !== "rest" && todayWorkout?.done === false);
 
   if (context === "review" && activeSession) {
     actions.push({ kind: "continueSession", priority: 120, href: "/train", setCount: todaySets });

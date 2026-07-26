@@ -44,10 +44,15 @@ import {
   normalizeData,
   parseBackup,
   saveData,
+  STORAGE_KEY,
 } from "./storage";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { todayKey } from "./date";
-import { MAX_TEMPLATES_PER_TYPE, moveTemplateWithinType } from "./templates";
+import {
+  MAX_TEMPLATES_PER_TYPE,
+  moveTemplateWithinType,
+  updateCustomExerciseTemplateReferences,
+} from "./templates";
 import { currentCutSnapshot, cutSetPlan, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
 import {
   advanceTrainingCycle,
@@ -219,6 +224,13 @@ function workoutCycleContext(microcycle: MicrocycleState, microcycleId: string):
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [data, setData] = useState<AppData>(emptyData);
+  const firstRun = useRef(true);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
+  const pendingLocalWriteRef = useRef(false);
+  const remoteDataRef = useRef<AppData | null>(null);
 
   // 仅客户端：挂载后读取本地数据
   useEffect(() => {
@@ -230,9 +242,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 避免多标签同时打开时谁后保存谁覆盖的静默丢失
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key !== "fitlog:v1" || e.newValue === null) return;
+      if (e.key !== STORAGE_KEY || e.newValue === null || !loadedRef.current) return;
       try {
-        setData(loadData());
+        const incoming = normalizeData(JSON.parse(e.newValue));
+        if (pendingLocalWriteRef.current) {
+          setData((current) => mergeAppData(current, incoming).data);
+          return;
+        }
+        remoteDataRef.current = incoming;
+        dataRef.current = incoming;
+        setData(incoming);
       } catch {
         /* ignore */
       }
@@ -242,26 +261,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // 写穿透：data 变化后防抖落盘（避免输入时频繁写）
-  const firstRun = useRef(true);
-  const dataRef = useRef(data);
-  dataRef.current = data;
-  const loadedRef = useRef(loaded);
-  loadedRef.current = loaded;
-
   useEffect(() => {
     if (!loaded) return;
     if (firstRun.current) {
       firstRun.current = false;
       return;
     }
-    const t = setTimeout(() => saveData(data), 120);
+    if (remoteDataRef.current === data) {
+      remoteDataRef.current = null;
+      return;
+    }
+    remoteDataRef.current = null;
+    pendingLocalWriteRef.current = true;
+    const t = setTimeout(() => {
+      saveData(data);
+      pendingLocalWriteRef.current = false;
+    }, 120);
     return () => clearTimeout(t);
   }, [data, loaded]);
 
   // 切后台 / 关闭页面时立即落盘，堵住"改完立刻锁屏，120ms 防抖没触发"的丢失
   useEffect(() => {
     const flush = () => {
-      if (loadedRef.current) saveData(dataRef.current);
+      if (loadedRef.current) {
+        saveData(dataRef.current);
+        pendingLocalWriteRef.current = false;
+      }
     };
     const onVis = () => {
       if (document.visibilityState === "hidden") flush();
@@ -373,6 +398,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (type === "rest" && w.type !== "rest" && w.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) {
           return prev;
         }
+        const sameType = w.type === type;
+        const completedAt = type === "rest"
+          ? sameType
+            ? w.completedAt ?? new Date().toISOString()
+            : new Date().toISOString()
+          : sameType && w.done === true
+            ? w.completedAt
+            : undefined;
         const nextData: AppData = {
           ...prev,
           microcycle,
@@ -390,7 +423,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 templateSnapshot: w.type === type ? w.templateSnapshot : undefined,
                 microcycleId: w.microcycleId ?? assignment.microcycleId,
                 microcycleStepId: requestedStep?.id ?? (w.type === type ? w.microcycleStepId : undefined),
-                ...(w.type === type ? {} : { done: false, completedAt: undefined }),
+                done: type === "rest" ? true : sameType ? (w.done ?? false) : false,
+                completedAt,
               },
             },
           },
@@ -1038,46 +1072,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               }
             : e
         );
-        // 自定义动作的记录方式属于未来处方，模板引用需要一起更新。
-        let templates = prev.templates;
-        if (templates) {
-          let changed = false;
-          const next = templates.map((t) => {
-            let itemsChanged = false;
-            const items = t.items.map((it) => {
-              if (it.exerciseId === id) {
-                const mode = recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps";
-                const modeChanged = JSON.stringify(it.recordModes ?? ["weight", "reps"]) !== JSON.stringify(recordModes ?? ["weight", "reps"]);
-                if (it.name === name && !modeChanged) return it;
-                itemsChanged = true;
-                return normalizeTemplateItemPrescription({
-                  ...it,
-                  name,
-                  isMain: false,
-                  primaryMuscle: patch.primaryMuscle,
-                  secondaryMuscles,
-                  volumeContributions,
-                  equipment: patch.equipment,
-                  recordModes,
-                  ...(modeChanged ? {
-                    repsLow: mode === "duration" ? 30 : mode === "distance" ? 20 : 8,
-                    repsHigh: mode === "duration" ? 60 : mode === "distance" ? 50 : 12,
-                    prescription: undefined,
-                    progressionTrackId: undefined,
-                    progressionTrackLabel: undefined,
-                  } : {}),
-                }, customExercises.find((exercise) => exercise.id === id));
-              }
-              return it;
-            });
-            if (itemsChanged) {
-              changed = true;
-              return { ...t, items };
-            }
-            return t;
-          });
-          if (changed) templates = next;
-        }
+        const updatedPreset = customExercises.find((exercise) => exercise.id === id);
+        const templates = updatedPreset
+          ? updateCustomExerciseTemplateReferences(prev.templates, updatedPreset)
+          : prev.templates;
         const nextData = { ...prev, customExercises, templates };
         return {
           ...nextData,

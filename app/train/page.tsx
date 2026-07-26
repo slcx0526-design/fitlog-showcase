@@ -10,7 +10,6 @@ import { formatDisplay, validPastOrToday } from "@/lib/date";
 import { dateKeyWeekdayIndex, getScheduledType } from "@/lib/schedule";
 import { usePersona } from "@/lib/copy";
 import { localeText, useI18n } from "@/lib/i18n";
-import { workingSets } from "@/lib/trainingMetrics";
 import { requiresCycleReviewBeforeWorkout } from "@/lib/cyclePlanning";
 import type { TrainingType } from "@/lib/types";
 import TrainingModuleStable from "@/components/TrainingModuleStable";
@@ -39,9 +38,8 @@ function TrainInner() {
   const date = paramDate ?? today;
   const isPast = !!paramDate && paramDate !== today;
   const workout = getDay(date)?.workout;
-  const workingCount = workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
   const done = workout?.done ?? false;
-  const isActive = !!workout?.type && workout.type !== "rest" && workingCount > 0 && !done;
+  const isActive = !!workout?.type && workout.type !== "rest" && workout.done === false;
   const scheduled = getScheduledType(data.schedule, dateKeyWeekdayIndex(today));
   const requested = params.get("start");
   const requestedType = !isPast && requested && START_TYPES.includes(requested as TrainingType) ? requested as TrainingType : null;

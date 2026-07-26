@@ -69,6 +69,15 @@ const activeDecision = buildTrainingDecision(app({ [TODAY]: active }), TODAY, "r
 assert.equal(activeDecision.actions[0].kind, "continueSession");
 assert.equal(activeDecision.confidence, "starter");
 
+const zeroSetDraft: DayLog = {
+  date: TODAY,
+  workout: { type: "push", done: false, microcycleId: "mc_1", exercises: [] },
+};
+const zeroSetDecision = buildTrainingDecision(app({ [TODAY]: zeroSetDraft }), TODAY, "review");
+assert.equal(zeroSetDecision.actions[0].kind, "continueSession");
+assert.equal(zeroSetDecision.actions[0].kind === "continueSession" ? zeroSetDecision.actions[0].setCount : -1, 0);
+assert.deepEqual(zeroSetDecision.actions.map((action) => action.kind), ["continueSession"], "A selected workout draft must suppress plan-changing advice");
+
 const activeWithHighHistory = buildTrainingDecision(app({
   "2026-07-10": bench("2026-07-10", 18),
   [TODAY]: active,

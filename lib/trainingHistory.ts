@@ -73,7 +73,7 @@ export function workoutLogState(
 ): WorkoutLogState | null {
   if (!workout) return null;
   const hasWork = workout.exercises.some((exercise) => workingSets(exercise.sets).length > 0);
-  if (workout.type === "rest" && !hasWork) return "rest";
+  if (workout.type === "rest" && !hasWork) return workout.done === false ? "draft" : "rest";
   if (workout.done === true && hasWork) return "completed";
   if (workout.done === false) {
     if (!hasWork) return "draft";
@@ -87,7 +87,7 @@ export function dayHasLogContent(day: DayLog | undefined) {
   const workout = day.workout;
   const hasWorkout = Boolean(
     workout && (
-      workout.type === "rest"
+      (workout.type === "rest" && workout.done !== false)
       || workout.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))
     )
   );

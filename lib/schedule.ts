@@ -34,7 +34,7 @@ export function getScheduledType(
 export function isDayTrained(day: DayLog | undefined): boolean {
   const wk = day?.workout;
   if (!wk) return false;
-  if (wk.type === "rest") return true;
+  if (wk.type === "rest") return wk.done !== false;
   return wk.exercises.some((exercise) => workingSets(exercise.sets).length > 0);
 }
 

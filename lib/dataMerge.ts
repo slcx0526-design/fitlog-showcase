@@ -1,4 +1,4 @@
-import type { AppData, DayLog } from "./types";
+import type { AppData, DayLog, HealthDailySummary, RecoveryCheckIn } from "./types";
 import { defaultSchedule, normalizeData, toBackup } from "./storage";
 import { dayHasLogContent } from "./trainingHistory";
 
@@ -96,14 +96,65 @@ function mergeEntriesById<T extends { id: string }>(
   return { entries: result, imported };
 }
 
+function mergeRecovery(
+  current: RecoveryCheckIn | undefined,
+  incoming: RecoveryCheckIn | undefined,
+  summary: DataMergeSummary,
+) {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  const next = { ...current };
+  const fields: (keyof Omit<RecoveryCheckIn, "at">)[] = [
+    "sleepHours",
+    "sleepQuality",
+    "energy",
+    "soreness",
+    "stress",
+  ];
+  for (const field of fields) {
+    if (next[field] == null && incoming[field] != null) {
+      (next as Record<string, unknown>)[field] = incoming[field];
+    }
+    else if (incoming[field] != null && !same(next[field], incoming[field])) summary.conflicts += 1;
+  }
+  if (!next.at && incoming.at) next.at = incoming.at;
+  return next;
+}
+
+function mergeHealth(
+  current: HealthDailySummary | undefined,
+  incoming: HealthDailySummary | undefined,
+  summary: DataMergeSummary,
+) {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  const next = { ...current };
+  const fields: (keyof Omit<HealthDailySummary, "source" | "updatedAt">)[] = [
+    "steps",
+    "activeEnergyKcal",
+    "exerciseMinutes",
+    "restingHeartRate",
+    "heartRateVariabilityMs",
+    "sleepMinutes",
+  ];
+  for (const field of fields) {
+    if (next[field] == null && incoming[field] != null) next[field] = incoming[field];
+    else if (incoming[field] != null && !same(next[field], incoming[field])) summary.conflicts += 1;
+  }
+  if (Date.parse(incoming.updatedAt) > Date.parse(next.updatedAt)) next.updatedAt = incoming.updatedAt;
+  return next;
+}
+
 function mergeDay(current: DayLog, incoming: DayLog, summary: DataMergeSummary) {
   let next = current;
   const workoutMissing = !current.workout && Boolean(incoming.workout);
   next = mergeOptionalField(next, incoming, "workout", summary);
   if (workoutMissing) summary.importedWorkouts += 1;
   next = mergeOptionalField(next, incoming, "nutrition", summary);
-  next = mergeOptionalField(next, incoming, "recovery", summary);
-  next = mergeOptionalField(next, incoming, "health", summary);
+  const recovery = mergeRecovery(current.recovery, incoming.recovery, summary);
+  if (!same(recovery, current.recovery)) next = { ...next, recovery };
+  const health = mergeHealth(current.health, incoming.health, summary);
+  if (!same(health, current.health)) next = { ...next, health };
   const cardio = mergeEntriesById(current.cardio, incoming.cardio, summary);
   if (cardio.imported) {
     summary.importedCardio += cardio.imported;
@@ -200,7 +251,10 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
       + Object.keys(imported.trainingPreferences ?? {}).length
       + Object.keys(imported.onboarding ?? {}).length
       + Object.keys(imported.healthSync ?? {}).length
-      + (same(imported.schedule, defaultSchedule()) ? 0 : 1);
+      + (same(imported.schedule, defaultSchedule()) ? 0 : 1)
+      + (imported.microcycle ? 1 : 0)
+      + (imported.mesocycle ? 1 : 0)
+      + (imported.lastCycleReview ? 1 : 0);
     return { data: imported, summary };
   }
 
@@ -227,6 +281,9 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
   const favoriteExerciseIds = [...new Set([...(current.favoriteExerciseIds ?? []), ...(incoming.favoriteExerciseIds ?? [])])];
   summary.importedSettings += favoriteExerciseIds.filter((id) => !currentFavorites.has(id)).length;
   if (!same(current.schedule, incoming.schedule)) summary.conflicts += 1;
+  if (current.microcycle && incoming.microcycle && !same(current.microcycle, incoming.microcycle)) summary.conflicts += 1;
+  if (current.mesocycle && incoming.mesocycle && !same(current.mesocycle, incoming.mesocycle)) summary.conflicts += 1;
+  if (current.lastCycleReview && incoming.lastCycleReview && !same(current.lastCycleReview, incoming.lastCycleReview)) summary.conflicts += 1;
 
   const data = normalizeData({
     ...current,

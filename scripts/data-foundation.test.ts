@@ -5,7 +5,7 @@ import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
 import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
-import { moveTemplateWithinType } from "../lib/templates";
+import { moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
 import {
   setCompletionCredit,
   setStimulusFactor,
@@ -14,7 +14,7 @@ import {
   summarizeWorkoutWork,
   workingSets,
 } from "../lib/trainingMetrics";
-import type { Exercise, SetRecord } from "../lib/types";
+import type { Exercise, ExercisePreset, SetRecord, Template } from "../lib/types";
 
 const sets: SetRecord[] = [
   { weight: 80, reps: 8, type: "working", completion: "completed" },
@@ -129,6 +129,49 @@ const missingLoadProgression = progressionSuggestion({
 });
 assert.equal(missingLoadProgression.status, "missingLoad");
 assert.equal(missingLoadProgression.nextWeight, null, "Missing load data must never become a load recommendation");
+
+const customPreset: ExercisePreset = {
+  id: "cx_custom_press",
+  name: "自定义推举",
+  type: "custom",
+  isMain: false,
+  primaryMuscle: "frontDelt",
+  secondaryMuscles: ["triceps"],
+  volumeContributions: [
+    { muscle: "frontDelt", weight: 1, direct: true },
+    { muscle: "triceps", weight: 0.3, direct: false },
+  ],
+  equipment: "cable",
+  recordModes: ["weight", "reps"],
+  custom: true,
+};
+const customReferenceTemplate: Template = {
+  id: "tpl_custom",
+  name: "自定义模板",
+  type: "push",
+  items: [{
+    exerciseId: customPreset.id,
+    name: "旧名称",
+    sets: 3,
+    repsLow: 8,
+    repsHigh: 12,
+    primaryMuscle: "chest",
+    equipment: "free",
+    recordModes: ["weight", "reps"],
+  }],
+};
+const syncedCustomTemplate = updateCustomExerciseTemplateReferences([customReferenceTemplate], customPreset)![0].items[0];
+assert.equal(syncedCustomTemplate.name, customPreset.name);
+assert.equal(syncedCustomTemplate.primaryMuscle, "frontDelt");
+assert.equal(syncedCustomTemplate.equipment, "cable");
+assert.equal(syncedCustomTemplate.volumeContributions?.find((item) => item.muscle === "triceps")?.weight, 0.3);
+const durationCustomTemplate = updateCustomExerciseTemplateReferences([customReferenceTemplate], {
+  ...customPreset,
+  recordModes: ["duration"],
+})![0].items[0];
+assert.deepEqual([durationCustomTemplate.repsLow, durationCustomTemplate.repsHigh], [30, 60]);
+assert.equal(durationCustomTemplate.prescription?.performanceMode, "duration");
+
 const bodyweightProgression = progressionSuggestion({
   progressionTrackId: "pullup-reps",
   progressionTrackLabel: "增肌 · 8–10 次",

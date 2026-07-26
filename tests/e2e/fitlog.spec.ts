@@ -174,6 +174,79 @@ test("training execution exposes superset navigation and plate loading", async (
   await expect(targetExercise.getByRole("button", { name: /添加下一组/ })).toBeVisible();
 });
 
+test("workout drafts and rest days keep explicit completion state", async ({ page }) => {
+  const date = localDateKey();
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/train?start=push");
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return data.days?.[dateKey]?.workout?.done;
+  }, date)).toBe(false);
+  await expect(page.getByText("进行中", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "休息", exact: true }).click();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      type: data.days?.[dateKey]?.workout?.type,
+      done: data.days?.[dateKey]?.workout?.done,
+      completed: Boolean(data.days?.[dateKey]?.workout?.completedAt),
+    };
+  }, date)).toEqual({ type: "rest", done: true, completed: true });
+
+  await page.getByRole("button", { name: "推", exact: true }).click();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      type: data.days?.[dateKey]?.workout?.type,
+      done: data.days?.[dateKey]?.workout?.done,
+      completedAt: data.days?.[dateKey]?.workout?.completedAt,
+    };
+  }, date)).toEqual({ type: "push", done: false, completedAt: undefined });
+});
+
+test("pending local edits merge cross-tab updates before persistence", async ({ page, context }) => {
+  const date = localDateKey();
+  await context.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+  const remote = await context.newPage();
+  await Promise.all([page.goto("/train"), remote.goto("/")]);
+
+  await page.getByRole("button", { name: "推", exact: true }).click();
+  await remote.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    data.days["2026-01-02"] = { date: "2026-01-02", recovery: { energy: 4 } };
+    localStorage.setItem("fitlog:v1", JSON.stringify(data));
+  });
+
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      workout: data.days?.[dateKey]?.workout?.type,
+      recovery: data.days?.["2026-01-02"]?.recovery?.energy,
+    };
+  }, date)).toEqual({ workout: "push", recovery: 4 });
+  await remote.close();
+});
+
 test("backup preview offers non-destructive merge", async ({ page }) => {
   const currentDate = localDateKey();
   await page.addInitScript(({ dateKey }) => {

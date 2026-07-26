@@ -31,6 +31,7 @@ export interface HealthReadinessSummary {
 }
 
 const MINIMUM_BASELINE_SAMPLES = 7;
+const READY_BASELINE_SAMPLES = 14;
 const READINESS_METRICS: HealthInsightMetricKey[] = [
   "sleep",
   "heartRateVariability",
@@ -147,7 +148,11 @@ export function buildHealthReadiness(data: AppData, today: string): HealthReadin
   const baselineStart = shiftDate(observationDate, -28);
   const baselineEnd = shiftDate(observationDate, -1);
   const baselineDays = Object.entries(data.days)
-    .filter(([date, day]) => date >= baselineStart && date <= baselineEnd && Boolean(day.health))
+    .filter(([date, day]) => (
+      date >= baselineStart
+      && date <= baselineEnd
+      && READINESS_METRICS.some((metric) => metricValue(day.health, metric) != null)
+    ))
     .length;
   const metrics = READINESS_METRICS.map((metric) => (
     insightForMetric(data, metric, observationDate, baselineStart, baselineEnd)
@@ -156,9 +161,11 @@ export function buildHealthReadiness(data: AppData, today: string): HealthReadin
   const lowSignals = qualified.filter((metric) => metric.state === "low").length;
   const cautionSignals = qualified.filter((metric) => metric.state === "caution").length;
   const adverseSignals = lowSignals + cautionSignals;
-  const confidence: HealthReadinessConfidence = qualified.length === 3 && baselineDays >= 14
+  const confidence: HealthReadinessConfidence = qualified.length === 3
+    && baselineDays >= READY_BASELINE_SAMPLES
+    && metrics.every((metric) => metric.sampleCount >= READY_BASELINE_SAMPLES)
     ? "ready"
-    : qualified.length >= 2 && baselineDays >= 7
+    : qualified.length >= 2
       ? "building"
       : "low";
 

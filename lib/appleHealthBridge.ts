@@ -32,9 +32,13 @@ export function isAppleHealthBridgeAvailable() {
 
 export function requestAppleHealthSync(days = 90) {
   if (!isAppleHealthBridgeAvailable()) return false;
-  window.webkit!.messageHandlers!.fitlogHealth!.postMessage({
-    action: "sync",
-    days: Math.min(365, Math.max(7, Math.round(days))),
-  });
-  return true;
+  try {
+    window.webkit!.messageHandlers!.fitlogHealth!.postMessage({
+      action: "sync",
+      days: Math.min(365, Math.max(7, Math.round(days))),
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

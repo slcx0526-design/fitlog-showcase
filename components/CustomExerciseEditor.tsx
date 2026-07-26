@@ -166,7 +166,9 @@ export default function CustomExerciseEditor({
                 aria-label={`${tr(MUSCLE_LABELS[item.muscle])}贡献权重`}
                 className="h-8 w-[58px] rounded-md border border-border bg-surface px-1 text-[11px] text-fg outline-none focus:border-accent"
               >
-                {CONTRIBUTION_WEIGHTS.map((weight) => <option key={weight} value={weight}>{weight.toFixed(2).replace(/0$/, "")}</option>)}
+                {[...new Set<number>([...CONTRIBUTION_WEIGHTS, item.weight])]
+                  .sort((left, right) => left - right)
+                  .map((weight) => <option key={weight} value={weight}>{weight.toFixed(2).replace(/0$/, "")}</option>)}
               </select>
               <button
                 type="button"
@@ -233,7 +235,7 @@ export default function CustomExerciseEditor({
 
       {confirmDelete && (
         <p className="text-[11px] leading-relaxed text-faint">
-          {tr("删除后历史记录仍保留，模板里若引用会保留名字但不再按部位归类。")}
+          {tr("删除后历史和已有模板保留保存时的名称与容量贡献；动作库入口会移除。")}
         </p>
       )}
     </div>

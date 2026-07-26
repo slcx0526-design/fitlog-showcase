@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { analyzeTrackTrend, estimatedOneRepMax, findTrackHistories, findTrackHistory, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";
 import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, defaultMicrocycle, microcycleAssignmentForNewWorkout, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle, templateForWorkout } from "../lib/microcycle";
-import { parseBackup, toBackup, type AppData } from "../lib/storage";
+import { normalizeData, parseBackup, toBackup, type AppData } from "../lib/storage";
 import { weightForWaistDate } from "../lib/bodyfat";
 import { shiftDate } from "../lib/weight";
 import { isDayTrained, trainingDayCountInLast } from "../lib/schedule";
@@ -39,6 +39,14 @@ const draftOnlyDay: DayLog = { date: todayKey(), workout: { type: "push", done: 
 const validTrainingDay: DayLog = { date: todayKey(), workout: { type: "push", done: true, exercises: [{ id: "valid", name: "有效组", isMain: false, sets: [{ weight: 82.5, reps: 6, type: "working" }] }] } };
 assert.equal(isDayTrained(draftOnlyDay), false);
 assert.equal(isDayTrained(validTrainingDay), true);
+assert.equal(isDayTrained({ date: todayKey(), workout: { type: "rest", done: false, exercises: [] } }), false);
+assert.equal(
+  normalizeData({
+    days: { [todayKey()]: { date: todayKey(), workout: { type: "rest", done: false, exercises: [] } } },
+  }).days[todayKey()].workout?.done,
+  true,
+  "Previously generated rest drafts migrate to completed rest records",
+);
 assert.equal(trainingDayCountInLast({ [todayKey()]: draftOnlyDay }, 1), 0);
 assert.equal(trainingDayCountInLast({ [todayKey()]: validTrainingDay }, 1), 1);
 assert.deepEqual(weekKeysFor("2026-07-12"), ["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"]);

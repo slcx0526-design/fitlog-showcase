@@ -46,7 +46,7 @@ export default function TodayHome() {
   const workoutHref = workout?.type ? "/train" : activeType ? `/train?start=${activeType}` : "/train";
   const primaryLabel = workout?.done
     ? tr("查看训练")
-    : workout?.type && setCount > 0
+    : workout?.type && workout.type !== "rest" && workout.done === false
       ? tr("继续训练")
       : activeType === "rest"
         ? tr("记录休息日")
@@ -94,6 +94,7 @@ function trainingSubline(tr: Translate, type: TrainingType | undefined, done: bo
   if (type === "rest") return tr("今天安排休息；恢复也是计划的一部分。");
   if (done) return tr("已完成 {n} 组。", { n: sets });
   if (type && sets > 0) return tr("已完成 {n} 组，随时继续。", { n: sets });
+  if (type) return tr("已选择训练类型，尚未记录有效工作组。");
   if (hasPlan) return tr("按计划开始，也可在训练页调整。");
   return tr("选择类型后开始记录。");
 }

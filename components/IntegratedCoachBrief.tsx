@@ -118,16 +118,24 @@ function healthEvidence(locale: Locale, analysis: IntegratedCoachAnalysis) {
 function healthMetricCopy(locale: Locale, metric: HealthMetricInsight) {
   const current = healthMetricValue(metric.metric, metric.current);
   const baseline = healthMetricValue(metric.metric, metric.baseline);
-  const state = metric.state === "stable"
-    ? tx(locale, "接近", "near", "近い")
-    : metric.metric === "restingHeartRate"
-      ? tx(locale, "偏高", "above", "高め")
-      : tx(locale, "偏低", "below", "低め");
   const label = metric.metric === "sleep"
     ? tx(locale, "睡眠", "sleep", "睡眠")
     : metric.metric === "heartRateVariability"
       ? "HRV"
       : tx(locale, "静息心率", "resting HR", "安静時心拍");
+  if (metric.state === "unknown") {
+    return tx(
+      locale,
+      `${label} ${current}（基线建立中 · ${metric.sampleCount} 天样本）`,
+      `${label} ${current} (baseline building · ${metric.sampleCount} samples)`,
+      `${label} ${current}（基準構築中・${metric.sampleCount} 日分）`,
+    );
+  }
+  const state = metric.state === "stable"
+    ? tx(locale, "接近", "near", "近い")
+    : metric.metric === "restingHeartRate"
+      ? tx(locale, "偏高", "above", "高め")
+      : tx(locale, "偏低", "below", "低め");
   return tx(
     locale,
     `${label} ${current}，基线 ${baseline}（${state}）`,

@@ -120,7 +120,13 @@ function decisionHeadline(action: TrainingDecisionAction, locale: Locale) {
 function actionCopy(action: TrainingDecisionAction, locale: Locale, tr: (value: string) => string): { title: string; detail: string; tone: "accent" | "warn" | "muted" } {
   switch (action.kind) {
     case "continueSession":
-      return { title: tx(locale, "先完成今天已经开始的训练", "Finish today's active workout first", "まず今日のトレーニングを完了"), detail: tx(locale, `已有 ${action.setCount} 个有效工作组，继续记录后再做本轮判断。`, `${action.setCount} effective sets are already logged. Finish the session before changing the plan.`, `有効セット ${action.setCount} 件を記録済み。先にセッションを完了してください。`), tone: "accent" };
+      return {
+        title: tx(locale, "先完成今天已经开始的训练", "Finish today's active workout first", "まず今日のトレーニングを完了"),
+        detail: action.setCount > 0
+          ? tx(locale, `已有 ${action.setCount} 个有效工作组，继续记录后再做本轮判断。`, `${action.setCount} effective sets are already logged. Finish the session before changing the plan.`, `有効セット ${action.setCount} 件を記録済み。先にセッションを完了してください。`)
+          : tx(locale, "已选择训练类型，尚未记录有效工作组；继续本次记录后再做计划判断。", "A workout type is selected but no effective sets are logged yet. Continue this session before changing the plan.", "種別は選択済みですが有効セットは未記録です。このセッションを続けてから計画を判断します。"),
+        tone: "accent",
+      };
     case "reviewUnclosed":
       return { title: tx(locale, `确认 ${action.date.slice(5).replace("-", ".")} 的训练`, `Confirm the workout from ${action.date}`, `${action.date} の記録を確認`), detail: tx(locale, `已有 ${action.setCount} 个有效工作组，但训练未显式结束。确认后再纳入模板执行率和处方判断。`, `${action.setCount} effective sets exist, but the session was never closed. Confirm it before using it for plan decisions.`, `有効セット ${action.setCount} 件がありますが未終了です。確定後に計画判断へ使用します。`), tone: "warn" };
     case "recoveryPriority":
