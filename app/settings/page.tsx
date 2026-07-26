@@ -11,6 +11,7 @@ import { useI18n, LOCALE_LABELS, type Locale } from "@/lib/i18n";
 import DataManagement from "@/components/DataManagement";
 import DataManagementLocaleBridge from "@/components/DataManagementLocaleBridge";
 import ThemeModeSelector from "@/components/ThemeModeSelector";
+import AppleHealthSyncCard from "@/components/AppleHealthSyncCard";
 import pkg from "../../package.json";
 
 export default function SettingsPage() {
@@ -46,6 +47,7 @@ export default function SettingsPage() {
       <ThemeModeSelector />
       <LanguageSection />
       <ProfileSection />
+      <AppleHealthSyncCard />
       <TrainingLevelSection />
 
       {data.customExercises.length > 0 && (

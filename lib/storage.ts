@@ -8,6 +8,7 @@ import type {
   DayLog,
   Exercise,
   ExercisePreset,
+  HealthDailySummary,
   MovementPattern,
   NutritionLog,
   Profile,
@@ -39,7 +40,7 @@ export type { AppData } from "./types";
 
 const KEY = "fitlog:v1";
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -142,6 +143,34 @@ function parseRecovery(input: unknown): RecoveryCheckIn | undefined {
     ...(stress != null ? { stress } : {}),
     ...(typeof value.at === "string" && value.at ? { at: value.at } : {}),
   };
+}
+
+function parseHealthSummary(input: unknown): HealthDailySummary | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (value.source !== "appleHealth") return undefined;
+  if (typeof value.updatedAt !== "string" || Number.isNaN(Date.parse(value.updatedAt))) return undefined;
+  const metric = (field: string, min: number, max: number) =>
+    typeof value[field] === "number" && Number.isFinite(value[field]) && value[field] >= min && value[field] <= max
+      ? Math.round(value[field] * 10) / 10
+      : undefined;
+  const summary: HealthDailySummary = {
+    source: "appleHealth",
+    updatedAt: value.updatedAt,
+  };
+  const steps = metric("steps", 0, 200_000);
+  const activeEnergyKcal = metric("activeEnergyKcal", 0, 20_000);
+  const exerciseMinutes = metric("exerciseMinutes", 0, 1_440);
+  const restingHeartRate = metric("restingHeartRate", 20, 250);
+  const heartRateVariabilityMs = metric("heartRateVariabilityMs", 0, 1_000);
+  const sleepMinutes = metric("sleepMinutes", 0, 1_440);
+  if (steps != null) summary.steps = Math.round(steps);
+  if (activeEnergyKcal != null) summary.activeEnergyKcal = activeEnergyKcal;
+  if (exerciseMinutes != null) summary.exerciseMinutes = exerciseMinutes;
+  if (restingHeartRate != null) summary.restingHeartRate = restingHeartRate;
+  if (heartRateVariabilityMs != null) summary.heartRateVariabilityMs = heartRateVariabilityMs;
+  if (sleepMinutes != null) summary.sleepMinutes = sleepMinutes;
+  return Object.keys(summary).length > 2 ? summary : undefined;
 }
 
 function parseCardio(input: unknown, date: string, index: number): CardioEntry | null {
@@ -385,6 +414,8 @@ export function normalizeData(input: unknown): AppData {
       if (nutrition) next.nutrition = nutrition;
       const recovery = parseRecovery(day.recovery);
       if (recovery) next.recovery = recovery;
+      const health = parseHealthSummary(day.health);
+      if (health) next.health = health;
       if (Array.isArray(day.cardio)) {
         const cardio = day.cardio.map((entry, index) => parseCardio(entry, date, index)).filter((entry): entry is CardioEntry => Boolean(entry));
         if (cardio.length) next.cardio = cardio;
@@ -400,7 +431,14 @@ export function normalizeData(input: unknown): AppData {
   }
 
   if (Array.isArray(obj.bodyWeights)) {
-    out.bodyWeights = uniqueByDate((obj.bodyWeights as BodyWeightEntry[]).filter((entry) => entry && isDateKey(entry.date) && typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight >= 30 && entry.weight <= 300));
+    out.bodyWeights = uniqueByDate((obj.bodyWeights as BodyWeightEntry[]).flatMap((entry) => {
+      if (!entry || !isDateKey(entry.date) || typeof entry.weight !== "number" || !Number.isFinite(entry.weight) || entry.weight < 30 || entry.weight > 300) return [];
+      return [{
+        date: entry.date,
+        weight: Math.round(entry.weight * 100) / 100,
+        ...(entry.source === "appleHealth" ? { source: "appleHealth" as const } : {}),
+      }];
+    }));
   }
   if (Array.isArray(obj.waistEntries)) {
     out.waistEntries = uniqueByDate((obj.waistEntries as WaistEntry[]).filter((entry) => entry && isDateKey(entry.date) && typeof entry.waist === "number" && Number.isFinite(entry.waist) && entry.waist >= 30 && entry.waist <= 200));
@@ -717,6 +755,23 @@ export function normalizeData(input: unknown): AppData {
       };
     }
   }
+  if (obj.healthSync && typeof obj.healthSync === "object") {
+    const value = obj.healthSync as Record<string, unknown>;
+    if (value.provider === "appleHealth" && typeof value.lastSyncedAt === "string" && !Number.isNaN(Date.parse(value.lastSyncedAt))) {
+      out.healthSync = {
+        provider: "appleHealth",
+        lastSyncedAt: value.lastSyncedAt,
+        ...(isDateKey(value.rangeStart) ? { rangeStart: value.rangeStart } : {}),
+        ...(isDateKey(value.rangeEnd) ? { rangeEnd: value.rangeEnd } : {}),
+        importedDays: typeof value.importedDays === "number" && Number.isFinite(value.importedDays)
+          ? Math.max(0, Math.round(value.importedDays))
+          : 0,
+        importedWeights: typeof value.importedWeights === "number" && Number.isFinite(value.importedWeights)
+          ? Math.max(0, Math.round(value.importedWeights))
+          : 0,
+      };
+    }
+  }
 
   const today = todayKey();
   const workouts = Object.entries(out.days).filter(([, day]) => !!day.workout).sort(([a], [b]) => a.localeCompare(b));
@@ -776,7 +831,7 @@ export function normalizeData(input: unknown): AppData {
 
 export function toBackup(data: AppData): BackupData {
   const normalized = normalizeData(data);
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview, onboarding: normalized.onboarding, trainingPreferences: normalized.trainingPreferences };
+  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview, onboarding: normalized.onboarding, trainingPreferences: normalized.trainingPreferences, healthSync: normalized.healthSync };
 }
 
 export function downloadBackup(data: AppData): void {

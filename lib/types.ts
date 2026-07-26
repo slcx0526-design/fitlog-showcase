@@ -271,6 +271,29 @@ export interface RecoveryCheckIn {
   at?: string;
 }
 
+export type HealthDataProvider = "appleHealth";
+
+/** Objective daily facts imported from a native health store. They remain separate from subjective recovery input. */
+export interface HealthDailySummary {
+  source: HealthDataProvider;
+  steps?: number;
+  activeEnergyKcal?: number;
+  exerciseMinutes?: number;
+  restingHeartRate?: number;
+  heartRateVariabilityMs?: number;
+  sleepMinutes?: number;
+  updatedAt: string;
+}
+
+export interface HealthSyncState {
+  provider: HealthDataProvider;
+  lastSyncedAt: string;
+  rangeStart?: string;
+  rangeEnd?: string;
+  importedDays: number;
+  importedWeights: number;
+}
+
 /** 心率区间 1–5（Z1 恢复 … Z5 最大） */
 export type Zone = 1 | 2 | 3 | 4 | 5;
 
@@ -311,6 +334,8 @@ export interface DayLog {
   workout?: WorkoutSession;
   nutrition?: NutritionLog;
   recovery?: RecoveryCheckIn;
+  /** Read-only external facts. Never silently promoted into a recovery score or training decision. */
+  health?: HealthDailySummary;
   cardio?: CardioEntry[];
   activityEnergy?: ActivityEnergyEntry[];
 }
@@ -318,6 +343,8 @@ export interface DayLog {
 export interface BodyWeightEntry {
   date: string;
   weight: number;
+  /** Missing means an existing/manual FitLog entry. Manual entries always win same-day import conflicts. */
+  source?: HealthDataProvider;
 }
 
 export interface WaistEntry {
@@ -422,6 +449,7 @@ export interface AppData {
   lastCycleReview?: AppliedCycleReview;
   onboarding?: OnboardingState;
   trainingPreferences?: TrainingPreferences;
+  healthSync?: HealthSyncState;
   /** Local-only backup reminder. Excluded from portable backup payloads. */
   lastBackupAt?: string;
 }

@@ -24,6 +24,7 @@ export default function DataManagement() {
     bodyWeightCount: number;
     waistCount: number;
     recoveryCount: number;
+    healthDayCount: number;
     templateCount: number;
     exportedAt?: string;
     version?: number;
@@ -66,6 +67,7 @@ export default function DataManagement() {
         bodyWeightCount: preview.data.bodyWeights.length,
         waistCount: preview.data.waistEntries.length,
         recoveryCount: Object.values(preview.data.days).filter((day) => Boolean(day.recovery)).length,
+        healthDayCount: Object.values(preview.data.days).filter((day) => Boolean(day.health)).length,
         templateCount: preview.data.templates?.length ?? 0,
         exportedAt: preview.exportedAt,
         version: preview.version,
@@ -288,6 +290,7 @@ export default function DataManagement() {
               <ImportMetric label={tr("腰围")} value={String(pendingImport.waistCount)} />
               <ImportMetric label={tr("模板")} value={String(pendingImport.templateCount)} />
               <ImportMetric label={tr("状态")} value={String(pendingImport.recoveryCount)} />
+              <ImportMetric label="Health" value={String(pendingImport.healthDayCount)} />
             </div>
             {pendingImport.exportedAt && (
               <p className="tnum mt-1.5 px-1 text-[11px] text-accent/70">
@@ -439,11 +442,13 @@ function downloadBodyCsv(data: AppData) {
     ...data.bodyWeights.map((entry) => entry.date),
     ...data.waistEntries.map((entry) => entry.date),
   ]);
-  const rows: (string | number | undefined | null)[][] = [["date", "weight_kg", "waist_cm"]];
+  const rows: (string | number | undefined | null)[][] = [["date", "weight_kg", "weight_source", "waist_cm"]];
   [...dates].sort().forEach((date) => {
+    const weight = data.bodyWeights.find((entry) => entry.date === date);
     rows.push([
       date,
-      data.bodyWeights.find((entry) => entry.date === date)?.weight,
+      weight?.weight,
+      weight?.source ?? "fitlog",
       data.waistEntries.find((entry) => entry.date === date)?.waist,
     ]);
   });
@@ -451,8 +456,8 @@ function downloadBodyCsv(data: AppData) {
 }
 
 function downloadDailyCsv(data: AppData) {
-  const rows: (string | number | undefined | null)[][] = [["date", "calories", "protein", "carbs", "fat", "cardio_minutes", "cardio_modes", "sleep_hours", "sleep_quality", "energy", "soreness", "stress", "recovery_logged_at"]];
-  Object.keys(data.days).filter((date) => dayHasLogContent(data.days[date])).sort().forEach((date) => {
+  const rows: (string | number | undefined | null)[][] = [["date", "calories", "protein", "carbs", "fat", "cardio_minutes", "cardio_modes", "sleep_hours", "sleep_quality", "energy", "soreness", "stress", "recovery_logged_at", "health_steps", "health_active_energy_kcal", "health_exercise_minutes", "health_sleep_minutes", "health_resting_hr", "health_hrv_ms", "health_updated_at"]];
+  Object.keys(data.days).filter((date) => dayHasLogContent(data.days[date]) || Boolean(data.days[date].health)).sort().forEach((date) => {
     const day = data.days[date];
     rows.push([
       date,
@@ -468,6 +473,13 @@ function downloadDailyCsv(data: AppData) {
       day.recovery?.soreness,
       day.recovery?.stress,
       day.recovery?.at,
+      day.health?.steps,
+      day.health?.activeEnergyKcal,
+      day.health?.exerciseMinutes,
+      day.health?.sleepMinutes,
+      day.health?.restingHeartRate,
+      day.health?.heartRateVariabilityMs,
+      day.health?.updatedAt,
     ]);
   });
   downloadCsv(`fitlog-daily-${dateStamp()}.csv`, rows);

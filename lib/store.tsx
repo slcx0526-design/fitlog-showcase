@@ -81,6 +81,10 @@ import {
 } from "./cyclePlanning";
 import { starterPlanById } from "./starterPlans";
 import { mergeAppData, type DataMergeSummary } from "./dataMerge";
+import {
+  mergeAppleHealthSnapshot as mergeAppleHealthData,
+  type AppleHealthMergeSummary,
+} from "./appleHealth";
 
 interface StoreApi {
   loaded: boolean;
@@ -184,6 +188,7 @@ interface StoreApi {
   completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => void;
   dismissSetup: () => void;
   setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
+  importAppleHealthSnapshot: (snapshot: unknown) => AppleHealthMergeSummary;
 
   // 跨天 type 查询（"上次也做了"用）
   lastWorkoutByType: (
@@ -1176,6 +1181,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const importAppleHealthSnapshot = useCallback((snapshot: unknown) => {
+    const result = mergeAppleHealthData(dataRef.current, snapshot);
+    dataRef.current = result.data;
+    setData(result.data);
+    saveData(result.data);
+    return result.summary;
+  }, []);
+
   const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
     setData((prev) => {
       const advanced = advanceTrainingCycle(prev, date, phase);
@@ -1315,6 +1328,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       completeSetup,
       dismissSetup,
       setTrainingPreferences,
+      importAppleHealthSnapshot,
       lastWorkoutByType,
       exportData,
       importFromText,
@@ -1371,6 +1385,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       completeSetup,
       dismissSetup,
       setTrainingPreferences,
+      importAppleHealthSnapshot,
       lastWorkoutByType,
       exportData,
       importFromText,

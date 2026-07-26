@@ -37,6 +37,7 @@ test("primary routes stay visible and inside the viewport", async ({ page }) => 
     expect(layout.html, `${route} html overflow`).toBeLessThanOrEqual(layout.viewport + 1);
     expect(layout.navRight, `${route} navigation overflow`).toBeLessThanOrEqual(layout.viewport + 1);
   }
+  await expect(page.locator("[data-apple-health-sync]")).toHaveCount(0);
   expect(consoleErrors).toEqual([]);
 });
 
@@ -209,4 +210,70 @@ test("backup preview offers non-destructive merge", async ({ page }) => {
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}"));
   expect(stored.days[currentDate].nutrition.calories).toBe(2000);
   expect(stored.days[incomingDate].recovery.energy).toBe(4);
+});
+
+test("native Apple Health bridge imports facts without replacing manual weight", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [{ date: "2026-07-25", weight: 78 }],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    Object.defineProperty(window, "fitlogNative", {
+      value: { platform: "ios", healthKit: true, bridgeVersion: 1 },
+      configurable: true,
+    });
+    Object.defineProperty(window, "webkit", {
+      value: {
+        messageHandlers: {
+          fitlogHealth: {
+            postMessage: () => {
+              window.setTimeout(() => window.dispatchEvent(new CustomEvent("fitlog:health-snapshot", {
+                detail: {
+                  schemaVersion: 1,
+                  generatedAt: "2026-07-26T09:00:00.000Z",
+                  rangeStart: "2026-04-28",
+                  rangeEnd: "2026-07-26",
+                  days: [{
+                    date: "2026-07-26",
+                    steps: 12345,
+                    activeEnergyKcal: 640,
+                    exerciseMinutes: 55,
+                    restingHeartRate: 54,
+                    heartRateVariabilityMs: 72,
+                    sleepMinutes: 465,
+                  }],
+                  bodyWeights: [
+                    { date: "2026-07-25", weightKg: 77.6 },
+                    { date: "2026-07-26", weightKg: 77.4 },
+                  ],
+                },
+              })), 10);
+            },
+          },
+        },
+      },
+      configurable: true,
+    });
+  });
+
+  await page.goto("/settings");
+  const healthCard = page.locator("[data-apple-health-sync]");
+  await expect(healthCard).toBeVisible();
+  await healthCard.getByRole("button", { name: "授权并同步" }).click();
+  await expect(healthCard.getByText("12,345", { exact: true })).toBeVisible();
+  await expect(healthCard.getByText("77.4 kg", { exact: true })).toHaveCount(0);
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}"));
+  expect(stored.days["2026-07-26"].health.sleepMinutes).toBe(465);
+  expect(stored.bodyWeights.find((entry: { date: string }) => entry.date === "2026-07-25").weight).toBe(78);
+  expect(stored.bodyWeights.find((entry: { date: string }) => entry.date === "2026-07-26")).toEqual({
+    date: "2026-07-26",
+    weight: 77.4,
+    source: "appleHealth",
+  });
+  expect(stored.healthSync.provider).toBe("appleHealth");
 });

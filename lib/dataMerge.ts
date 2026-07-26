@@ -51,6 +51,7 @@ function isEmptyWorkspace(data: AppData) {
     && !data.muscleTargets
     && !data.onboarding
     && !data.trainingPreferences
+    && !data.healthSync
     && !data.lastCycleReview
     && !data.microcycle
     && !data.mesocycle
@@ -102,6 +103,7 @@ function mergeDay(current: DayLog, incoming: DayLog, summary: DataMergeSummary) 
   if (workoutMissing) summary.importedWorkouts += 1;
   next = mergeOptionalField(next, incoming, "nutrition", summary);
   next = mergeOptionalField(next, incoming, "recovery", summary);
+  next = mergeOptionalField(next, incoming, "health", summary);
   const cardio = mergeEntriesById(current.cardio, incoming.cardio, summary);
   if (cardio.imported) {
     summary.importedCardio += cardio.imported;
@@ -184,7 +186,7 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
 
   if (currentWasEmpty) {
     const imported = normalizeData({ ...incoming, lastBackupAt: currentInput.lastBackupAt });
-    summary.importedDays = Object.values(imported.days).filter(dayHasLogContent).length;
+    summary.importedDays = Object.values(imported.days).filter((day) => dayHasLogContent(day) || Boolean(day.health)).length;
     summary.importedWorkouts = Object.values(imported.days).filter((day) => Boolean(day.workout)).length;
     summary.importedCardio = Object.values(imported.days).reduce((sum, day) => sum + (day.cardio?.length ?? 0), 0);
     summary.importedBodyWeights = imported.bodyWeights.length;
@@ -197,6 +199,7 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
       + Object.keys(imported.muscleTargets ?? {}).length
       + Object.keys(imported.trainingPreferences ?? {}).length
       + Object.keys(imported.onboarding ?? {}).length
+      + Object.keys(imported.healthSync ?? {}).length
       + (same(imported.schedule, defaultSchedule()) ? 0 : 1);
     return { data: imported, summary };
   }
@@ -238,6 +241,7 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
     muscleTargets: mergeObject(current.muscleTargets, incoming.muscleTargets, summary),
     trainingPreferences: mergeObject(current.trainingPreferences, incoming.trainingPreferences, summary),
     onboarding: mergeObject(current.onboarding, incoming.onboarding, summary),
+    healthSync: mergeObject(current.healthSync, incoming.healthSync, summary),
     schedule: current.schedule,
     microcycle: current.microcycle ?? incoming.microcycle,
     mesocycle: current.mesocycle ?? incoming.mesocycle,

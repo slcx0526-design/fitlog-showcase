@@ -199,17 +199,33 @@ const draftMerge = mergeAppData(draftCurrent, {
 assert.equal(draftMerge.data.days["2026-07-22"].workout?.type, "push");
 assert.ok(draftMerge.summary.conflicts >= 1);
 
-const schema15 = parseBackup(JSON.stringify(toBackup({
+const schema16 = parseBackup(JSON.stringify(toBackup({
   ...calibrationData,
   onboarding: { completedAt: "2026-07-26T00:00:00.000Z", starterPlan: "balanced5" },
   trainingPreferences: { barbellWeightKg: 15, plateSizesKg: [20, 10, 2.5, 1.25] },
 })));
-assert.equal(SCHEMA_VERSION, 15);
-assert.equal(schema15.onboarding?.starterPlan, "balanced5");
-assert.equal(schema15.trainingPreferences?.barbellWeightKg, 15);
-assert.deepEqual(schema15.trainingPreferences?.plateSizesKg, [20, 10, 2.5, 1.25]);
-assert.equal(schema15.days["2026-07-01"].workout?.exercises[0].supersetGroup, "A");
-assert.equal(schema15.days["2026-07-01"].workout?.exercises[0].equipment, "free");
-assert.ok(estimateDataFootprint(schema15).bytes > 0);
+assert.equal(SCHEMA_VERSION, 16);
+assert.equal(schema16.onboarding?.starterPlan, "balanced5");
+assert.equal(schema16.trainingPreferences?.barbellWeightKg, 15);
+assert.deepEqual(schema16.trainingPreferences?.plateSizesKg, [20, 10, 2.5, 1.25]);
+assert.equal(schema16.days["2026-07-01"].workout?.exercises[0].supersetGroup, "A");
+assert.equal(schema16.days["2026-07-01"].workout?.exercises[0].equipment, "free");
+assert.ok(estimateDataFootprint(schema16).bytes > 0);
+
+const healthOnlyMerge = mergeAppData(emptyData(), {
+  ...emptyData(),
+  days: {
+    "2026-07-26": {
+      date: "2026-07-26",
+      health: {
+        source: "appleHealth",
+        steps: 12345,
+        updatedAt: "2026-07-26T09:00:00.000Z",
+      },
+    },
+  },
+});
+assert.equal(healthOnlyMerge.summary.importedDays, 1, "A HealthKit-only date must remain visible in merge accounting");
+assert.equal(healthOnlyMerge.data.days["2026-07-26"].health?.steps, 12345);
 
 console.log("finalization tests passed");

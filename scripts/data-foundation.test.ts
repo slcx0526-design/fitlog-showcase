@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
+import { mergeAppleHealthSnapshot, normalizeAppleHealthSnapshot } from "../lib/appleHealth";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
 import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
@@ -272,12 +273,65 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 15);
+assert.equal(backup.version, 16);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
 assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");
-assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 15 backups preserve recovery check-ins");
+assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 16 backups preserve recovery check-ins");
+
+const healthBase = normalizeData({
+  days: {
+    "2026-07-25": {
+      date: "2026-07-25",
+      recovery: { sleepHours: 7, energy: 4 },
+    },
+  },
+  bodyWeights: [{ date: "2026-07-25", weight: 78 }],
+  waistEntries: [],
+  customExercises: [],
+  schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+});
+const healthPayload = {
+  schemaVersion: 1,
+  generatedAt: "2026-07-26T09:00:00.000Z",
+  rangeStart: "2026-04-28",
+  rangeEnd: "2026-07-26",
+  days: [
+    { date: "2026-07-25", steps: 9500, activeEnergyKcal: 620, exerciseMinutes: 58, restingHeartRate: 54, heartRateVariabilityMs: 71, sleepMinutes: 462 },
+    { date: "2026-07-26", steps: 1200, sleepMinutes: 430 },
+    { date: "2026-02-31", steps: 9999 },
+    { date: "2026-07-24", steps: -1 },
+  ],
+  bodyWeights: [
+    { date: "2026-07-25", weightKg: 77.6 },
+    { date: "2026-07-26", weightKg: 77.4 },
+  ],
+};
+const parsedHealth = normalizeAppleHealthSnapshot(healthPayload);
+assert.equal(parsedHealth.days.length, 2, "Invalid dates and empty metric rows must be rejected");
+const healthMerged = mergeAppleHealthSnapshot(healthBase, healthPayload);
+assert.equal(healthMerged.data.bodyWeights.find((entry) => entry.date === "2026-07-25")?.weight, 78, "Manual same-day weight must win");
+assert.deepEqual(healthMerged.data.bodyWeights.find((entry) => entry.date === "2026-07-26"), { date: "2026-07-26", weight: 77.4, source: "appleHealth" });
+assert.equal(healthMerged.data.days["2026-07-25"].recovery?.sleepHours, 7, "Objective sleep must not overwrite subjective recovery input");
+assert.equal(healthMerged.data.days["2026-07-25"].health?.sleepMinutes, 462);
+assert.equal(healthMerged.summary.preservedManualWeights, 1);
+assert.equal(healthMerged.summary.importedWeights, 1);
+assert.equal(healthMerged.data.healthSync?.importedDays, 2);
+const healthRoundTrip = normalizeData(toBackup(healthMerged.data));
+assert.equal(healthRoundTrip.days["2026-07-25"].health?.heartRateVariabilityMs, 71);
+assert.equal(healthRoundTrip.bodyWeights.find((entry) => entry.date === "2026-07-26")?.source, "appleHealth");
+assert.equal(healthRoundTrip.healthSync?.provider, "appleHealth");
+
+const healthResync = mergeAppleHealthSnapshot(healthMerged.data, {
+  ...healthPayload,
+  generatedAt: "2026-07-26T10:00:00.000Z",
+  days: [{ date: "2026-07-26", steps: 2200, sleepMinutes: 430 }],
+  bodyWeights: [{ date: "2026-07-26", weightKg: 77.2 }],
+});
+assert.equal(healthResync.data.days["2026-07-26"].health?.steps, 2200);
+assert.equal(healthResync.data.bodyWeights.find((entry) => entry.date === "2026-07-26")?.weight, 77.2);
+assert.equal(healthResync.summary.updatedWeights, 1);
 
 const legacyPlannedLoad = normalizeData({
   days: {

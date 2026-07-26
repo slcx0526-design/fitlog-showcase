@@ -29,6 +29,7 @@
     "lib/trainingHistory.ts",
     "lib/dataHealth.ts",
     "lib/dataMerge.ts",
+    "lib/appleHealth.ts",
     "lib/personalization.ts",
     "lib/plateCalculator.ts",
     "lib/starterPlans.ts",

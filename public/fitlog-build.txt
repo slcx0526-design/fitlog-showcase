@@ -1,1 +1,1 @@
-FitLog 10.0.0 terminal local-first release
+FitLog 11.0.0 Apple Health foundation
