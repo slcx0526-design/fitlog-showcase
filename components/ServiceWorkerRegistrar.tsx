@@ -69,8 +69,11 @@ export default function ServiceWorkerRegistrar() {
     if (!("serviceWorker" in navigator)) return;
 
     let reloaded = false;
+    const hadController = Boolean(navigator.serviceWorker.controller);
     const onControllerChange = () => {
-      if (reloaded) return;
+      // The first worker claims an uncontrolled page after installation. Reloading
+      // that first visit would discard open dialogs and in-progress form input.
+      if (!hadController || reloaded) return;
       reloaded = true;
       window.location.reload();
     };

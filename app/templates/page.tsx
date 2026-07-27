@@ -188,7 +188,7 @@ export default function TemplatesPage() {
             copyText(
               allTemplatesToText(all, tr),
               () => toast.show(tr("已复制")),
-              () => toast.show(tr("复制失败，请手动选择"))
+              () => toast.show(tr("复制失败，请手动选择"), { tone: "error" })
             )
           }
           className="press mt-5 flex h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface text-[14px] font-medium text-fg"
@@ -443,7 +443,7 @@ function TemplateCard({
                   toast.show(tr("已复制模板"));
                   return;
                 }
-                toast.show(tr("该类型模板已达上限"));
+                toast.show(tr("该类型模板已达上限"), { tone: "warning" });
               }}
               aria-label={tr("复制为新模板")}
               className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-accent"
@@ -458,7 +458,7 @@ function TemplateCard({
                 copyText(
                   templateToText(tpl, tr),
                   () => toast.show(tr("已复制")),
-                  () => toast.show(tr("复制失败，请手动选择"))
+                  () => toast.show(tr("复制失败，请手动选择"), { tone: "error" })
                 )
               }
               aria-label={tr("复制文字计划")}

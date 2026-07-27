@@ -85,7 +85,10 @@ function EditableBodyReview({ locale }: { locale: Locale }) {
 
   function save() {
     if (!canSave) {
-      toast.show(hasTodayRecord ? t("数值没有变化；修改后再更新。", "No values changed. Edit a value to update.", "数値は変わっていません。変更してから更新してください。") : t("请输入至少一项有效测量。", "Enter at least one valid measurement.", "有効な測定値を少なくとも1つ入力してください。"));
+      toast.show(
+        hasTodayRecord ? t("数值没有变化；修改后再更新。", "No values changed. Edit a value to update.", "数値は変わっていません。変更してから更新してください。") : t("请输入至少一项有效测量。", "Enter at least one valid measurement.", "有効な測定値を少なくとも1つ入力してください。"),
+        { tone: "warning" },
+      );
       return;
     }
     let count = 0;

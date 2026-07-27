@@ -9,15 +9,12 @@ import { formatDisplay } from "@/lib/date";
 import { cardioWeekSummary } from "@/lib/cardio";
 import { useToday } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
-import { useUIMode } from "@/lib/uiMode";
 import { dateKeyWeekdayIndex, getScheduledType } from "@/lib/schedule";
 import { typeLabel } from "@/lib/exercises";
 import { workingSets } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import MorningCheckIn from "./MorningCheckIn";
-import PulseDailyBrief from "./PulseDailyBrief";
-import MidnightAmbientStatus from "./MidnightAmbientStatus";
-import SurvivalFieldBoard from "./SurvivalFieldBoard";
+import DailyOverview from "./DailyOverview";
 import IntegratedCoachBrief from "./IntegratedCoachBrief";
 import RecoveryCheckInCard from "./RecoveryCheckInCard";
 import SetupGuide from "./SetupGuide";
@@ -28,7 +25,6 @@ type Translate = (zh: string, params?: Record<string, string | number>) => strin
 export default function TodayHome() {
   const { loaded, data, getDay } = useStore();
   const { locale, tr } = useI18n();
-  const { mode } = useUIMode();
   const today = useToday();
   const day = getDay(today);
   const workout = day?.workout;
@@ -69,14 +65,14 @@ export default function TodayHome() {
 
     {!setupNeeded && profileMissing && <section className="control-card mb-4 flex items-center gap-3 px-3.5 py-3"><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{tr("补齐基本资料")}</p><p className="mt-0.5 text-[11px] text-faint">{tr("身高、生理性别与出生年份用于热量和心率估算。")}</p></div><Link href="/settings" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{tr("去填写")}</Link></section>}
 
-    {mode === "pulse" ? <PulseDailyBrief /> : mode === "survival" ? <SurvivalFieldBoard /> : <><MidnightAmbientStatus /><MorningCheckIn date={today} /></>}
-
-    <RecoveryCheckInCard date={today} />
-
     <section className={"primary-workout-panel mb-3 " + (workout && !workout.done && workout.type !== "rest" ? "is-active" : "")}>
       <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{activeType ? tr(typeLabel(activeType)) : tr("训练")}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workout?.done, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workout?.done ? "is-done" : "")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
       <Link href={workoutHref} className="primary-command press">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
     </section>
+
+    <MorningCheckIn date={today} />
+    <RecoveryCheckInCard date={today} />
+    <DailyOverview />
 
     <IntegratedCoachBrief compact />
 

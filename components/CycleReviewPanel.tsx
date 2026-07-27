@@ -34,7 +34,7 @@ export default function CycleReviewPanel() {
   function apply() {
     const applied = applyCycleReview(review, today, phase);
     if (!applied) {
-      toast.show(tx(locale, "复盘已过期，请按当前数据重新查看", "The review is stale. Reopen it from the current data.", "レビューが古くなっています。最新データで再確認してください"));
+      toast.show(tx(locale, "复盘已过期，请按当前数据重新查看", "The review is stale. Reopen it from the current data.", "レビューが古くなっています。最新データで再確認してください"), { tone: "warning" });
       setConfirm(false);
       return;
     }

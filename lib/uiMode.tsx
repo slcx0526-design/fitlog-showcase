@@ -1,24 +1,14 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { CharacterId, CharacterMode, CharacterPack } from "./characterPacks";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 /** Interface modes never alter training, nutrition, body, or cut data. */
 export type UIMode = "lite" | "pulse" | "midnight" | "survival";
 const KEY = "fitlog:uiMode";
 
-type CharacterSelections = Record<CharacterMode, CharacterId>;
-
-export function isPersonaMode(mode: UIMode) {
-  return mode !== "lite";
-}
-
 interface UIModeApi {
   mode: UIMode;
   setMode: (m: UIMode) => void;
-  characters: CharacterSelections;
-  activeCharacter: CharacterPack | null;
-  setCharacter: (character: CharacterId) => void;
   loaded: boolean;
 }
 
@@ -26,10 +16,6 @@ const UIModeContext = createContext<UIModeApi | null>(null);
 
 function readMode(value: string | null): UIMode {
   return value === "pulse" || value === "midnight" || value === "survival" ? value : "lite";
-}
-
-function emptySelections(): CharacterSelections {
-  return { pulse: "joker", midnight: "makoto", survival: "joel" };
 }
 
 function syncDocument(mode: UIMode) {
@@ -40,7 +26,6 @@ function syncDocument(mode: UIMode) {
 export function UIModeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<UIMode>("lite");
   const [loaded, setLoaded] = useState(false);
-  const characters = useMemo<CharacterSelections>(emptySelections, []);
 
   useEffect(() => {
     try {
@@ -64,13 +49,7 @@ export function UIModeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setCharacter = useCallback((_character: CharacterId) => {
-    /* Character packs are retired from the active UI. */
-  }, []);
-
-  const activeCharacter = useMemo<CharacterPack | null>(() => null, []);
-
-  return <UIModeContext.Provider value={{ mode, setMode, characters, activeCharacter, setCharacter, loaded }}>{children}</UIModeContext.Provider>;
+  return <UIModeContext.Provider value={{ mode, setMode, loaded }}>{children}</UIModeContext.Provider>;
 }
 
 export function useUIMode(): UIModeApi {

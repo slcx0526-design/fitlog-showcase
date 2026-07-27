@@ -39,6 +39,11 @@ import { hasSetPerformance } from "./trainingMetrics";
 export type { AppData } from "./types";
 
 export const STORAGE_KEY = "fitlog:v1";
+export const PERSISTENCE_EVENT = "fitlog:persistence";
+export type PersistenceEventDetail = {
+  status: "saved" | "error";
+  at: string;
+};
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
 export const SCHEMA_VERSION = 16;
 
@@ -328,13 +333,24 @@ export function loadData(): AppData {
   } catch { return emptyData(); }
 }
 
-export function saveData(data: AppData): void {
-  if (typeof window === "undefined") return;
+function emitPersistence(status: PersistenceEventDetail["status"]) {
+  window.dispatchEvent(new CustomEvent<PersistenceEventDetail>(PERSISTENCE_EVENT, {
+    detail: { status, at: new Date().toISOString() },
+  }));
+}
+
+export function saveData(data: AppData): boolean {
+  if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+    emitPersistence("saved");
+    return true;
+  } catch (error) {
+    console.warn("保存失败：", error);
+    emitPersistence("error");
+    return false;
   }
-  catch (error) { console.warn("保存失败：", error); }
 }
 
 export function normalizeData(input: unknown): AppData {

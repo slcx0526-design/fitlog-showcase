@@ -57,6 +57,9 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const cyclePhase = workout?.cyclePhase ?? activeCycle?.phase ?? "build";
   const cycleNumber = workout?.mesocycleCycleNumber ?? activeCycle?.mesocycleCycleNumber;
   const cycleIndex = activeCycle?.index ?? microcycleIndex(workout?.microcycleId);
+  const activeExerciseId = execution.next?.exercise.id
+    ?? exercises.find((exercise) => !hasEntry(exercise.sets))?.id
+    ?? exercises[0]?.id;
 
   useEffect(() => {
     if (!confirmFinish) return;
@@ -69,7 +72,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   function selectType(next: TrainingType) {
     if (next === type) return;
     if (next === "rest" && recordEntries) {
-      toast.show(tx(locale, "已有训练组，不能改为休息日；删除记录后再切换", "A workout with logged sets cannot become a rest day. Remove the sets first.", "セット記録があるトレーニングは休息日に変更できません。先に記録を削除してください"));
+      toast.show(tx(locale, "已有训练组，不能改为休息日；删除记录后再切换", "A workout with logged sets cannot become a rest day. Remove the sets first.", "セット記録があるトレーニングは休息日に変更できません。先に記録を削除してください"), { tone: "warning" });
       haptic([12, 28, 12]);
       return;
     }
@@ -118,7 +121,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     });
     if (!items.length) return;
     const id = createTemplate(type, `${typeName(locale, type)} ${date}`);
-    if (!id) { toast.show(tx(locale, "该类型模板已达上限", "Template limit reached for this type", "この種別のテンプレート数が上限です")); return; }
+    if (!id) { toast.show(tx(locale, "该类型模板已达上限", "Template limit reached for this type", "この種別のテンプレート数が上限です"), { tone: "warning" }); return; }
     setTemplateItems(id, items);
     toast.show(tx(locale, "已用有效工作组保存为模板", "Saved effective work sets as a template", "有効ワーキングセットをテンプレートとして保存しました"));
   }
@@ -127,7 +130,12 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     // then the template can fully replace the unrecorded session shell.
     draftIds.forEach((id) => removeExercise(date, id));
     const added = applyTemplate(templateId, date);
-    toast.show(added ? tx(locale, `已套用 ${templateName || "模板"}`, `Applied ${templateName || "template"}`, `${templateName || "テンプレート"}を適用しました`) : tx(locale, "模板动作已经都在本次训练中", "All template exercises are already in this workout", "テンプレートの種目はすべて今回のトレーニングにあります"));
+    toast.show(
+      added
+        ? tx(locale, `已套用 ${templateName || "模板"}`, `Applied ${templateName || "template"}`, `${templateName || "テンプレート"}を適用しました`)
+        : tx(locale, "模板动作已经都在本次训练中", "All template exercises are already in this workout", "テンプレートの種目はすべて今回のトレーニングにあります"),
+      added ? undefined : { tone: "info" },
+    );
   }
 
   const templates = (data.templates ?? []).filter((template) => template.type === type);
@@ -148,6 +156,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
         key={exercise.id}
         date={date}
         exercise={exercise}
+        active={exercise.id === activeExerciseId}
         navigationTarget={navigationTarget === exercise.id}
         onNavigate={setNavigationTarget}
         nextExercise={exercise.supersetGroup
@@ -156,6 +165,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       />)}
       {typeHasExercises(type) && <AddExercisePanel date={date} type={type} addedIds={addedIds} lockedIds={lockedIds} />}
       {exercises.length > 0 && <div className="control-card px-3.5 py-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[13px] font-semibold text-fg">{tx(locale, "本次记录", "Session log", "今回の記録")}</p><p className="mt-0.5 text-[11px] text-faint">{tx(locale, "完整组按 1，部分完成按 0.5；跳过和空白组不计入。", "Complete sets count as 1 and partial sets as 0.5; skipped and blank sets do not count.", "完了セットは1、部分完了は0.5。スキップと空欄は集計しません。")}</p></div><span className="tnum shrink-0 rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-muted">{formatSetCredit(completedSets)}{plannedSets ? ` / ${plannedSets}` : ""} {setUnit}</span></div></div>}
+      <div id="session-finish" className="scroll-mt-28 space-y-2">
       {effectiveSets > 0 && <div className="control-card p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[12px] font-semibold text-fg">{tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}</p><p className="mt-0.5 text-[10px] text-faint">{tx(locale, "只影响下次建议，不改动已填数据", "Used only for the next suggestion; your entries stay unchanged", "次回提案にのみ使用し、入力データは変更しません")}</p></div></div><div className="control-strip mt-2 grid grid-cols-3 gap-1 rounded-xl p-1" role="group" aria-label={tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}>{(["easy", "onTarget", "hard"] as const).map((value) => <button key={value} type="button" onClick={() => setWorkoutDifficulty(date, value)} aria-pressed={difficulty === value} className={"choice-chip press h-9 text-[12px] font-semibold " + (difficulty === value ? "bg-fg text-bg" : "text-muted")}>{value === "easy" ? tx(locale, "轻松", "Easy", "余裕") : value === "hard" ? tx(locale, "吃力", "Hard", "きつい") : tx(locale, "合适", "On target", "適正")}</button>)}</div></div>}
       {templateType(type) && effectiveSets > 0 && <button type="button" onClick={saveTemplate} className="press flex h-10 w-full items-center justify-center rounded-xl border border-border bg-surface text-[13px] font-semibold text-accent">{tx(locale, "用本次有效工作组存为模板", "Save effective work sets as template", "有効ワーキングセットをテンプレートに保存")}</button>}
       {effectiveSets > 0 && (done
@@ -163,6 +173,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
         : confirmFinish
           ? <div ref={finishConfirmationRef} className="mb-20 scroll-mb-24 rounded-xl border border-warn/40 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `计划还差 ${formatSetCredit(execution.remainingSets)} 组，仍然结束？`, `${formatSetCredit(execution.remainingSets)} planned sets remain. Finish anyway?`, `予定まであと ${formatSetCredit(execution.remainingSets)} セットです。終了しますか？`)}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmFinish(false)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "继续记录", "Keep logging", "記録を続ける")}</button><button type="button" onClick={finishWorkout} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "仍然结束", "Finish anyway", "終了する")}</button></div></div>
           : <button type="button" onClick={() => execution.needsFinishConfirmation ? setConfirmFinish(true) : finishWorkout()} className="press flex h-12 w-full items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{tx(locale, `结束训练 · 完成 ${formatSetCredit(completedSets)} 组`, `Finish workout · ${formatSetCredit(completedSets)} sets complete`, `トレーニングを終了 · ${formatSetCredit(completedSets)}セット完了`)}</button>)}
+      </div>
     </div>}
   </section>;
 }

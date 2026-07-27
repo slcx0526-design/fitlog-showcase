@@ -14,10 +14,7 @@ import { requiresCycleReviewBeforeWorkout } from "@/lib/cyclePlanning";
 import type { TrainingType } from "@/lib/types";
 import TrainingModuleStable from "@/components/TrainingModuleStable";
 import SessionVolumePlan from "@/components/SessionVolumePlan";
-import PulseSessionConsole from "@/components/PulseSessionConsole";
-import MidnightSessionDeck from "@/components/MidnightSessionDeck";
-import SurvivalSessionGuide from "@/components/SurvivalSessionGuide";
-import LiteSessionGuide from "@/components/LiteSessionGuide";
+import SessionGuide from "@/components/SessionGuide";
 import CycleReviewPanel from "@/components/CycleReviewPanel";
 import IntegratedCoachBrief from "@/components/IntegratedCoachBrief";
 
@@ -80,7 +77,7 @@ function TrainInner() {
       <CycleReviewPanel />
     </div> : <>
       {!isPast && <IntegratedCoachBrief compact showAction={false} />}
-      {!isPast && (mode === "pulse" ? <PulseSessionConsole /> : mode === "midnight" ? <MidnightSessionDeck /> : mode === "survival" ? <SurvivalSessionGuide /> : <LiteSessionGuide />)}
+      {!isPast && <SessionGuide workout={workout} />}
       <SessionVolumePlan date={date} workout={workout} />
       <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />
     </>}

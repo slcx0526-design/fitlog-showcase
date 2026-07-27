@@ -43,6 +43,7 @@ test("primary routes stay visible and inside the viewport", async ({ page }) => 
 
 test("all visual modes keep core mobile flows contained", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Theme containment is a focused mobile regression.");
+  const date = localDateKey();
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
@@ -50,6 +51,32 @@ test("all visual modes keep core mobile flows contained", async ({ page }, testI
   const modes = ["lite", "pulse", "midnight", "survival"];
   const routes = ["/", "/train", "/progress?tab=training", "/settings"];
 
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              equipment: "free",
+              recordModes: ["weight", "reps"],
+              sets: [],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  }, { dateKey: date });
   await page.goto("/");
   for (const mode of modes) {
     await page.evaluate((nextMode) => localStorage.setItem("fitlog:uiMode", nextMode), mode);
@@ -57,6 +84,8 @@ test("all visual modes keep core mobile flows contained", async ({ page }, testI
       await page.goto(route, { waitUntil: "domcontentloaded" });
       await expect(page.locator("html")).toHaveAttribute("data-mode", mode);
       await expect(page.locator("main")).toBeVisible();
+      if (route === "/") await expect(page.locator("[data-daily-overview]")).toBeVisible();
+      if (route === "/train") await expect(page.locator("[data-session-guide]")).toBeVisible();
       const layout = await page.evaluate(() => ({
         viewport: window.innerWidth,
         body: document.body.scrollWidth,
@@ -162,7 +191,11 @@ test("training execution exposes superset navigation and plate loading", async (
 
   await page.goto("/train");
   await expect(page.getByText("超级组 A").first()).toBeVisible();
-  const calculator = page.getByRole("button", { name: /杠铃片计算/ });
+  const bench = page.locator("#exercise-px_barbell_bench");
+  const expandBench = bench.getByRole("button", { name: "展开平板杠铃卧推" });
+  await expect(expandBench).toHaveAttribute("aria-expanded", "false");
+  await expandBench.click();
+  const calculator = bench.getByRole("button", { name: /杠铃片计算/ });
   await expect(calculator).toBeVisible();
   await calculator.click();
   await expect(page.getByText("100kg", { exact: true }).first()).toBeVisible();
@@ -172,6 +205,55 @@ test("training execution exposes superset navigation and plate loading", async (
   const targetExercise = page.locator("#exercise-px_lateral_raise");
   await expect(targetExercise.getByText("哑铃侧平举", { exact: true })).toBeVisible();
   await expect(targetExercise.getByRole("button", { name: /添加下一组/ })).toBeVisible();
+});
+
+test("exercise picker behaves as an accessible mobile sheet", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+  await page.goto("/train?start=push");
+  await page.getByRole("button", { name: "添加动作", exact: true }).click();
+
+  const dialog = page.getByRole("dialog", { name: "添加动作" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "搜索动作" })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
+});
+
+test("local persistence failures are visible and actionable", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+  await page.goto("/train");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+
+  await page.getByRole("button", { name: "推", exact: true }).click();
+  const alert = page.locator(".persistence-alert");
+  await expect(alert).toContainText("本次修改未能保存");
+  await expect(alert.getByRole("link", { name: "去设置" })).toHaveAttribute("href", "/settings");
 });
 
 test("workout drafts and rest days keep explicit completion state", async ({ page }) => {

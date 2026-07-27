@@ -1,1 +1,1 @@
-FitLog 11.2.0 product UI and interaction system
+FitLog 11.3.0 interface foundation convergence

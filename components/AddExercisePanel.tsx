@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ExercisePreset, RecordMode, TrainingIntent, TrainingType } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { useI18n } from "@/lib/i18n";
+import { localeText, useI18n } from "@/lib/i18n";
 import { DEFAULT_EXERCISES, presetForHistoricalExercise, searchExercisePreset } from "@/lib/exercises";
 import {
   EQUIPMENT_LABELS,
@@ -14,6 +14,7 @@ import {
 } from "@/lib/muscles";
 import { formatCompact } from "@/lib/date";
 import CustomExerciseEditor, { isCustomExercise } from "./CustomExerciseEditor";
+import Sheet from "./ui/Sheet";
 
 const EQUIP_ORDER: Equipment[] = ["machine", "cable", "free", "bodyweight"];
 type TrackChoice = "context" | TrainingIntent;
@@ -50,6 +51,10 @@ export default function AddExercisePanel({
   const [muscleFilter, setMuscleFilter] = useState<MuscleGroup | "">("");
   const [equipmentFilter, setEquipmentFilter] = useState<Equipment | "">("");
   const [trackChoice, setTrackChoice] = useState<TrackChoice>("context");
+  const closePanel = useCallback(() => {
+    setOpen(false);
+    setEditId(null);
+  }, []);
   const favoriteIds = useMemo(() => new Set(data.favoriteExerciseIds ?? []), [data.favoriteExerciseIds]);
 
   const presets = useMemo(
@@ -127,36 +132,38 @@ export default function AddExercisePanel({
     <div>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(true)}
         aria-expanded={open}
-        className="press flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong bg-surface text-[14px] font-medium text-muted active:bg-surface-2"
+        aria-haspopup="dialog"
+        className="press flex h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong bg-surface text-[14px] font-medium text-muted active:bg-surface-2"
       >
-        {open ? (
-          tr("收起")
-        ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 5V19M5 12H19"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-            {tr("添加动作")}
-          </>
-        )}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M12 5V19M5 12H19"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+        {tr("添加动作")}
       </button>
 
-      {open && (
-        <div className="control-strip animate-slidedown mt-2 rounded-2xl p-3">
+      <Sheet
+        open={open}
+        onClose={closePanel}
+        title={tr("添加动作")}
+        closeLabel={tr("关闭")}
+        description={localeText(locale, "搜索动作、沿用上次记录，或建立自定义动作。", "Search exercises, reuse the previous session, or create a custom exercise.", "種目を検索し、前回の内容を再利用するか、カスタム種目を作成します。")}
+      >
+        <div className="exercise-picker">
           <div className="mb-3 space-y-2">
             <input
               value={query}
+              data-sheet-initial-focus
               aria-label={tr("搜索动作")}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={tr("搜索动作 / 英文 / 别名")}
-              className="number-cell h-10 w-full rounded-xl border border-border bg-surface px-3 text-[13px] text-fg outline-none placeholder:text-faint focus:border-accent"
+              className="number-cell h-10 w-full rounded-lg border border-border bg-surface px-3 text-[13px] text-fg outline-none placeholder:text-faint focus:border-accent"
             />
             <div className="grid grid-cols-2 gap-2">
               <select aria-label={tr("按肌群筛选")} value={muscleFilter} onChange={(event) => setMuscleFilter(event.target.value as MuscleGroup | "")} className="h-9 rounded-lg border border-border bg-surface px-2 text-[12px] text-muted outline-none focus:border-accent">
@@ -196,7 +203,7 @@ export default function AddExercisePanel({
           )}
 
           {activeSearch && filtered.length === 0 && (
-            <p className="mb-3 rounded-xl border border-dashed border-border px-3 py-4 text-center text-[12px] text-faint">{tr("没有匹配动作，可在下方新建自定义动作")}</p>
+            <p className="mb-3 rounded-lg border border-dashed border-border px-3 py-4 text-center text-[12px] text-faint">{tr("没有匹配动作，可在下方新建自定义动作")}</p>
           )}
 
           {!activeSearch && favoriteIds.size > 0 && (
@@ -370,7 +377,7 @@ export default function AddExercisePanel({
             </p>
           </div>
         </div>
-      )}
+      </Sheet>
     </div>
   );
 }

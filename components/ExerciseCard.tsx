@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { Exercise, PerformanceMode, SetRecord } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -32,6 +32,8 @@ import NumberField from "./NumberField";
 import SetCapacityOptions from "./SetCapacityOptions";
 import { haptic, pulseFeedback } from "@/lib/feedback";
 import PlateCalculator from "./PlateCalculator";
+import IconButton from "./ui/IconButton";
+import InlineConfirm from "./ui/InlineConfirm";
 
 const fmt = (value: number) => String(value);
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
@@ -66,12 +68,14 @@ export default function ExerciseCard({
   exercise,
   nextExercise,
   navigationTarget = false,
+  active = false,
   onNavigate,
 }: {
   date: string;
   exercise: Exercise;
   nextExercise?: Exercise;
   navigationTarget?: boolean;
+  active?: boolean;
   onNavigate?: (exerciseId: string) => void;
 }) {
   const { tr, locale } = useI18n();
@@ -79,7 +83,8 @@ export default function ExerciseCard({
   const { mode } = useUIMode();
   const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, data } = useStore();
   const toast = useToast();
-  const [open, setOpen] = useState(true);
+  const contentId = useId();
+  const [open, setOpen] = useState(active);
   const [options, setOptions] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingFocus, setPendingFocus] = useState<{ index: number; field: "weight" | "performance" } | null>(null);
@@ -114,6 +119,7 @@ export default function ExerciseCard({
   const trend = analyzeTrackTrend(reviewingCompleted && currentHistory ? [currentHistory, ...histories.same] : histories.same);
   const workSummary = summarizeExerciseWork(exercise);
   const plannedSets = plannedWorkingSets(exercise);
+  const completed = plannedSets > 0 && workSummary.completionCredits >= plannedSets;
   const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
   const carry = currentLoad ?? (recordsWeight && previous && !previous.implicitCompletion ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
@@ -139,7 +145,7 @@ export default function ExerciseCard({
     const index = exercise.sets.length;
     setPendingFocus({ index, field: recordsWeight && set.weight <= 0 ? "weight" : "performance" });
     addSet(date, exercise.id, set);
-    if (set.weight > 0) toast.show(tx(locale, `已带入 ${set.weight}kg，请记录本组实际表现`, `${set.weight}kg carried forward — enter this set's result`, `${set.weight}kg を引き継ぎました。このセットの実績を入力してください`));
+    if (set.weight > 0) toast.show(tx(locale, `已带入 ${set.weight}kg，请记录本组实际表现`, `${set.weight}kg carried forward — enter this set's result`, `${set.weight}kg を引き継ぎました。このセットの実績を入力してください`), { tone: "info" });
     else toast.show(persona.setAdded(mode));
     if (mode === "pulse") pulseFeedback("confirm");
     else haptic(8);
@@ -194,41 +200,77 @@ export default function ExerciseCard({
     return () => window.cancelAnimationFrame(frame);
   }, [exercise.id, navigationTarget]);
 
-  return <section id={`exercise-${exercise.id}`} className="control-card scroll-mt-3">
+  useEffect(() => {
+    if (navigationTarget || active) {
+      setOpen(true);
+      return;
+    }
+    if (completed) setOpen(false);
+  }, [active, completed, navigationTarget]);
+
+  return <section id={`exercise-${exercise.id}`} className="control-card exercise-card scroll-mt-3" data-active={active}>
     <div className="flex items-center gap-2 px-3.5 py-3">
-      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press min-w-0 flex-1 text-left">
-        <p className="truncate text-[15px] font-semibold text-fg">{tr(exercise.name)}</p>
-        <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
-          {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
-          {exercise.supersetGroup && <Chip label={`${tx(locale, "超级组", "Superset", "スーパーセット")} ${exercise.supersetGroup}`} accent />}
-          <Chip label={tr(trackLabel)} accent />
-          <Chip label={tx(locale, `计划 ${plannedSets} 组`, `Plan ${plannedSets} sets`, `予定 ${plannedSets} セット`)} />
-          {workSummary.completionCredits > 0 && <span className="tnum text-faint">{formatSetCredit(workSummary.completionCredits)} {setUnit}</span>}
-        </div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={contentId}
+        aria-label={tx(
+          locale,
+          `${open ? "收起" : "展开"}${tr(exercise.name)}`,
+          `${open ? "Collapse" : "Expand"} ${tr(exercise.name)}`,
+          `${tr(exercise.name)}を${open ? "閉じる" : "開く"}`,
+        )}
+        className="press flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold text-fg">{tr(exercise.name)}</span>
+          <span className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+            {exercise.isMain && <Chip label={tx(locale, "主项", "Main", "メイン")} accent />}
+            {exercise.supersetGroup && <Chip label={`${tx(locale, "超级组", "Superset", "スーパーセット")} ${exercise.supersetGroup}`} accent />}
+            <Chip label={tr(trackLabel)} accent />
+            <Chip label={tx(locale, `计划 ${plannedSets} 组`, `Plan ${plannedSets} sets`, `予定 ${plannedSets} セット`)} />
+            {workSummary.completionCredits > 0 && <span className="tnum text-faint">{formatSetCredit(workSummary.completionCredits)} {setUnit}</span>}
+          </span>
+        </span>
+        <svg className={`exercise-card__chevron ${open ? "is-open" : ""}`} aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M7 10L12 15L17 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
-      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="press grid h-9 w-9 place-items-center text-faint" aria-label={open ? tx(locale, "收起动作", "Collapse exercise", "種目を折りたたむ") : tx(locale, "展开动作", "Expand exercise", "種目を展開する")}>⌄</button>
-      <button type="button" onClick={() => exercise.sets.length ? setConfirmDelete(true) : removeExercise(date, exercise.id)} className="press grid h-9 w-9 place-items-center text-faint hover:text-accent" aria-label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}>×</button>
+      <IconButton
+        onClick={() => exercise.sets.length ? setConfirmDelete(true) : removeExercise(date, exercise.id)}
+        label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}
+        tone="danger"
+      >
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </IconButton>
     </div>
 
-    {confirmDelete && <div className="flex items-center gap-2 border-t border-accent/30 bg-accent-soft px-3.5 py-2.5">
-      <p className="flex-1 text-[12px] text-accent">{tx(locale, `删除此动作及其 ${exercise.sets.length} 组记录？`, `Delete this exercise and its ${exercise.sets.length} set records?`, `この種目と ${exercise.sets.length} セットの記録を削除しますか？`)}</p>
-      <button type="button" onClick={() => setConfirmDelete(false)} className="press rounded-md border border-border bg-surface px-2 py-1 text-[11px]">{tx(locale, "取消", "Cancel", "キャンセル")}</button>
-      <button type="button" onClick={() => removeExercise(date, exercise.id)} className="press rounded-md bg-accent px-2 py-1 text-[11px] text-accent-fg">{tx(locale, "删除", "Delete", "削除")}</button>
-    </div>}
+    {confirmDelete && <InlineConfirm
+      tone="danger"
+      message={<p className="text-[12px]">{tx(locale, `删除此动作及其 ${exercise.sets.length} 组记录？`, `Delete this exercise and its ${exercise.sets.length} set records?`, `この種目と ${exercise.sets.length} セットの記録を削除しますか？`)}</p>}
+      cancelLabel={tx(locale, "取消", "Cancel", "キャンセル")}
+      confirmLabel={tx(locale, "删除", "Delete", "削除")}
+      onCancel={() => setConfirmDelete(false)}
+      onConfirm={() => removeExercise(date, exercise.id)}
+    />}
 
-    <div className="border-t border-border px-3.5 py-2.5">
-      <p className="text-[11px] text-faint">{reviewingCompleted && currentHistory
-        ? tx(locale, `本次完成 · ${summarize(currentHistory.sets, performanceMode, locale)}`, `Completed this session · ${summarize(currentHistory.sets, performanceMode, locale)}`, `今回完了・${summarize(currentHistory.sets, performanceMode, locale)}`)
-        : previous
-          ? previous.implicitCompletion
-            ? tx(locale, `同轨道参考 ${formatCompact(previous.date, locale).md} · 未显式结束 · ${summarize(previous.sets, performanceMode, locale)}`, `Same-track reference · ${formatCompact(previous.date, locale).md} · unclosed · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック参考 ${formatCompact(previous.date, locale).md}・未終了・${summarize(previous.sets, performanceMode, locale)}`)
-            : tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`)
-          : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
-      <div className="control-strip mt-2 rounded-lg px-2.5 py-2">
-        <div className="flex items-center justify-between gap-2"><span className="text-[9px] font-semibold text-faint">{reviewingCompleted ? tx(locale, "下次建议", "Next-session suggestion", "次回の提案") : tx(locale, "本次建议", "Session suggestion", "今回の提案")}</span><span className={"tnum text-[11px] font-semibold " + (suggestionCopy.tone === "accent" ? "text-accent" : suggestionCopy.tone === "warn" ? "text-warn" : "text-fg")}>{suggestionCopy.value}</span></div>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted">{suggestionCopy.summary}</p>
-        <p className="mt-1 text-[9px] leading-relaxed text-faint"><span className="font-semibold">{tx(locale, "进步条件", "Progression condition", "進行条件")}</span> · {suggestionCopy.condition}</p>
-      </div>
+    {open && <div id={contentId}>
+      <div className="border-t border-border px-3.5 py-2.5">
+        <p className="text-[11px] text-faint">{reviewingCompleted && currentHistory
+          ? tx(locale, `本次完成 · ${summarize(currentHistory.sets, performanceMode, locale)}`, `Completed this session · ${summarize(currentHistory.sets, performanceMode, locale)}`, `今回完了・${summarize(currentHistory.sets, performanceMode, locale)}`)
+          : previous
+            ? previous.implicitCompletion
+              ? tx(locale, `同轨道参考 ${formatCompact(previous.date, locale).md} · 未显式结束 · ${summarize(previous.sets, performanceMode, locale)}`, `Same-track reference · ${formatCompact(previous.date, locale).md} · unclosed · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック参考 ${formatCompact(previous.date, locale).md}・未終了・${summarize(previous.sets, performanceMode, locale)}`)
+              : tx(locale, `同轨道上次 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `Same track · ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`, `同一トラック 前回 ${formatCompact(previous.date, locale).md} · ${summarize(previous.sets, performanceMode, locale)}`)
+            : tx(locale, "当前轨道首次记录", "First record on this track", "このトラックで初回の記録")}</p>
+        <div className="control-strip mt-2 rounded-lg px-2.5 py-2">
+          <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-semibold text-faint">{reviewingCompleted ? tx(locale, "下次建议", "Next-session suggestion", "次回の提案") : tx(locale, "本次建议", "Session suggestion", "今回の提案")}</span><span className={"tnum text-[11px] font-semibold " + (suggestionCopy.tone === "accent" ? "text-accent" : suggestionCopy.tone === "warn" ? "text-warn" : "text-fg")}>{suggestionCopy.value}</span></div>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">{suggestionCopy.summary}</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-faint"><span className="font-semibold">{tx(locale, "进步条件", "Progression condition", "進行条件")}</span> · {suggestionCopy.condition}</p>
+        </div>
       {trend.sessionCount >= 2 && <p className="mt-1.5 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trackTrendText(trend.status, locale)}</p>}
       {reviewingCompleted && acceptedWeight != null && <ProgressionOutcomeRow outcome={outcome} exercise={exercise} locale={locale} />}
       {!reviewingCompleted && recordsWeight && <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent">
@@ -249,10 +291,12 @@ export default function ExerciseCard({
           <HistoryRows title={tx(locale, "Legacy 旧记录", "Legacy records", "旧記録")} rows={histories.legacy.slice(0, 3)} locale={locale} />
         </div>
       </details>}
-    </div>
+      </div>
 
-    {open && <div className="px-3.5 pb-3 pt-1">
-      {exercise.sets.map((set, index) => <div key={set.at ?? `legacy-set-${index}`} className="soft-divider flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0">
+      <div className="px-3.5 pb-3 pt-1">
+      {exercise.sets.map((set, index) => {
+        const optionsId = `${contentId}-set-${index}-options`;
+        return <div key={set.at ?? `legacy-set-${index}`} className="set-row soft-divider flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0">
         <span className="tnum w-5 text-center text-[12px] text-faint">{index + 1}</span>
         {recordsWeight && <><NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} onEnter={() => setPendingFocus({ index, field: "performance" })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "weight"} enterKeyHint="next" className="number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">kg ×</span></>}
         {performanceMode === "reps" && <><NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="text-[11px] text-faint">{repUnit}</span></>}
@@ -261,10 +305,15 @@ export default function ExerciseCard({
         {set.completion === "partial" && <Chip label={tx(locale, "部分", "Partial", "部分")} />}
         {set.completion === "skipped" && <Chip label={tx(locale, "跳过", "Skipped", "スキップ")} />}
         {set.technique && set.technique !== "normal" && <Chip label={set.technique === "rehab" ? tx(locale, "康复", "Rehab", "リハビリ") : set.technique} />}
-        <button type="button" onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} className="press ml-auto h-9 w-9 text-faint" aria-label={tx(locale, "组设置", "Set options", "セット設定")}>···</button>
-        <button type="button" onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} className="press h-9 w-9 text-faint hover:text-accent" aria-label={tx(locale, "删除组", "Delete set", "セットを削除")}>−</button>
-        {options === index && <SetCapacityOptions set={set} onChange={(value) => patch(index, value)} />}
-      </div>)}
+        <IconButton onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} aria-controls={optionsId} className="ml-auto" label={tx(locale, "组设置", "Set options", "セット設定")}>
+          <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>
+        </IconButton>
+        <IconButton onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} label={tx(locale, "删除组", "Delete set", "セットを削除")} tone="danger">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 12H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+        </IconButton>
+        {options === index && <div id={optionsId} className="w-full"><SetCapacityOptions set={set} onChange={(value) => patch(index, value)} /></div>}
+      </div>;
+      })}
       <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>
       {recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
       {nextExercise && plannedSets > 0 && workSummary.completionCredits >= plannedSets && <button type="button" onClick={goToNextExercise} className="press mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-accent-soft px-3 text-[12px] font-semibold text-accent">
@@ -273,6 +322,7 @@ export default function ExerciseCard({
           : tx(locale, `本动作完成 · 下一项 ${tr(nextExercise.name)}`, `Exercise complete · Next ${tr(nextExercise.name)}`, `種目完了・次は ${tr(nextExercise.name)}`)}
         <span className="ml-1.5" aria-hidden="true">→</span>
       </button>}
+      </div>
     </div>}
   </section>;
 }
