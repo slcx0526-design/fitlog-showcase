@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { useI18n } from "@/lib/i18n";
+import { localeText, useI18n } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
 import { formatDisplay, validPastOrToday } from "@/lib/date";
 import SimpleNutritionLog from "@/components/SimpleNutritionLog";
@@ -19,6 +19,7 @@ function Skeleton() {
 
 function NutritionInner() {
   const { tr, locale } = useI18n();
+  const t = (zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
   const { loaded } = useStore();
   const params = useSearchParams();
   const today = useToday();
@@ -29,9 +30,9 @@ function NutritionInner() {
 
   return (
     <div>
-      <header className="mb-4">
-        <Link href={isPast ? "/progress?tab=log" : "/"} className="press mb-1 flex items-center gap-1 text-[13px] font-medium text-muted"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{tr(isPast ? "日志" : "今天")}</Link>
-        <div className="control-card p-3.5"><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">NUTRITION</p><h1 className="mt-1 text-[24px] font-bold tracking-tight text-fg">{isPast ? tr("补记饮食") : tr("饮食")}</h1><p className="mt-1 text-[12px] text-muted">{formatDisplay(date, locale)} · 先记总热量，宏量只在需要时展开。</p></div>
+      <header className="mb-5">
+        <Link href={isPast ? "/progress?tab=log" : "/"} className="page-back-link press mb-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{tr(isPast ? "日志" : "今天")}</Link>
+        <div className="page-heading"><div><p className="page-heading__eyebrow">{t("饮食记录", "Nutrition log", "食事記録")}</p><h1>{isPast ? tr("补记饮食") : tr("饮食")}</h1><p className="page-heading__meta">{formatDisplay(date, locale)} · {t("先记总热量，宏量按需展开", "Log total calories first; expand macros when needed", "まず総カロリーを記録し、必要な時だけマクロを開く")}</p></div></div>
       </header>
       <SimpleNutritionLog date={date} />
     </div>

@@ -42,7 +42,7 @@ export default function SetupGuide() {
       <div className="border-b border-border px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase text-faint">QUICK START · {step + 1}/3</p>
+            <p className="text-[10px] font-semibold text-faint">{tx(locale, "快速设置", "Quick setup", "クイック設定")} · {step + 1}/3</p>
             <h2 className="mt-1 text-[19px] font-bold text-fg">
               {step === 0
                 ? tx(locale, "先确定训练起点", "Set your training baseline", "トレーニングの起点を設定")

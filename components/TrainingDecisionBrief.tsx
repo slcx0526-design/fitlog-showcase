@@ -31,7 +31,7 @@ export default function TrainingDecisionBrief({ compact = false }: { compact?: b
   return <section className={"control-card overflow-hidden " + (compact ? "mb-3" : "mb-4")}>
     <div className="flex items-start justify-between gap-3 px-3.5 py-3">
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">FITLOG ANALYSIS</p>
+        <p className="text-[11px] font-semibold text-faint">{tx(locale, "训练分析", "Training analysis", "トレーニング分析")}</p>
         <h2 className="mt-0.5 text-[14px] font-semibold text-fg">{decisionHeadline(actions[0], locale)}</h2>
         {!compact && <p className="mt-0.5 text-[10px] leading-relaxed text-faint">{tx(locale, "先判断主要限制，再给下一步；不会自动改动记录。", "The main constraint is identified before a next step; records are never changed automatically.", "主な制約を先に判断し、次の一手を提案します。記録は自動変更しません。")}</p>}
       </div>

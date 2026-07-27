@@ -32,15 +32,17 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <header className="mb-4">
-        <Link href="/" className="press mb-1 flex items-center gap-1 text-[13px] font-medium text-muted">
+      <header className="mb-5">
+        <Link href="/" className="page-back-link press mb-1">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           {tr("今天")}
         </Link>
-        <div className="control-card p-3.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">SETTINGS</p>
-          <h1 className="mt-1 text-[22px] font-bold tracking-tight text-fg">{tr("设置")}</h1>
-          <p className="mt-0.5 text-[12px] text-faint">{tr("偏好 · 数据 · 备份")}</p>
+        <div className="page-heading">
+          <div>
+            <p className="page-heading__eyebrow">{tr("个人偏好")}</p>
+            <h1>{tr("设置")}</h1>
+            <p className="page-heading__meta">{tr("偏好 · 数据 · 备份")}</p>
+          </div>
         </div>
       </header>
 

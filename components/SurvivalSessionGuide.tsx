@@ -7,6 +7,9 @@ import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import { formatRestTime, useRestTimer } from "@/lib/restTimer";
+import { localeText, useI18n, type Locale } from "@/lib/i18n";
+
+const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
 /** A quieter workout companion with actual next-action and recovery state. */
 export default function SurvivalSessionGuide() {
@@ -15,6 +18,7 @@ export default function SurvivalSessionGuide() {
   const { mode } = useUIMode();
   const { data } = useStore();
   const rest = useRestTimer();
+  const { locale } = useI18n();
 
   const workout = data.days[today]?.workout;
   const current = useMemo(() => summarizeSessionExecution(workout), [workout]);
@@ -22,19 +26,21 @@ export default function SurvivalSessionGuide() {
   if (mode !== "survival" || !pathname.startsWith("/train") || !workout || workout.type === "rest" || workout.done) return null;
 
   return (
-    <section className="survival-session-guide mb-3" aria-label="训练野外指引" data-no-pulse>
+    <section className="survival-session-guide mb-3" aria-label={tx(locale, "训练进度与休息", "Training progress and rest", "トレーニング進捗と休憩")} data-no-pulse>
       <div className="survival-session-guide__top">
-        <span>ROUTE CARD</span>
-        <span className="tnum">{formatSetCredit(current.completionCredits)}{current.plannedSets ? ` / ${current.plannedSets}` : ""} SETS</span>
+        <span>{tx(locale, "训练进度", "Training progress", "トレーニング進捗")}</span>
+        <span className="tnum">{formatSetCredit(current.completionCredits)}{current.plannedSets ? ` / ${current.plannedSets}` : ""} {tx(locale, "组", "sets", "セット")}</span>
       </div>
       <div className="survival-session-guide__body">
         <div className="min-w-0">
-          <p className="survival-session-guide__eyebrow">NEXT CHECKPOINT</p>
-          <p className="truncate survival-session-guide__exercise">{current.next?.exercise.name ?? (current.rows.length ? "本次计划已完成" : "添加第一个动作")}</p>
+          <p className="survival-session-guide__eyebrow">{tx(locale, "下一项", "Next", "次の種目")}</p>
+          <p className="truncate survival-session-guide__exercise">{current.next?.exercise.name ?? (current.rows.length ? tx(locale, "本次计划已完成", "Session plan complete", "今回の予定は完了") : tx(locale, "添加第一个动作", "Add the first exercise", "最初の種目を追加"))}</p>
           <p className="tnum survival-session-guide__meta">
             {current.next && current.next.plannedSets > 0
-              ? `已完成 ${formatSetCredit(current.next.creditedSets)} / ${current.next.plannedSets} 工作组`
-              : current.rows.length ? "今天的训练路线已经完成" : "准备开始今天的行动"}
+              ? tx(locale, `已完成 ${formatSetCredit(current.next.creditedSets)} / ${current.next.plannedSets} 工作组`, `${formatSetCredit(current.next.creditedSets)} / ${current.next.plannedSets} working sets complete`, `${formatSetCredit(current.next.creditedSets)} / ${current.next.plannedSets} ワーキングセット完了`)
+              : current.rows.length
+                ? tx(locale, "今天的训练计划已经完成", "Today's training plan is complete", "今日のトレーニング予定は完了")
+                : tx(locale, "准备开始今天的训练", "Ready to start today's training", "今日のトレーニングを開始")}
           </p>
         </div>
         <div className="survival-session-guide__rest">

@@ -1,1 +1,1 @@
-FitLog 11.1.1 data and session correctness
+FitLog 11.2.0 product UI and interaction system

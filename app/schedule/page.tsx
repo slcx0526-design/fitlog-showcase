@@ -72,13 +72,11 @@ export default function SchedulePage() {
 
   return (
     <div>
-      <header className="control-card mb-4 p-3.5">
-        <p className="text-[12px] font-medium uppercase tracking-wide text-faint">
-          {tr("训练规划")}
-        </p>
-        <h1 className="mt-0.5 text-[22px] font-bold tracking-tight text-fg">
-          {tr("计划")}
-        </h1>
+      <header className="page-heading mb-5">
+        <div>
+          <p className="page-heading__eyebrow">{tr("训练规划")}</p>
+          <h1>{tr("计划")}</h1>
+        </div>
       </header>
 
       {/* —— 今日计划 + 入口 —— */}
@@ -103,8 +101,6 @@ export default function SchedulePage() {
               >
                 {todayPlanned
                   ? typeName[todayPlanned](mode)
-                  : mode === "lite"
-                  ? "NOT PLANNED"
                   : tr("未规划")}
               </p>
             </div>
@@ -204,9 +200,9 @@ export default function SchedulePage() {
             unit={persona.days(mode)}
           />
           <Stat
-            label={mode === "lite" ? "LAST 28 D" : tr("近 28 天")}
+            label={tr("近 28 天")}
             value={stats.last28}
-            unit={mode === "lite" ? "TRAINING" : tr("次训练")}
+            unit={tr("次训练")}
           />
         </div>
         {analysis.recovery.active ? (

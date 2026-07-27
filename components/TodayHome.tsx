@@ -60,9 +60,9 @@ export default function TodayHome() {
   if (!loaded) return <div className="space-y-3"><div className="h-16 rounded-2xl bg-surface-2" /><div className="h-24 rounded-2xl bg-surface-2" /><div className="h-44 rounded-2xl bg-surface-2" /></div>;
 
   return <div className="pb-2">
-    <header className="mb-4 flex items-start justify-between">
-      <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">FITLOG · TODAY</p><h1 className="mt-1 text-[25px] font-bold tracking-tight text-fg">{formatDisplay(today, locale)}</h1></div>
-      <Link href="/settings" aria-label={tr("设置")} className="press grid h-10 w-10 place-items-center rounded-xl border border-border bg-surface text-faint shadow-sm"><svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" /><path d="M12 2.75V5M12 19V21.25M4.75 12H2.5M21.5 12H19.25M6.9 6.9L5.3 5.3M18.7 18.7L17.1 17.1M6.9 17.1L5.3 18.7M18.7 5.3L17.1 6.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg></Link>
+    <header className="page-heading mb-5">
+      <div><p className="page-heading__eyebrow">FITLOG</p><h1>{formatDisplay(today, locale)}</h1></div>
+      <Link href="/settings" aria-label={tr("设置")} className="page-icon-button press"><svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" /><path d="M12 2.75V5M12 19V21.25M4.75 12H2.5M21.5 12H19.25M6.9 6.9L5.3 5.3M18.7 18.7L17.1 17.1M6.9 17.1L5.3 18.7M18.7 5.3L17.1 6.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg></Link>
     </header>
 
     {setupNeeded && <div className="mb-4"><SetupGuide /></div>}
@@ -73,19 +73,19 @@ export default function TodayHome() {
 
     <RecoveryCheckInCard date={today} />
 
-    <section className={"action-card lite-card mb-3 overflow-hidden rounded-2xl border p-4 shadow-sm " + (workout && !workout.done && workout.type !== "rest" ? "border-accent bg-accent-soft" : "border-border bg-surface")}>
-      <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">PRIMARY</p><h2 className="mt-1 text-[25px] font-bold tracking-tight text-fg">{activeType ? tr(typeLabel(activeType)) : tr("训练")}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workout?.done, setCount, !!activeType)}</p></div><span className={"grid h-10 w-10 place-items-center rounded-xl " + (workout?.done ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
-      <Link href={workoutHref} className="press mt-4 flex h-12 items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
+    <section className={"primary-workout-panel mb-3 " + (workout && !workout.done && workout.type !== "rest" ? "is-active" : "")}>
+      <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{activeType ? tr(typeLabel(activeType)) : tr("训练")}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workout?.done, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workout?.done ? "is-done" : "")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
+      <Link href={workoutHref} className="primary-command press">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
     </section>
 
     <IntegratedCoachBrief compact />
 
-    <section className="grid grid-cols-2 gap-3">
-      <Link href="/nutrition" className="metric-sheen press rounded-2xl border border-border bg-surface p-3.5 shadow-sm"><div className="flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tr("饮食")}</span><MiniArrow /></div><p className="tnum mt-3 text-[24px] font-bold text-fg">{calories || "—"}<span className="ml-1 text-[11px] font-medium text-faint">kcal</span></p><p className="mt-1 text-[11px] text-muted">{calorieDetail}</p></Link>
-      <Link href="/cardio" className="metric-sheen press rounded-2xl border border-border bg-surface p-3.5 shadow-sm"><div className="flex items-center justify-between"><span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{tr("有氧")}</span><MiniArrow /></div><p className="tnum mt-3 text-[24px] font-bold text-fg">{cardioToday || "—"}<span className="ml-1 text-[11px] font-medium text-faint">{tr("分")}</span></p><p className="mt-1 text-[11px] text-muted">{cardioToday ? tr("本周累计 {n} 分", { n: cardioWeek.totalMinutes }) : cutActive ? tr("记录后影响本周速度") : tr("快速记录一次有氧")}</p></Link>
+    <section className="grid grid-cols-2 gap-2.5">
+      <Link href="/nutrition" className="metric-panel press"><div className="flex items-center justify-between"><span className="metric-panel__label">{tr("饮食")}</span><MiniArrow /></div><p className="tnum mt-3 text-[24px] font-bold text-fg">{calories || "—"}<span className="ml-1 text-[11px] font-medium text-faint">kcal</span></p><p className="mt-1 text-[11px] text-muted">{calorieDetail}</p></Link>
+      <Link href="/cardio" className="metric-panel press"><div className="flex items-center justify-between"><span className="metric-panel__label">{tr("有氧")}</span><MiniArrow /></div><p className="tnum mt-3 text-[24px] font-bold text-fg">{cardioToday || "—"}<span className="ml-1 text-[11px] font-medium text-faint">{tr("分")}</span></p><p className="mt-1 text-[11px] text-muted">{cardioToday ? tr("本周累计 {n} 分", { n: cardioWeek.totalMinutes }) : cutActive ? tr("记录后影响本周速度") : tr("快速记录一次有氧")}</p></Link>
     </section>
 
-    <section className="mt-3 rounded-2xl border border-border bg-surface px-3.5 py-3 shadow-sm"><div className="flex items-center justify-between gap-3"><div><p className="text-[12px] font-semibold text-fg">{tr("减脂与趋势")}</p><p className="mt-0.5 text-[11px] text-faint">{cutActive ? (energy.maintenanceSource === "trend" ? tr("趋势已校准 · 有氧影响周速度") : tr("先用公式起点，记录够后自动校准")) : tr("开启后汇总饮食、有氧和体重趋势")}</p></div><Link href="/cut" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{cutActive ? tr("查看") : tr("开启")}</Link></div></section>
+    <section className="inline-panel mt-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[12px] font-semibold text-fg">{tr("减脂与趋势")}</p><p className="mt-0.5 text-[11px] text-faint">{cutActive ? (energy.maintenanceSource === "trend" ? tr("趋势已校准 · 有氧影响周速度") : tr("先用公式起点，记录够后自动校准")) : tr("开启后汇总饮食、有氧和体重趋势")}</p></div><Link href="/cut" className="page-utility-link press">{cutActive ? tr("查看") : tr("开启")}</Link></div></section>
   </div>;
 }
 

@@ -47,9 +47,9 @@ export default function ProgressPageShell({ initialTab = "body" }: { initialTab?
   if (!loaded) return <div className="space-y-3"><div className="h-16 rounded-2xl bg-surface-2" /><div className="h-56 rounded-2xl bg-surface-2" /></div>;
 
   return <div className="progress-shell">
-    <header className="control-card mb-4 flex items-end justify-between gap-4 p-3.5">
-      <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-faint">REVIEW</p><h1 className="mt-1 text-[25px] font-bold tracking-tight text-fg">{t("进度", "Progress", "進捗")}</h1><p className="mt-1 text-[12px] text-muted">{t(...selected.detail)}</p></div>
-      <Link href="/settings" className="press rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-muted">{t("备份与设置", "Backup & settings", "バックアップと設定")}</Link>
+    <header className="page-heading mb-5">
+      <div><p className="page-heading__eyebrow">{t("训练复盘", "Review", "レビュー")}</p><h1>{t("进度", "Progress", "進捗")}</h1><p className="page-heading__meta">{t(...selected.detail)}</p></div>
+      <Link href="/settings" className="page-utility-link press">{t("设置", "Settings", "設定")}</Link>
     </header>
     <div className="control-strip mb-5 grid grid-cols-3 gap-1 rounded-2xl p-1" role="tablist" aria-label={t("进度分类", "Progress categories", "進捗カテゴリ")}>
       {(Object.keys(TAB_COPY) as Tab[]).map((item) => <button type="button" key={item} role="tab" aria-selected={tab === item} onClick={() => change(item)} className={"choice-chip press h-10 text-[13px] font-semibold " + (tab === item ? "bg-fg text-bg shadow-sm" : "text-muted")}>{t(...TAB_COPY[item].label)}</button>)}

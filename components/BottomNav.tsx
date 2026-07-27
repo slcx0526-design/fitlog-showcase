@@ -16,11 +16,11 @@ export default function BottomNav() {
   const pathname = usePathname();
   const { tr } = useI18n();
   return <nav className="app-nav fixed inset-x-0 bottom-0 z-20 border-t border-border/80 bg-surface/95 backdrop-blur-xl" aria-label={tr("主导航")}>
-    <div className="mx-auto grid max-w-app grid-cols-4 gap-1 px-2 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1.5">
+    <div className="mx-auto grid max-w-app grid-cols-4 gap-1 px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1">
       {TABS.map((tab) => {
         const active = tab.match(pathname); const Icon = tab.icon;
-        return <Link key={tab.href} href={tab.href} aria-current={active ? "page" : undefined} data-active={active} onClick={() => { if (!active) pulseFeedback("nav"); }} className={`nav-item press relative flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl px-1 pt-1 ${active ? "text-accent" : "text-faint"}`}>
-          <span className={`nav-icon-shell grid h-7 w-10 place-items-center rounded-lg ${active ? "bg-accent-soft" : "bg-transparent"}`}><Icon active={active} /></span>
+        return <Link key={tab.href} href={tab.href} aria-current={active ? "page" : undefined} data-active={active} onClick={() => { if (!active) pulseFeedback("nav"); }} className={`nav-item press relative flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-md px-1 pt-1 ${active ? "text-accent" : "text-faint"}`}>
+          <span className="nav-icon-shell grid h-7 w-8 place-items-center rounded-md"><Icon active={active} /></span>
           <span className="text-[11px] font-semibold leading-none">{tr(tab.label)}</span>
         </Link>;
       })}

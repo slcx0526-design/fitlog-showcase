@@ -7,6 +7,9 @@ import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { useUIMode } from "@/lib/uiMode";
 import { workingSets } from "@/lib/trainingMetrics";
+import { localeText, useI18n, type Locale } from "@/lib/i18n";
+
+const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
 type FieldStation = {
   id: "vitals" | "rations" | "route";
@@ -44,6 +47,7 @@ export default function SurvivalFieldBoard() {
   const today = useToday();
   const { mode } = useUIMode();
   const { data } = useStore();
+  const { locale } = useI18n();
 
   const board = useMemo(() => {
     const day = data.days[today];
@@ -58,50 +62,64 @@ export default function SurvivalFieldBoard() {
     const stations: FieldStation[] = [
       {
         id: "vitals",
-        label: "01 / VITALS",
-        title: todayWeight ? `${todayWeight.weight.toFixed(1)} kg` : "晨间检查",
-        detail: todayWeight ? "今日体重已记录" : latest ? `上次记录 ${latest.weight.toFixed(1)} kg · ${shortDate(latest.date)}` : "还没有体重基线",
-        note: todayWeight ? "状态已留档" : "记录晨重，才有身体趋势",
+        label: `01 · ${tx(locale, "体征", "Vitals", "体調")}`,
+        title: todayWeight ? `${todayWeight.weight.toFixed(1)} kg` : tx(locale, "晨间检查", "Morning check", "朝の確認"),
+        detail: todayWeight
+          ? tx(locale, "今日体重已记录", "Today's weight is logged", "今日の体重を記録済み")
+          : latest
+            ? tx(locale, `上次 ${latest.weight.toFixed(1)} kg · ${shortDate(latest.date)}`, `Last ${latest.weight.toFixed(1)} kg · ${shortDate(latest.date)}`, `前回 ${latest.weight.toFixed(1)} kg · ${shortDate(latest.date)}`)
+            : tx(locale, "还没有体重基线", "No weight baseline yet", "体重基準はまだありません"),
+        note: todayWeight ? tx(locale, "状态已记录", "Status logged", "状態を記録済み") : tx(locale, "记录晨重以建立趋势", "Log morning weight to build a trend", "朝の体重で傾向を作成"),
         ready: !!todayWeight,
         href: "/data",
-        action: todayWeight ? "查看趋势" : "记录晨重",
+        action: todayWeight ? tx(locale, "查看趋势", "View trend", "傾向を見る") : tx(locale, "记录晨重", "Log weight", "朝の体重を記録"),
       },
       {
         id: "rations",
-        label: "02 / RATIONS",
-        title: calories > 0 ? `${calories} kcal` : "补给未记",
-        detail: calories > 0 ? `蛋白 ${protein || 0} g · 今天的摄入已归档` : "先记总热量，再补宏量",
-        note: calories > 0 ? "补给已确认" : "真实补给决定后续判断",
+        label: `02 · ${tx(locale, "补给", "Fuel", "補給")}`,
+        title: calories > 0 ? `${calories} kcal` : tx(locale, "饮食未记", "Nutrition open", "食事未記録"),
+        detail: calories > 0
+          ? tx(locale, `蛋白 ${protein || 0} g · 今日已记录`, `Protein ${protein || 0} g · logged today`, `たんぱく質 ${protein || 0} g · 記録済み`)
+          : tx(locale, "先记录总热量", "Start with total calories", "まず総カロリーを記録"),
+        note: calories > 0 ? tx(locale, "补给已确认", "Fuel confirmed", "補給を確認済み") : tx(locale, "真实摄入决定后续判断", "Actual intake supports later guidance", "実際の摂取が判断を支えます"),
         ready: calories > 0,
         href: "/nutrition",
-        action: calories > 0 ? "检查补给" : "记录补给",
+        action: calories > 0 ? tx(locale, "查看饮食", "Review nutrition", "食事を見る") : tx(locale, "记录饮食", "Log nutrition", "食事を記録"),
       },
       {
         id: "route",
-        label: "03 / ROUTE",
-        title: trained ? `${completedSets} 组已推进` : cardio ? "有氧路线已完成" : "行动待开始",
-        detail: trained ? "训练日志已写入今天" : cardio ? "有氧日志已写入今天" : "今天还没有训练或有氧记录",
-        note: trained || cardio ? "路线已推进" : "选择下一段行动",
+        label: `03 · ${tx(locale, "行动", "Activity", "行動")}`,
+        title: trained
+          ? tx(locale, `${completedSets} 组已完成`, `${completedSets} sets complete`, `${completedSets} セット完了`)
+          : cardio
+            ? tx(locale, "有氧已完成", "Cardio complete", "有酸素完了")
+            : tx(locale, "行动待开始", "Activity open", "行動未開始"),
+        detail: trained
+          ? tx(locale, "训练日志已写入今天", "Training is logged for today", "今日のトレーニングを記録済み")
+          : cardio
+            ? tx(locale, "有氧日志已写入今天", "Cardio is logged for today", "今日の有酸素を記録済み")
+            : tx(locale, "今天还没有训练或有氧记录", "No training or cardio logged today", "今日はトレーニングも有酸素も未記録"),
+        note: trained || cardio ? tx(locale, "行动已记录", "Activity logged", "行動を記録済み") : tx(locale, "选择下一项行动", "Choose the next activity", "次の行動を選択"),
         ready: trained || cardio,
         href: trained || cardio ? "/progress?tab=training" : "/train",
-        action: trained || cardio ? "查看路线" : "开始行动",
+        action: trained || cardio ? tx(locale, "查看进度", "View progress", "進捗を見る") : tx(locale, "开始行动", "Start", "開始"),
       },
     ];
 
     const next = stations.find((station) => !station.ready) ?? stations[2];
     return { stations, next, done: stations.filter((station) => station.ready).length };
-  }, [data.bodyWeights, data.days, today]);
+  }, [data.bodyWeights, data.days, locale, today]);
 
   if (mode !== "survival" || pathname !== "/") return null;
 
   return (
-    <section className="survival-field-board" aria-label="今日野外行动板">
+    <section className="survival-field-board" aria-label={tx(locale, "Survival 今日记录", "Survival daily log", "Survival 今日の記録")}>
       <div className="survival-field-board__paperclip" aria-hidden="true" />
       <div className="survival-field-board__header">
         <div>
-          <p className="survival-field-board__eyebrow">FIELD KIT // DAY {shortDate(today)}</p>
-          <h2>今日路线</h2>
-          <p>体征、补给、行动。每一项都来自你的真实记录。</p>
+          <p className="survival-field-board__eyebrow">{tx(locale, "今日记录", "Daily log", "今日の記録")} · {shortDate(today)}</p>
+          <h2>{tx(locale, "今日状态", "Today", "今日")}</h2>
+          <p>{tx(locale, "体征、饮食和行动记录。", "Vitals, nutrition, and activity.", "体調・食事・行動の記録。")}</p>
         </div>
         <span className="survival-field-board__count"><b>{board.done}</b>/3</span>
       </div>
@@ -125,7 +143,7 @@ export default function SurvivalFieldBoard() {
       </div>
 
       <Link href={board.next.href} className="press survival-field-board__next" data-pulse-feedback="start">
-        <span>下一检查点</span>
+        <span>{tx(locale, "下一项", "Next", "次へ")}</span>
         <b>{board.next.action}</b>
         <i aria-hidden="true">↗</i>
       </Link>

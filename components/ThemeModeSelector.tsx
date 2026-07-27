@@ -3,11 +3,11 @@
 import { useI18n } from "@/lib/i18n";
 import { useUIMode, type UIMode } from "@/lib/uiMode";
 
-const MODES: Array<{ id: UIMode; name: string; tag: string; detail: string }> = [
-  { id: "lite", name: "Lite", tag: "日常记录", detail: "默认界面：稳定、轻量、专注记录。" },
-  { id: "pulse", name: "Pulse", tag: "行动主题", detail: "高对比、目标推进、快速反馈。" },
-  { id: "midnight", name: "Midnight", tag: "月夜主题", detail: "月光、时间感、长期状态与恢复。" },
-  { id: "survival", name: "Survival", tag: "野外主题", detail: "路线、补给、体征和行动日志。" },
+const MODES: Array<{ id: UIMode; name: string; tag: string }> = [
+  { id: "lite", name: "Lite", tag: "清晰明快" },
+  { id: "pulse", name: "Pulse", tag: "高对比" },
+  { id: "midnight", name: "Midnight", tag: "深色专注" },
+  { id: "survival", name: "Survival", tag: "低饱和" },
 ];
 
 export default function ThemeModeSelector() {
@@ -21,9 +21,7 @@ export default function ThemeModeSelector() {
   return <section className="mode-switchboard mb-6" aria-labelledby="theme-mode-title" data-theme-selector>
     <div className="mode-switchboard__header">
       <div>
-        <p className="mode-switchboard__eyebrow">{tr("主题设定")}</p>
         <h2 id="theme-mode-title">{tr("界面主题")}</h2>
-        <p>{tr("主题只改变视觉、动效和信息强调，不会改动训练、饮食、减脂或身体数据。")}</p>
       </div>
       <span className="mode-switchboard__active" aria-live="polite">{active.name}</span>
     </div>
@@ -44,7 +42,6 @@ export default function ThemeModeSelector() {
             <span className="mode-switchboard__mode-name">{item.name}</span>
             <span className="mode-switchboard__mode-tag">{tr(item.tag)}</span>
           </span>
-          <span className="mode-switchboard__mode-detail">{tr(item.detail)}</span>
           <span className="mode-switchboard__check" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5L9.2 16.5L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
         </button>;
       })}

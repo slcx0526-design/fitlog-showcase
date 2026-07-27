@@ -39,7 +39,7 @@ export default function SimpleCardioLog({ date }: { date: string }) {
       <section className="control-card p-3.5">
         <div className="flex items-baseline justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">THIS WEEK</p>
+            <p className="text-[11px] font-semibold text-faint">本周</p>
             <p className="tnum mt-1 text-[24px] font-bold text-fg">{week.totalMinutes}<span className="ml-1 text-[12px] font-medium text-faint">分钟</span></p>
           </div>
           {cutActive && <p className="tnum text-right text-[13px] font-semibold text-accent">预计 {review.weeklyBudget.projectedWeeklyLossPct == null ? "—" : `${review.weeklyBudget.projectedWeeklyLossPct}% / 周`}<span className="mt-0.5 block text-[10px] font-normal text-faint">有氧已计入</span></p>}

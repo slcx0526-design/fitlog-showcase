@@ -142,18 +142,22 @@ export default function TemplatesPage() {
       <header className="mb-4">
         <Link
           href="/schedule"
-          className="press mb-1 flex items-center gap-1 text-[13px] font-medium text-muted"
+          className="page-back-link press mb-1"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           {tr("计划")}
         </Link>
-        <div className="flex items-baseline justify-between gap-2">
-          <h1 className="text-[22px] font-bold tracking-tight text-fg">{tr("训练模板")}</h1>
+        <div className="page-heading">
+          <div>
+            <p className="page-heading__eyebrow">{tr("训练规划")}</p>
+            <h1>{tr("训练模板")}</h1>
+            <p className="page-heading__meta">{tr("每类型可建多个模板（最多 5 个），自由命名；存组数×次数不存重量")}</p>
+          </div>
           <span
             className={
-              "flex shrink-0 items-center gap-1 text-[12px] font-medium text-accent transition-opacity duration-300 " +
+              "page-status shrink-0 transition-opacity duration-300 " +
               (showSaved ? "opacity-100" : "opacity-0")
             }
             aria-hidden={!showSaved}
@@ -164,9 +168,6 @@ export default function TemplatesPage() {
             {tr("已保存")}
           </span>
         </div>
-        <p className="mt-0.5 text-[12px] text-faint">
-          {tr("每类型可建多个模板（最多 5 个），自由命名；存组数×次数不存重量")}
-        </p>
       </header>
 
       <div className="space-y-5">

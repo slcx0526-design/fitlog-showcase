@@ -46,7 +46,7 @@ export default function CycleReviewPanel() {
   return <section className="control-card overflow-hidden">
     <div className="flex items-start justify-between gap-3 px-3.5 py-3">
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">CYCLE PLAN</p>
+        <p className="text-[11px] font-semibold text-faint">{tx(locale, "周期计划", "Cycle plan", "周期計画")}</p>
         <h2 className="mt-0.5 text-[14px] font-semibold text-fg">{tx(locale, "训练周期处方", "Training cycle prescription", "トレーニング周期処方")}</h2>
         <p className="mt-0.5 text-[10px] text-faint">{sourceDeload
           ? tx(locale, "当前为恢复周期，完成后回到新的建设阶段。", "This is a recovery cycle; completion returns to a new build phase.", "現在は回復サイクルです。完了後は新しい構築段階へ戻ります。")
