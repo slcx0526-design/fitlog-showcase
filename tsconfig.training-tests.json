@@ -36,6 +36,7 @@
     "lib/starterPlans.ts",
     "lib/templates.ts",
     "lib/trainingPolicy.ts",
+    "lib/adaptiveEvidence.ts",
     "lib/trainingConstraints.ts",
     "lib/planAdaptation.ts",
     "lib/scheduleAdaptation.ts",
@@ -53,6 +54,7 @@
     "scripts/integrated-coach.test.ts",
     "scripts/cut-system.test.ts",
     "scripts/finalization.test.ts",
-    "scripts/training-policy.test.ts"
+    "scripts/training-policy.test.ts",
+    "scripts/adaptive-evidence.test.ts"
   ]
 }

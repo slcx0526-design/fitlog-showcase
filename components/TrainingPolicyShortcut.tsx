@@ -11,13 +11,13 @@ export default function TrainingPolicyShortcut() {
   return (
     <Link
       href="/training-policy"
-      title="根据训练倾向调整未来计划"
+      title="查看恢复证据并调整下一次训练处方"
       className="press fixed right-3 z-[18] flex h-10 items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 text-[12px] font-semibold text-accent shadow-lg backdrop-blur-xl"
       style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
-      aria-label="打开训练计划自适应控制台"
+      aria-label="打开动态训练计划控制台"
     >
       <span aria-hidden="true">↻</span>
-      计划自适应
+      动态计划
     </Link>
   );
 }

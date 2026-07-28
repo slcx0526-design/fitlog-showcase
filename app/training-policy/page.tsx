@@ -8,6 +8,7 @@ import {
   dismissAdaptiveLearningSignal,
   type AdaptiveLearningSignal,
 } from "@/lib/adaptiveLearning";
+import { buildAdaptiveEvidenceProfile } from "@/lib/adaptiveEvidence";
 import { DEFAULT_EXERCISES } from "@/lib/exercises";
 import { useToday } from "@/lib/hooks";
 import {
@@ -31,6 +32,7 @@ import {
   parseTrainingPolicyText,
   saveTrainingPolicy,
   type AdaptationMode,
+  type EvidenceAdaptationMode,
   type ExercisePreference,
   type MusclePriority,
   type TrainingGoal,
@@ -66,6 +68,25 @@ const MODES: Array<{ value: AdaptationMode; label: string; detail: string }> = [
   { value: "safeAuto", label: "安全自动", detail: "仅自动执行已授权的小范围变化" },
 ];
 
+const EVIDENCE_MODES: Array<{ value: EvidenceAdaptationMode; label: string; detail: string }> = [
+  { value: "off", label: "关闭", detail: "恢复与健康数据不改变处方" },
+  { value: "preview", label: "仅预览", detail: "显示动态建议，但套用模板时不执行" },
+  { value: "automatic", label: "动态执行", detail: "只自动降低当次容量，不修改源模板" },
+];
+
+const EVIDENCE_STATE_LABELS = {
+  collect: "采集中",
+  normal: "正常",
+  conservative: "保守",
+  recovery: "恢复",
+} as const;
+
+const EVIDENCE_CONFIDENCE_LABELS = {
+  low: "较低",
+  building: "中等",
+  ready: "充分",
+} as const;
+
 const AUTO_PERMISSIONS: Array<{
   key: keyof TrainingPolicy["autoApply"];
   label: string;
@@ -74,7 +95,7 @@ const AUTO_PERMISSIONS: Array<{
   { key: "setChanges", label: "小范围组数", detail: "单个动作每次最多 ±1 组" },
   { key: "repChanges", label: "次数范围", detail: "上下限每次最多变化 2 次" },
   { key: "exerciseReplacement", label: "硬约束换动作", detail: "仅排除、器械不可用或动作模式受限" },
-  { key: "scheduleChanges", label: "日程重排", detail: "训练天数变化不超过 2 天" },
+  { key: "scheduleChanges", label: "日程重排", detail: "只自动减量，证据驱动最多减少 1 天" },
 ];
 
 function updateNumber(
@@ -105,6 +126,10 @@ export default function TrainingPolicyPage() {
     setPolicyLoaded(true);
   }, []);
 
+  const evidence = useMemo(
+    () => buildAdaptiveEvidenceProfile(data, policy, today),
+    [data, policy, today],
+  );
   const proposal = useMemo(
     () => buildPlanAdaptation(data, policy, today, "userRequested"),
     [data, policy, today],
@@ -270,13 +295,35 @@ export default function TrainingPolicyPage() {
       <header className="control-card p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">ADAPTIVE PLAN V2</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">ADAPTIVE PLAN V3</p>
             <h1 className="mt-1 text-[24px] font-bold tracking-tight text-fg">训练倾向与计划适配</h1>
             <p className="mt-1 text-[11px] leading-relaxed text-muted">同时维护动作、容量和每周微周期。历史记录与当前周期冻结快照不会被改写。</p>
           </div>
           <Link href="/schedule" className="choice-chip press shrink-0 border border-border bg-surface-2 px-2.5 py-2 text-[12px] font-semibold text-accent">返回计划</Link>
         </div>
       </header>
+
+      <section className="control-card p-3.5">
+        <SectionTitle title="动态证据状态" detail="恢复、Apple Health、供能、有氧和执行完成率只影响下一次处方与下一周期建议。" />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Fact label="状态" value={EVIDENCE_STATE_LABELS[evidence.state]} />
+          <Fact label="置信" value={EVIDENCE_CONFIDENCE_LABELS[evidence.confidence]} />
+          <Fact label="容量" value={`${Math.round(evidence.volumeScale * 100)}%`} />
+          <Fact label="周训练" value={String(evidence.recommendedTrainingDays)} />
+        </div>
+        <div className="control-strip mt-3 rounded-xl px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-fg">有效上限：{evidence.maxSessionMinutes} 分钟 / {evidence.maxWorkingSets} 组</p>
+          <div className="mt-1.5 space-y-1">{evidence.reasons.slice(0, 4).map((reason) => <p key={reason} className="text-[10px] leading-relaxed text-muted">· {reason}</p>)}</div>
+          <details className="mt-2"><summary className="cursor-pointer text-[10px] font-semibold text-accent">查看证据边界</summary><div className="mt-1.5 space-y-1">{evidence.evidence.map((item) => <p key={item} className="text-[10px] leading-relaxed text-faint">· {item}</p>)}</div></details>
+        </div>
+        <p className="mb-1.5 mt-3 text-[11px] font-medium text-faint">动态适配模式</p>
+        <div className="space-y-2">
+          {EVIDENCE_MODES.map((mode) => <button key={mode.value} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { evidenceMode: mode.value }))} aria-pressed={policy.evidenceMode === mode.value} className={`choice-chip press flex w-full items-center gap-3 border px-3 py-2.5 text-left ${policy.evidenceMode === mode.value ? "border-accent bg-accent-soft" : "border-border bg-surface-2"}`}><span className={`text-[12px] font-semibold ${policy.evidenceMode === mode.value ? "text-accent" : "text-fg"}`}>{mode.label}</span><span className="ml-auto text-[10px] text-faint">{mode.detail}</span></button>)}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(["building", "ready"] as const).map((confidence) => <button key={confidence} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { evidenceMinimumConfidence: confidence }))} aria-pressed={policy.evidenceMinimumConfidence === confidence} className={`choice-chip press h-10 border text-[11px] font-semibold ${policy.evidenceMinimumConfidence === confidence ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2 text-muted"}`}>{confidence === "building" ? "中等证据即可" : "仅高置信证据"}</button>)}
+        </div>
+      </section>
 
       <section className="control-card p-3.5">
         <SectionTitle title="直接描述你的倾向" detail="本地解析高频表达；解析后仍可手动修改。" />

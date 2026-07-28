@@ -1,3 +1,4 @@
+import { buildAdaptiveEvidenceProfile, evidenceConfidenceMeets, type AdaptiveEvidenceProfile } from "./adaptiveEvidence";
 import { DEFAULT_EXERCISES } from "./exercises";
 import type { MuscleGroup } from "./muscles";
 import { compileTrainingConstraints, exerciseConstraintViolations, exercisePreferenceScore } from "./trainingConstraints";
@@ -25,6 +26,10 @@ export interface ScheduleAdaptationProposal {
   trainingDaysBefore: number;
   trainingDaysAfter: number;
   frequencyChanges: ScheduleFrequencyChange[];
+  targetTrainingDays: number;
+  evidenceAdjusted: boolean;
+  evidenceState: AdaptiveEvidenceProfile["state"];
+  evidenceConfidence: AdaptiveEvidenceProfile["confidence"];
 }
 
 function hash(value: string) {
@@ -249,9 +254,15 @@ function frequency(schedule: Schedule, type: PlannedTrainingType) {
   return steps.filter((step) => step.type === type).length;
 }
 
-export function scheduleAdaptationRevision(data: AppData, policy: TrainingPolicy, date: string) {
+export function scheduleAdaptationRevision(
+  data: AppData,
+  policy: TrainingPolicy,
+  date: string,
+  evidence = buildAdaptiveEvidenceProfile(data, policy, date),
+) {
   const source = JSON.stringify({
     policy: policyRevision(policy),
+    evidence: policy.evidenceMode === "off" ? "off" : evidence.revision,
     date,
     schedule: canonicalSchedule(data.schedule),
     templates: (data.templates ?? []).map((template) => ({
@@ -268,6 +279,7 @@ export function buildScheduleAdaptation(
   policy: TrainingPolicy,
   date: string,
 ): ScheduleAdaptationProposal {
+  const evidence = buildAdaptiveEvidenceProfile(data, policy, date);
   const constraints = compileTrainingConstraints(policy, date);
   const { byType, presets } = templatePool(data, policy, constraints);
   const available = TRAINING_TYPES.filter((type) => (byType.get(type)?.length ?? 0) > 0);
@@ -278,8 +290,8 @@ export function buildScheduleAdaptation(
 
   if (!available.length) {
     return {
-      id: `schedule-proposal-${scheduleAdaptationRevision(data, policy, date)}`,
-      sourceRevision: scheduleAdaptationRevision(data, policy, date),
+      id: `schedule-proposal-${scheduleAdaptationRevision(data, policy, date, evidence)}`,
+      sourceRevision: scheduleAdaptationRevision(data, policy, date, evidence),
       changed: false,
       previousSchedule,
       nextSchedule: previousSchedule,
@@ -288,10 +300,24 @@ export function buildScheduleAdaptation(
       trainingDaysBefore,
       trainingDaysAfter: trainingDaysBefore,
       frequencyChanges: TRAINING_TYPES.map((type) => ({ type, before: frequency(previousSchedule, type), after: frequency(previousSchedule, type) })),
+      targetTrainingDays: trainingDaysBefore,
+      evidenceAdjusted: false,
+      evidenceState: evidence.state,
+      evidenceConfidence: evidence.confidence,
     };
   }
 
-  const targetDays = Math.min(7, Math.max(1, policy.weeklyTrainingDays.target));
+  const evidenceQualified = policy.evidenceMode !== "off"
+    && evidenceConfidenceMeets(evidence.confidence, policy.evidenceMinimumConfidence);
+  const evidenceAdjusted = evidenceQualified
+    && evidence.recommendedTrainingDays !== policy.weeklyTrainingDays.target;
+  const targetDays = Math.min(7, Math.max(1, evidenceAdjusted
+    ? evidence.recommendedTrainingDays
+    : policy.weeklyTrainingDays.target));
+  if (evidenceAdjusted) reasons.push(`恢复与训练证据建议本周期训练天数 ${policy.weeklyTrainingDays.target} → ${targetDays}`);
+  if (policy.evidenceMode !== "off" && !evidenceQualified && evidence.state !== "normal") {
+    warnings.push(`动态证据置信度为 ${evidence.confidence}，未达到 ${policy.evidenceMinimumConfidence} 门槛`);
+  }
   const scores = new Map<PlannedTrainingType, number>(available.map((type) => [
     type,
     typeScore(type, byType.get(type) ?? [], policy, constraints, presets),
@@ -312,7 +338,7 @@ export function buildScheduleAdaptation(
   }
   if (targetDays === 7) warnings.push("当前设置为连续 7 个训练日；请确认恢复能力与实际时间允许");
 
-  const sourceRevision = scheduleAdaptationRevision(data, policy, date);
+  const sourceRevision = scheduleAdaptationRevision(data, policy, date, evidence);
   return {
     id: `schedule-proposal-${sourceRevision}`,
     sourceRevision,
@@ -328,6 +354,10 @@ export function buildScheduleAdaptation(
       before: frequency(previousSchedule, type),
       after: frequency(nextSchedule, type),
     })),
+    targetTrainingDays: targetDays,
+    evidenceAdjusted,
+    evidenceState: evidence.state,
+    evidenceConfidence: evidence.confidence,
   };
 }
 

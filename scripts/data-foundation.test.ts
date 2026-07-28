@@ -316,13 +316,44 @@ assert.equal(inspectDataHealth(normalized).status, "healthy");
 
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
-assert.equal(backup.version, 17);
-assert.equal(backup.adaptiveTraining?.version, 2);
+assert.equal(backup.version, 18);
+assert.equal(backup.adaptiveTraining?.version, 3);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
 assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");
-assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 17 backups preserve recovery and adaptive training state");
+assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 18 backups preserve recovery and adaptive training state");
+
+const adaptiveSnapshotRoundTrip = normalizeData(toBackup({
+  ...normalized,
+  days: {
+    ...normalized.days,
+    "2026-07-02": {
+      date: "2026-07-02",
+      workout: {
+        type: "push",
+        done: false,
+        exercises: [],
+        adaptiveSnapshot: {
+          version: 1,
+          createdAt: "2026-07-02T08:00:00.000Z",
+          sourceDate: "2026-07-02",
+          evidenceRevision: "evidence-test",
+          state: "conservative",
+          confidence: "building",
+          mode: "evidence",
+          volumeScale: 0.85,
+          normalWorkingSets: 20,
+          prescribedWorkingSets: 17,
+          maxSessionMinutes: 75,
+          reasons: ["恢复证据建议保守训练"],
+        },
+      },
+    },
+  },
+}));
+assert.equal(adaptiveSnapshotRoundTrip.days["2026-07-02"].workout?.adaptiveSnapshot?.volumeScale, 0.85);
+assert.equal(adaptiveSnapshotRoundTrip.days["2026-07-02"].workout?.adaptiveSnapshot?.prescribedWorkingSets, 17);
 
 const healthBase = normalizeData({
   days: {

@@ -26,6 +26,7 @@ import type {
   TemplateSlot,
   TrainingType,
   WaistEntry,
+  WorkoutAdaptiveSnapshot,
   Zone,
 } from "./types";
 import { fromKey, todayKey, toKey } from "./date";
@@ -52,7 +53,7 @@ export type PersistenceEventDetail = {
   at: string;
 };
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export type FitLogBackupData = BackupData & {
   adaptiveTraining?: PortableTrainingPolicyBackup;
@@ -158,6 +159,42 @@ function parseRecovery(input: unknown): RecoveryCheckIn | undefined {
     ...(soreness != null ? { soreness } : {}),
     ...(stress != null ? { stress } : {}),
     ...(typeof value.at === "string" && value.at ? { at: value.at } : {}),
+  };
+}
+
+function parseWorkoutAdaptiveSnapshot(input: unknown): WorkoutAdaptiveSnapshot | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (value.version !== 1) return undefined;
+  if (typeof value.createdAt !== "string" || typeof value.sourceDate !== "string" || typeof value.evidenceRevision !== "string") return undefined;
+  if (value.state !== "collect" && value.state !== "normal" && value.state !== "conservative" && value.state !== "recovery") return undefined;
+  if (value.confidence !== "low" && value.confidence !== "building" && value.confidence !== "ready") return undefined;
+  if (value.mode !== "none" && value.mode !== "cut" && value.mode !== "evidence" && value.mode !== "cut+evidence") return undefined;
+  const volumeScale = typeof value.volumeScale === "number" && Number.isFinite(value.volumeScale)
+    ? Math.min(1, Math.max(0.5, Math.round(value.volumeScale * 100) / 100))
+    : 1;
+  const normalWorkingSets = typeof value.normalWorkingSets === "number" && Number.isFinite(value.normalWorkingSets)
+    ? Math.max(0, Math.round(value.normalWorkingSets))
+    : 0;
+  const prescribedWorkingSets = typeof value.prescribedWorkingSets === "number" && Number.isFinite(value.prescribedWorkingSets)
+    ? Math.max(0, Math.round(value.prescribedWorkingSets))
+    : normalWorkingSets;
+  const maxSessionMinutes = typeof value.maxSessionMinutes === "number" && Number.isFinite(value.maxSessionMinutes)
+    ? Math.min(240, Math.max(20, Math.round(value.maxSessionMinutes)))
+    : 90;
+  return {
+    version: 1,
+    createdAt: value.createdAt,
+    sourceDate: value.sourceDate,
+    evidenceRevision: value.evidenceRevision,
+    state: value.state,
+    confidence: value.confidence,
+    mode: value.mode,
+    volumeScale,
+    normalWorkingSets,
+    prescribedWorkingSets,
+    maxSessionMinutes,
+    reasons: parseStringList(value.reasons)?.slice(0, 12) ?? [],
   };
 }
 
@@ -423,6 +460,7 @@ export function normalizeData(input: unknown): AppData {
         const type = parsedType === "rest" && exercises.some((exercise) => exercise.sets.some(hasSetPerformance))
           ? "custom"
           : parsedType;
+        const adaptiveSnapshot = parseWorkoutAdaptiveSnapshot(workout.adaptiveSnapshot);
         next.workout = {
           type,
           ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
@@ -438,6 +476,7 @@ export function normalizeData(input: unknown): AppData {
           ...(typeof workout.mesocycleId === "string" && workout.mesocycleId ? { mesocycleId: workout.mesocycleId } : {}),
           ...(typeof workout.mesocycleCycleNumber === "number" && Number.isFinite(workout.mesocycleCycleNumber) ? { mesocycleCycleNumber: Math.max(1, Math.round(workout.mesocycleCycleNumber)) } : {}),
           ...(workout.cyclePhase === "build" || workout.cyclePhase === "deload" ? { cyclePhase: workout.cyclePhase } : {}),
+          ...(adaptiveSnapshot ? { adaptiveSnapshot } : {}),
           exercises,
         };
       }

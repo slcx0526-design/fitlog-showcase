@@ -2,14 +2,17 @@ import { DEFAULT_EXERCISES } from "./exercises";
 import { MUSCLE_ORDER, type Equipment, type MuscleGroup } from "./muscles";
 import type { AppData, MovementPattern, Schedule, TemplateItem } from "./types";
 
-export const TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v2";
-export const LEGACY_TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v1";
-export const TRAINING_POLICY_VERSION = 2;
+export const TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v3";
+export const LEGACY_TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v2";
+export const OLDEST_TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v1";
+export const TRAINING_POLICY_VERSION = 3;
 
 export type TrainingGoal = "hypertrophy" | "strength" | "fatLossRetention" | "generalFitness";
 export type MusclePriority = "specialize" | "grow" | "maintain" | "deprioritize";
 export type ExercisePreference = "prefer" | "neutral" | "avoid" | "exclude";
 export type AdaptationMode = "suggestOnly" | "approvalRequired" | "safeAuto";
+export type EvidenceAdaptationMode = "off" | "preview" | "automatic";
+export type EvidenceMinimumConfidence = "building" | "ready";
 export type OverrideScope = "session" | "week" | "microcycle";
 export type TrainingDecisionOutcome =
   | "accepted"
@@ -77,6 +80,8 @@ export interface TrainingPolicy {
   restrictions: TrainingRestriction[];
   overrides: TemporaryTrainingOverride[];
   adaptationMode: AdaptationMode;
+  evidenceMode: EvidenceAdaptationMode;
+  evidenceMinimumConfidence: EvidenceMinimumConfidence;
   autoApply: {
     loadChanges: boolean;
     repChanges: boolean;
@@ -111,6 +116,8 @@ const GOALS: TrainingGoal[] = ["hypertrophy", "strength", "fatLossRetention", "g
 const PRIORITIES: MusclePriority[] = ["specialize", "grow", "maintain", "deprioritize"];
 const PREFERENCES: ExercisePreference[] = ["prefer", "neutral", "avoid", "exclude"];
 const ADAPTATION_MODES: AdaptationMode[] = ["suggestOnly", "approvalRequired", "safeAuto"];
+const EVIDENCE_MODES: EvidenceAdaptationMode[] = ["off", "preview", "automatic"];
+const EVIDENCE_CONFIDENCE: EvidenceMinimumConfidence[] = ["building", "ready"];
 const DECISION_OUTCOMES: TrainingDecisionOutcome[] = [
   "accepted",
   "partiallyAccepted",
@@ -303,6 +310,8 @@ export function defaultTrainingPolicy(now = new Date().toISOString()): TrainingP
     restrictions: [],
     overrides: [],
     adaptationMode: "approvalRequired",
+    evidenceMode: "preview",
+    evidenceMinimumConfidence: "building",
     autoApply: {
       loadChanges: false,
       repChanges: false,
@@ -353,6 +362,12 @@ export function normalizeTrainingPolicy(input: unknown, now = new Date().toISOSt
     adaptationMode: typeof value.adaptationMode === "string" && ADAPTATION_MODES.includes(value.adaptationMode as AdaptationMode)
       ? value.adaptationMode as AdaptationMode
       : fallback.adaptationMode,
+    evidenceMode: typeof value.evidenceMode === "string" && EVIDENCE_MODES.includes(value.evidenceMode as EvidenceAdaptationMode)
+      ? value.evidenceMode as EvidenceAdaptationMode
+      : fallback.evidenceMode,
+    evidenceMinimumConfidence: typeof value.evidenceMinimumConfidence === "string" && EVIDENCE_CONFIDENCE.includes(value.evidenceMinimumConfidence as EvidenceMinimumConfidence)
+      ? value.evidenceMinimumConfidence as EvidenceMinimumConfidence
+      : fallback.evidenceMinimumConfidence,
     autoApply: {
       loadChanges: Boolean(rawAuto.loadChanges),
       repChanges: Boolean(rawAuto.repChanges),
@@ -399,10 +414,12 @@ export function loadTrainingPolicy(): TrainingPolicy {
   try {
     const current = window.localStorage.getItem(TRAINING_POLICY_STORAGE_KEY);
     if (current) return normalizeTrainingPolicy(JSON.parse(current));
-    const legacy = window.localStorage.getItem(LEGACY_TRAINING_POLICY_STORAGE_KEY);
+    const legacy = window.localStorage.getItem(LEGACY_TRAINING_POLICY_STORAGE_KEY)
+      ?? window.localStorage.getItem(OLDEST_TRAINING_POLICY_STORAGE_KEY);
     const migrated = legacy ? normalizeTrainingPolicy(JSON.parse(legacy)) : defaultTrainingPolicy();
     window.localStorage.setItem(TRAINING_POLICY_STORAGE_KEY, JSON.stringify(migrated));
     window.localStorage.removeItem(LEGACY_TRAINING_POLICY_STORAGE_KEY);
+    window.localStorage.removeItem(OLDEST_TRAINING_POLICY_STORAGE_KEY);
     return migrated;
   } catch {
     return defaultTrainingPolicy();
@@ -415,6 +432,7 @@ export function saveTrainingPolicy(policy: TrainingPolicy) {
     const normalized = normalizeTrainingPolicy(policy);
     window.localStorage.setItem(TRAINING_POLICY_STORAGE_KEY, JSON.stringify(normalized));
     window.localStorage.removeItem(LEGACY_TRAINING_POLICY_STORAGE_KEY);
+    window.localStorage.removeItem(OLDEST_TRAINING_POLICY_STORAGE_KEY);
     window.dispatchEvent(new CustomEvent("fitlog:training-policy", { detail: { updatedAt: normalized.updatedAt } }));
     return true;
   } catch {
@@ -467,6 +485,8 @@ export function policyRevision(policy: TrainingPolicy) {
     restrictions: normalized.restrictions,
     overrides: normalized.overrides,
     adaptationMode: normalized.adaptationMode,
+    evidenceMode: normalized.evidenceMode,
+    evidenceMinimumConfidence: normalized.evidenceMinimumConfidence,
     autoApply: normalized.autoApply,
   });
   let hash = 5381;

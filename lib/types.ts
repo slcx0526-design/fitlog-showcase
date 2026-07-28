@@ -234,6 +234,24 @@ export interface TemplateItem {
   recordModes?: RecordMode[];
 }
 
+export type AdaptiveEvidenceState = "collect" | "normal" | "conservative" | "recovery";
+export type AdaptiveEvidenceConfidence = "low" | "building" | "ready";
+
+export interface WorkoutAdaptiveSnapshot {
+  version: 1;
+  createdAt: string;
+  sourceDate: string;
+  evidenceRevision: string;
+  state: AdaptiveEvidenceState;
+  confidence: AdaptiveEvidenceConfidence;
+  mode: "none" | "cut" | "evidence" | "cut+evidence";
+  volumeScale: number;
+  normalWorkingSets: number;
+  prescribedWorkingSets: number;
+  maxSessionMinutes: number;
+  reasons: string[];
+}
+
 export interface WorkoutSession {
   type: TrainingType;
   exercises: Exercise[];
@@ -252,6 +270,8 @@ export interface WorkoutSession {
   mesocycleId?: string;
   mesocycleCycleNumber?: number;
   cyclePhase?: TrainingCyclePhase;
+  /** Evidence and cut overlay captured when this session prescription was created. */
+  adaptiveSnapshot?: WorkoutAdaptiveSnapshot;
 }
 
 export interface NutritionLog {

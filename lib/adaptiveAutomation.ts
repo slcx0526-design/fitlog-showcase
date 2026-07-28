@@ -138,9 +138,15 @@ export function selectSafeAutomaticChanges(
     const dayDelta = Math.abs(scheduleProposal.trainingDaysAfter - scheduleProposal.trainingDaysBefore);
     if (!policy.autoApply.scheduleChanges) {
       skippedReasons.push("训练频率发生变化，但未允许自动调整日程");
-    } else if (scheduleProposal.trainingDaysAfter !== policy.weeklyTrainingDays.target) {
-      skippedReasons.push("重排结果未达到用户设置的目标训练天数");
-    } else if (dayDelta > 2) {
+    } else if (scheduleProposal.trainingDaysAfter > scheduleProposal.trainingDaysBefore) {
+      skippedReasons.push("增加训练天数必须人工确认");
+    } else if (scheduleProposal.evidenceAdjusted && policy.evidenceMode !== "automatic") {
+      skippedReasons.push("动态证据只处于预览模式，不能自动减少训练频率");
+    } else if (scheduleProposal.trainingDaysAfter !== scheduleProposal.targetTrainingDays) {
+      skippedReasons.push("重排结果未达到当前有效目标训练天数");
+    } else if (scheduleProposal.evidenceAdjusted && dayDelta > 1) {
+      skippedReasons.push("证据驱动的训练天数变化超过 1 天，必须人工确认");
+    } else if (!scheduleProposal.evidenceAdjusted && dayDelta > 2) {
       skippedReasons.push("训练天数变化超过 2 天，必须人工确认");
     } else {
       applySchedule = true;

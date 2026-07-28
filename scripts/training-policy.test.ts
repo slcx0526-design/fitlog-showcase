@@ -250,8 +250,10 @@ function data(): AppData {
     }],
   });
   const restored = importTrainingPolicyBackup(exportTrainingPolicyBackup(policy));
-  assert.equal(restored.version, 2);
+  assert.equal(restored.version, 3);
   assert.equal(restored.decisionEvents.length, 1);
+  assert.equal(restored.evidenceMode, "preview");
+  assert.equal(restored.evidenceMinimumConfidence, "building");
 }
 
 console.log("training-policy tests passed");

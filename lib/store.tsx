@@ -53,7 +53,8 @@ import {
   moveTemplateWithinType,
   updateCustomExerciseTemplateReferences,
 } from "./templates";
-import { currentCutSnapshot, cutSetPlan, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
+import { buildAdaptiveRuntimePlan } from "./adaptiveEvidence";
+import { loadTrainingPolicy } from "./trainingPolicy";
 import {
   advanceTrainingCycle,
   cloneTemplate,
@@ -835,17 +836,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const resolvedTemplate = templateForCyclePhase(sourceTemplate, phase);
         const pool = [...DEFAULT_EXERCISES, ...prev.customExercises];
         const presetById = new Map(pool.map((preset) => [preset.id, preset]));
-        const cutSnapshot = currentCutSnapshot(prev.profile, prev.bodyWeights, prev.waistEntries);
-        const cutActive = isCutModeActive(prev.cutPlan);
-        const cutScale = prev.cutPlan?.trainingVolumeScale ?? suggestedCutVolumeScale(cutSnapshot?.bodyFatPercent, prev.cutPlan?.weeklyLossPct);
-        const adjustedSets = new Map((cutActive
-          ? cutSetPlan(resolvedTemplate.items.map((item) => ({
-              id: item.exerciseId,
-              sets: item.sets,
-              isMain: item.isMain ?? presetById.get(item.exerciseId)?.isMain,
-            })), cutScale)
-          : resolvedTemplate.items.map((item) => ({ id: item.exerciseId, cutSets: item.sets })))
-          .map((item) => [item.id, item.cutSets]));
+        const runtimePolicy = loadTrainingPolicy();
+        const runtimeTemplate = {
+          ...resolvedTemplate,
+          items: resolvedTemplate.items.map((item) => ({
+            ...item,
+            isMain: item.isMain ?? presetById.get(item.exerciseId)?.isMain,
+          })),
+        };
+        const runtimePlan = buildAdaptiveRuntimePlan(prev, runtimePolicy, date, runtimeTemplate.items);
+        const adjustedSets = new Map(runtimePlan.rows.map((item) => [item.exerciseId, item.prescribedSets]));
         const existing = day.workout?.exercises ?? [];
         // 已记录组数的动作保留（绝不丢数据）；其余（空的、上一个模板残留的）一律替换掉
         const kept = existing.filter((e) => workingSets(e.sets).length > 0);
@@ -871,7 +871,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             supersetGroup: it.supersetGroup,
           }, { ...prescription, workingSets: adjustedSets.get(it.exerciseId) ?? prescription.workingSets }));
         }
-        const templateSnapshot = cloneTemplate(resolvedTemplate);
+        const templateSnapshot = cloneTemplate({
+          ...resolvedTemplate,
+          items: resolvedTemplate.items.map((item) => {
+            const workingSets = adjustedSets.get(item.exerciseId) ?? item.sets;
+            return {
+              ...item,
+              sets: workingSets,
+              ...(item.prescription ? { prescription: { ...item.prescription, workingSets } } : {}),
+            };
+          }),
+        });
         return {
           ...prev,
           microcycle,
@@ -892,6 +902,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 done: false,
                 completedAt: undefined,
                 ...(day.workout?.difficulty ? { difficulty: day.workout.difficulty } : {}),
+                ...(runtimePlan.snapshot ? { adaptiveSnapshot: runtimePlan.snapshot } : {}),
                 exercises: [...kept, ...fresh],
               },
             },
