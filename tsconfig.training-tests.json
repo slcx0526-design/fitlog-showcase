@@ -35,6 +35,12 @@
     "lib/plateCalculator.ts",
     "lib/starterPlans.ts",
     "lib/templates.ts",
+    "lib/trainingPolicy.ts",
+    "lib/trainingConstraints.ts",
+    "lib/planAdaptation.ts",
+    "lib/scheduleAdaptation.ts",
+    "lib/adaptiveLearning.ts",
+    "lib/adaptiveAutomation.ts",
     "scripts/data-foundation.test.ts",
     "scripts/training-execution.test.ts",
     "scripts/cycle-planning.test.ts",
@@ -46,6 +52,7 @@
     "scripts/health-insights.test.ts",
     "scripts/integrated-coach.test.ts",
     "scripts/cut-system.test.ts",
-    "scripts/finalization.test.ts"
+    "scripts/finalization.test.ts",
+    "scripts/training-policy.test.ts"
   ]
 }

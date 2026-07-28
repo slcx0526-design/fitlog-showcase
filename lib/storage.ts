@@ -35,6 +35,13 @@ import type { Equipment } from "./muscles";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { normalizeExercisePrescription, normalizeTemplateItemPrescription } from "./prescription";
 import { hasSetPerformance } from "./trainingMetrics";
+import {
+  exportTrainingPolicyBackup,
+  importTrainingPolicyBackup,
+  loadTrainingPolicy,
+  saveTrainingPolicy,
+  type PortableTrainingPolicyBackup,
+} from "./trainingPolicy";
 
 export type { AppData } from "./types";
 
@@ -45,7 +52,11 @@ export type PersistenceEventDetail = {
   at: string;
 };
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
+
+export type FitLogBackupData = BackupData & {
+  adaptiveTraining?: PortableTrainingPolicyBackup;
+};
 
 const VALID_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const VALID_MUSCLES = new Set<string>(MUSCLE_ORDER);
@@ -849,9 +860,30 @@ export function normalizeData(input: unknown): AppData {
   return out;
 }
 
-export function toBackup(data: AppData): BackupData {
+export function toBackup(data: AppData): FitLogBackupData {
   const normalized = normalizeData(data);
-  return { app: "fitlog", version: SCHEMA_VERSION, exportedAt: new Date().toISOString(), days: normalized.days, bodyWeights: normalized.bodyWeights, waistEntries: normalized.waistEntries, cutPlan: normalized.cutPlan, customExercises: normalized.customExercises, favoriteExerciseIds: normalized.favoriteExerciseIds, schedule: normalized.schedule, profile: normalized.profile, templates: normalized.templates, muscleTargets: normalized.muscleTargets, microcycle: normalized.microcycle, mesocycle: normalized.mesocycle, lastCycleReview: normalized.lastCycleReview, onboarding: normalized.onboarding, trainingPreferences: normalized.trainingPreferences, healthSync: normalized.healthSync };
+  return {
+    app: "fitlog",
+    version: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    days: normalized.days,
+    bodyWeights: normalized.bodyWeights,
+    waistEntries: normalized.waistEntries,
+    cutPlan: normalized.cutPlan,
+    customExercises: normalized.customExercises,
+    favoriteExerciseIds: normalized.favoriteExerciseIds,
+    schedule: normalized.schedule,
+    profile: normalized.profile,
+    templates: normalized.templates,
+    muscleTargets: normalized.muscleTargets,
+    microcycle: normalized.microcycle,
+    mesocycle: normalized.mesocycle,
+    lastCycleReview: normalized.lastCycleReview,
+    onboarding: normalized.onboarding,
+    trainingPreferences: normalized.trainingPreferences,
+    healthSync: normalized.healthSync,
+    adaptiveTraining: exportTrainingPolicyBackup(loadTrainingPolicy()),
+  };
 }
 
 export function downloadBackup(data: AppData): void {
@@ -866,14 +898,26 @@ export function downloadBackup(data: AppData): void {
   URL.revokeObjectURL(url);
 }
 
+function restoreAdaptiveTrainingFromBackup(parsed: Record<string, unknown>) {
+  if (!parsed.adaptiveTraining) return;
+  const policy = importTrainingPolicyBackup(parsed.adaptiveTraining);
+  saveTrainingPolicy(policy);
+}
+
 export function parseBackup(text: string): AppData {
-  const parsed = JSON.parse(text);
+  const parsed = JSON.parse(text) as Record<string, unknown>;
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
+  restoreAdaptiveTrainingFromBackup(parsed);
   return normalizeData(parsed);
 }
 
 export function parseBackupWithMeta(text: string): { data: AppData; exportedAt?: string; version?: number } {
-  const parsed = JSON.parse(text) as { app?: unknown; exportedAt?: unknown; version?: unknown };
+  const parsed = JSON.parse(text) as Record<string, unknown>;
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
-  return { data: normalizeData(parsed), exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined, version: typeof parsed.version === "number" ? parsed.version : undefined };
+  restoreAdaptiveTrainingFromBackup(parsed);
+  return {
+    data: normalizeData(parsed),
+    exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined,
+    version: typeof parsed.version === "number" ? parsed.version : undefined,
+  };
 }
