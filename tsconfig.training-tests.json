@@ -36,6 +36,7 @@
     "lib/starterPlans.ts",
     "lib/templates.ts",
     "lib/trainingPolicy.ts",
+    "lib/adaptiveResponse.ts",
     "lib/adaptiveEvidence.ts",
     "lib/trainingConstraints.ts",
     "lib/planAdaptation.ts",
@@ -55,6 +56,7 @@
     "scripts/cut-system.test.ts",
     "scripts/finalization.test.ts",
     "scripts/training-policy.test.ts",
-    "scripts/adaptive-evidence.test.ts"
+    "scripts/adaptive-evidence.test.ts",
+    "scripts/adaptive-response.test.ts"
   ]
 }

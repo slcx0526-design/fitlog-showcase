@@ -1,3 +1,4 @@
+import { buildAdaptiveResponseModel, type AdaptiveResponseModel } from "./adaptiveResponse";
 import { cutSetPlan, currentCutSnapshot, isCutModeActive, suggestedCutVolumeScale } from "./cutMode";
 import { buildIntegratedCoachAnalysis, type IntegratedCoachTrigger } from "./integratedCoach";
 import type {
@@ -21,6 +22,7 @@ export interface AdaptiveEvidenceProfile {
   maxSessionMinutes: number;
   maxWorkingSets: number;
   recommendedTrainingDays: number;
+  responseModel: AdaptiveResponseModel;
   reasons: string[];
   evidence: string[];
 }
@@ -117,6 +119,7 @@ export function buildAdaptiveEvidenceProfile(
 ): AdaptiveEvidenceProfile {
   const generatedAt = new Date().toISOString();
   const coach = buildIntegratedCoachAnalysis(data, date);
+  const responseModel = buildAdaptiveResponseModel(data, date);
   const state = stateFor(coach.status);
   const confidence = confidenceFor(coach.confidence);
   const cutActive = isCutModeActive(data.cutPlan);
@@ -136,24 +139,43 @@ export function buildAdaptiveEvidenceProfile(
     evidenceScale = Math.min(evidenceScale, 0.75);
   }
   if (coach.nutrition.lowEnergyDays7d >= 2) evidenceScale = Math.min(evidenceScale, 0.8);
+  if (responseModel.confidence !== "low" && responseModel.tolerance === "low") {
+    evidenceScale = Math.min(evidenceScale, 0.9);
+  }
   const volumeScale = roundScale(Math.min(cutScale, evidenceScale));
 
   const maxSessionMinutes = state === "recovery"
     ? Math.min(policy.maxSessionMinutes, 60)
     : state === "conservative"
       ? Math.min(policy.maxSessionMinutes, 75)
-      : policy.maxSessionMinutes;
+      : responseModel.confidence !== "low" && responseModel.tolerance === "low"
+        ? Math.min(policy.maxSessionMinutes, 80)
+        : policy.maxSessionMinutes;
   const maxWorkingSets = state === "recovery"
     ? Math.min(policy.maxWorkingSetsPerSession, 18)
     : state === "conservative"
       ? Math.min(policy.maxWorkingSetsPerSession, 24)
-      : policy.maxWorkingSetsPerSession;
+      : responseModel.confidence !== "low" && responseModel.tolerance === "low"
+        ? Math.min(policy.maxWorkingSetsPerSession, 26)
+        : policy.maxWorkingSetsPerSession;
   const mayReduceFrequency = evidenceModeEnabled(policy.evidenceMode)
     && evidenceConfidenceMeets(confidence, policy.evidenceMinimumConfidence)
     && state === "recovery";
+  const responseFrequencyEligible = state === "normal"
+    && responseModel.trainingDayDelta !== 0
+    && (
+      responseModel.confidence === "ready"
+      || (responseModel.confidence === "building" && responseModel.trainingDayDelta < 0)
+    );
+  const responseTarget = responseFrequencyEligible
+    ? Math.min(
+        policy.weeklyTrainingDays.maximum,
+        Math.max(policy.weeklyTrainingDays.minimum, policy.weeklyTrainingDays.target + responseModel.trainingDayDelta),
+      )
+    : policy.weeklyTrainingDays.target;
   const recommendedTrainingDays = mayReduceFrequency
     ? Math.max(policy.weeklyTrainingDays.minimum, policy.weeklyTrainingDays.target - 1)
-    : policy.weeklyTrainingDays.target;
+    : responseTarget;
 
   const reasons = [...new Set([
     ...coach.triggers.map(triggerLabel),
@@ -161,7 +183,11 @@ export function buildAdaptiveEvidenceProfile(
     ...(coach.training.weakTemplate
       ? [`${coach.training.weakTemplate.templateName} 最近完成率 ${coach.training.weakTemplate.completionPct ?? "未知"}%`]
       : []),
-    ...(state === "normal" ? ["现有证据支持按原计划训练"] : []),
+    ...(responseModel.confidence !== "low" ? [responseModel.summary] : []),
+    ...(responseModel.tolerance === "high"
+      ? ["跨周期模型只允许在下一周期审核中逐步加量，不会临时放大当次处方"]
+      : []),
+    ...(state === "normal" ? ["当前短期证据支持按有效计划训练"] : []),
     ...(state === "collect" ? ["有效恢复与训练样本不足，暂不自动改变处方"] : []),
   ])];
 
@@ -171,6 +197,7 @@ export function buildAdaptiveEvidenceProfile(
     `健康信号：${coach.health.qualifiedSignals} 项有效，${coach.health.adverseSignals} 项不利`,
     `近期计划完成率：${coach.training.adherence.completionPct == null ? "样本不足" : `${coach.training.adherence.completionPct}%`}`,
     `有氧压力：近 7 天 ${coach.cardio.minutes7d} 分钟，高强度近 3 天 ${coach.cardio.highIntensityMinutes3d} 分钟`,
+    `跨周期模型：${responseModel.evaluatedCycles} 个周期，${responseModel.comparableTransitions} 次比较，置信度 ${responseModel.confidence}`,
     ...(cutActive ? [`减脂状态：${coach.cutState}`] : []),
   ];
 
@@ -183,6 +210,14 @@ export function buildAdaptiveEvidenceProfile(
     maxSessionMinutes,
     maxWorkingSets,
     recommendedTrainingDays,
+    response: {
+      confidence: responseModel.confidence,
+      tolerance: responseModel.tolerance,
+      cycles: responseModel.evaluatedCycles,
+      transitions: responseModel.comparableTransitions,
+      volumeBias: responseModel.volumeBias,
+      trainingDayDelta: responseModel.trainingDayDelta,
+    },
     recovery: {
       average7d: coach.recovery.average7d,
       sustainedLow: coach.recovery.sustainedLow,
@@ -213,6 +248,7 @@ export function buildAdaptiveEvidenceProfile(
     maxSessionMinutes,
     maxWorkingSets,
     recommendedTrainingDays,
+    responseModel,
     reasons,
     evidence,
   };

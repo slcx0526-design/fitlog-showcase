@@ -1,3 +1,4 @@
+import { buildAdaptiveResponseModel, type AdaptiveResponseConfidence, type AdaptiveVolumeTolerance } from "./adaptiveResponse";
 import type { AppData } from "./storage";
 import type {
   AppliedCycleTemplateChange,
@@ -47,6 +48,10 @@ export interface CycleReviewEvidence {
   queuedTemplateChanges: number;
   recoveryCheckIns: number;
   recoveryScore: number | null;
+  responseCycles: number;
+  responseTransitions: number;
+  responseConfidence: AdaptiveResponseConfidence;
+  volumeTolerance: AdaptiveVolumeTolerance;
 }
 
 export interface CycleReview {
@@ -144,6 +149,19 @@ function collectChanges(data: AppData, actions: AdjustableAction[]) {
   return changes;
 }
 
+function responsePriority(action: AdjustableAction, tolerance: AdaptiveVolumeTolerance) {
+  if (tolerance === "low") {
+    if (action.kind === "reduceVolume") return 30;
+    if (action.kind === "simplifyPlan") return 20;
+    return -30;
+  }
+  if (tolerance === "high") {
+    if (action.kind === "addVolume") return 30;
+    if (action.kind === "reduceVolume") return 20;
+  }
+  return 0;
+}
+
 export function buildCycleReview(data: AppData, today: string): CycleReview {
   const sourceMicrocycleId = data.microcycle?.currentId ?? "unassigned";
   const sourcePhase = data.microcycle?.phase ?? "build";
@@ -151,6 +169,7 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
   const progress = currentMicrocycleProgress(data, today);
   const analysis = buildTrainingAnalysis(data, today);
   const recovery = summarizeRecovery(data.days, today);
+  const responseModel = buildAdaptiveResponseModel(data, today);
   const outcomes = cycleSuggestionOutcomes(data, sourceMicrocycleId);
   const alreadyApplied = data.lastCycleReview?.id === id;
   const ready = Boolean(
@@ -175,12 +194,20 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
   let changes: CycleReviewTemplateChange[] = [];
   if (ready && sourcePhase !== "deload") {
     const decision = buildTrainingDecision(data, today, "review");
+    const lowTolerance = responseModel.confidence !== "low" && responseModel.tolerance === "low";
+    const highTolerance = responseModel.confidence === "ready" && responseModel.tolerance === "high";
     const suppressAdditions = recoveryActive
       || Boolean(analysis.weakTemplate)
+      || lowTolerance
       || (outcomes.missed >= 2 && outcomes.missed > outcomes.achieved);
     const actions = decision.actions
       .filter(adjustableAction)
-      .filter((action) => !suppressAdditions || action.kind !== "addVolume");
+      .filter((action) => !suppressAdditions || action.kind !== "addVolume")
+      .sort((left, right) => (
+        responsePriority(right, highTolerance ? "high" : lowTolerance ? "low" : "balanced")
+        - responsePriority(left, highTolerance ? "high" : lowTolerance ? "low" : "balanced")
+        || right.priority - left.priority
+      ));
     changes = collectChanges(data, actions);
   }
 
@@ -208,6 +235,10 @@ export function buildCycleReview(data: AppData, today: string): CycleReview {
       queuedTemplateChanges: queuedTemplateChangeCount(data),
       recoveryCheckIns: recovery.scoredDays7d,
       recoveryScore: recovery.average7d,
+      responseCycles: responseModel.evaluatedCycles,
+      responseTransitions: responseModel.comparableTransitions,
+      responseConfidence: responseModel.confidence,
+      volumeTolerance: responseModel.tolerance,
     },
   };
 }

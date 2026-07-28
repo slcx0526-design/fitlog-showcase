@@ -1,6 +1,6 @@
 {
   "name": "fitlog",
-  "version": "11.4.0",
+  "version": "12.0.0",
   "private": true,
   "description": "Local-first fitness, nutrition, cardio, and body-composition dashboard deployable on Vercel.",
   "engines": {
@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "test:e2e": "npm run build && playwright test",
-    "test:training": "rm -rf .tmp-training-tests && tsc -p tsconfig.training-tests.json && node .tmp-training-tests/scripts/data-foundation.test.js && node .tmp-training-tests/scripts/training-execution.test.js && node .tmp-training-tests/scripts/cycle-planning.test.js && node .tmp-training-tests/scripts/training-history.test.js && node .tmp-training-tests/scripts/training-system.test.js && node .tmp-training-tests/scripts/training-regression.test.js && node .tmp-training-tests/scripts/training-decision.test.js && node .tmp-training-tests/scripts/training-analysis.test.js && node .tmp-training-tests/scripts/health-insights.test.js && node .tmp-training-tests/scripts/integrated-coach.test.js && node .tmp-training-tests/scripts/cut-system.test.js && node .tmp-training-tests/scripts/finalization.test.js && node .tmp-training-tests/scripts/training-policy.test.js && node .tmp-training-tests/scripts/adaptive-evidence.test.js && rm -rf .tmp-training-tests",
+    "test:training": "rm -rf .tmp-training-tests && tsc -p tsconfig.training-tests.json && node .tmp-training-tests/scripts/data-foundation.test.js && node .tmp-training-tests/scripts/training-execution.test.js && node .tmp-training-tests/scripts/cycle-planning.test.js && node .tmp-training-tests/scripts/training-history.test.js && node .tmp-training-tests/scripts/training-system.test.js && node .tmp-training-tests/scripts/training-regression.test.js && node .tmp-training-tests/scripts/training-decision.test.js && node .tmp-training-tests/scripts/training-analysis.test.js && node .tmp-training-tests/scripts/health-insights.test.js && node .tmp-training-tests/scripts/integrated-coach.test.js && node .tmp-training-tests/scripts/cut-system.test.js && node .tmp-training-tests/scripts/finalization.test.js && node .tmp-training-tests/scripts/training-policy.test.js && node .tmp-training-tests/scripts/adaptive-evidence.test.js && node .tmp-training-tests/scripts/adaptive-response.test.js && rm -rf .tmp-training-tests",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate"
   },
   "dependencies": {
