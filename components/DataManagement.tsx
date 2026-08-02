@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { daysAgo, todayKey } from "@/lib/date";
 import { SCHEMA_VERSION, type AppData, parseBackupWithMeta } from "@/lib/storage";
+import type { TrainingPolicy } from "@/lib/trainingPolicy";
 import { typeLabel } from "@/lib/exercises";
 import { exerciseTrackId, exerciseTrackLabel, performanceModeFor } from "@/lib/prescription";
 import { inspectDataHealth } from "@/lib/dataHealth";
@@ -28,6 +29,7 @@ export default function DataManagement() {
     templateCount: number;
     exportedAt?: string;
     version?: number;
+    adaptiveTraining?: TrainingPolicy;
     mergeSummary: DataMergeSummary;
   } | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(
@@ -71,6 +73,7 @@ export default function DataManagement() {
         templateCount: preview.data.templates?.length ?? 0,
         exportedAt: preview.exportedAt,
         version: preview.version,
+        adaptiveTraining: preview.adaptiveTraining,
         mergeSummary: mergePreview.summary,
       });
     } catch (err) {
@@ -81,7 +84,7 @@ export default function DataManagement() {
   function confirmImport() {
     if (!pendingImport) return;
     try {
-      importData(pendingImport.data);
+      if (!importData(pendingImport.data, pendingImport.adaptiveTraining)) throw new Error("导入失败");
       flash("ok", tr("导入成功，数据已恢复"));
     } catch (err) {
       flash("err", err instanceof Error ? tr(err.message) : tr("导入失败"));

@@ -4,7 +4,7 @@ import { mergeAppleHealthSnapshot, normalizeAppleHealthSnapshot } from "../lib/a
 import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
 import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
-import { normalizeData, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
+import { normalizeData, parseBackupWithMeta, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
 import { moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
 import {
   setCompletionCredit,
@@ -15,6 +15,7 @@ import {
   workingSets,
 } from "../lib/trainingMetrics";
 import type { Exercise, ExercisePreset, SetRecord, Template } from "../lib/types";
+import { defaultTrainingPolicy, exportTrainingPolicyBackup } from "../lib/trainingPolicy";
 
 const sets: SetRecord[] = [
   { weight: 80, reps: 8, type: "working", completion: "completed" },
@@ -323,6 +324,34 @@ assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId,
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
 assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");
 assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 18 backups preserve recovery and adaptive training state");
+
+{
+  const writes: string[] = [];
+  const runtime = globalThis as typeof globalThis & { window?: Window };
+  const previousWindow = runtime.window;
+  Object.defineProperty(runtime, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: () => null,
+        setItem: (key: string) => writes.push(key),
+        removeItem: (key: string) => writes.push(key),
+      },
+      dispatchEvent: () => true,
+    } as unknown as Window,
+  });
+  const preview = parseBackupWithMeta(JSON.stringify({
+    ...backup,
+    adaptiveTraining: exportTrainingPolicyBackup(defaultTrainingPolicy("2026-07-01T00:00:00.000Z")),
+  }));
+  assert.equal(preview.adaptiveTraining?.version, 3);
+  assert.deepEqual(writes, [], "Previewing a backup must not mutate training policy storage");
+  if (previousWindow) {
+    Object.defineProperty(runtime, "window", { configurable: true, value: previousWindow });
+  } else {
+    Reflect.deleteProperty(runtime, "window");
+  }
+}
 
 const adaptiveSnapshotRoundTrip = normalizeData(toBackup({
   ...normalized,

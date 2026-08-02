@@ -42,10 +42,11 @@ import {
   emptyData,
   loadData,
   normalizeData,
-  parseBackup,
+  parseBackupWithMeta,
   saveData,
   STORAGE_KEY,
 } from "./storage";
+import { emitPersistenceStatus } from "./persistence";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { todayKey } from "./date";
 import {
@@ -54,7 +55,15 @@ import {
   updateCustomExerciseTemplateReferences,
 } from "./templates";
 import { buildAdaptiveRuntimePlan } from "./adaptiveEvidence";
-import { loadTrainingPolicy } from "./trainingPolicy";
+import {
+  loadTrainingPolicy,
+  saveTrainingPolicy,
+  type TrainingPolicy,
+} from "./trainingPolicy";
+import {
+  applyAdaptivePlanPatch,
+  type AdaptiveTemplatePatch,
+} from "./adaptivePlanCommit";
 import {
   advanceTrainingCycle,
   cloneTemplate,
@@ -186,6 +195,11 @@ interface StoreApi {
 
   // 计划
   setSchedule: (schedule: Schedule) => void;
+  commitAdaptivePlan: (
+    patches: AdaptiveTemplatePatch[],
+    schedule: Schedule | undefined,
+    policy: TrainingPolicy,
+  ) => boolean;
   setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
   resetMuscleTarget: (muscle: MuscleGroup) => void;
   setMesocycleTargetCycles: (cycles: number) => void;
@@ -205,7 +219,7 @@ interface StoreApi {
   // 数据管理
   exportData: () => void;
   importFromText: (text: string) => void;
-  importData: (data: AppData) => void;
+  importData: (data: AppData, adaptiveTraining?: TrainingPolicy) => boolean;
   mergeData: (data: AppData) => DataMergeSummary;
   repairData: () => number;
   clearAll: () => void;
@@ -1102,6 +1116,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({ ...prev, schedule, microcycle: microcycleForScheduleEdit(prev, schedule) }));
   }, []);
 
+  const commitAdaptivePlan = useCallback((
+    patches: AdaptiveTemplatePatch[],
+    schedule: Schedule | undefined,
+    policy: TrainingPolicy,
+  ) => {
+    const previous = dataRef.current;
+    const previousPolicy = loadTrainingPolicy();
+    const next = applyAdaptivePlanPatch(previous, patches, schedule);
+    if (!saveData(next)) return false;
+    if (!saveTrainingPolicy(policy)) {
+      saveData(previous);
+      saveTrainingPolicy(previousPolicy);
+      emitPersistenceStatus("error");
+      return false;
+    }
+    dataRef.current = next;
+    setData(next);
+    return true;
+  }, []);
+
   const setMuscleTarget = useCallback((muscle: MuscleGroup, low: number, high: number) => {
     setData((prev) => ({
       ...prev,
@@ -1246,17 +1280,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
   }, [data]);
 
-  const importData = useCallback((input: AppData) => {
+  const importData = useCallback((input: AppData, adaptiveTraining?: TrainingPolicy) => {
+    const previous = dataRef.current;
+    const previousPolicy = adaptiveTraining ? loadTrainingPolicy() : undefined;
     const next = normalizeData(input);
     // 把导入时刻当作新的"已同步"基点
     next.lastBackupAt = new Date().toISOString();
+    if (!saveData(next)) return false;
+    if (adaptiveTraining && !saveTrainingPolicy(adaptiveTraining)) {
+      saveData(previous);
+      if (previousPolicy) saveTrainingPolicy(previousPolicy);
+      emitPersistenceStatus("error");
+      return false;
+    }
     dataRef.current = next;
     setData(next);
-    saveData(next);
+    return true;
   }, []);
 
   const importFromText = useCallback((text: string) => {
-    importData(parseBackup(text));
+    const parsed = parseBackupWithMeta(text);
+    if (!importData(parsed.data, parsed.adaptiveTraining)) throw new Error("导入失败");
   }, [importData]);
 
   const mergeData = useCallback((incoming: AppData) => {
@@ -1329,6 +1373,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateCustomExercise,
       toggleFavoriteExercise,
       setSchedule,
+      commitAdaptivePlan,
       setMuscleTarget,
       resetMuscleTarget,
       setMesocycleTargetCycles,
@@ -1386,6 +1431,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateCustomExercise,
       toggleFavoriteExercise,
       setSchedule,
+      commitAdaptivePlan,
       setMuscleTarget,
       resetMuscleTarget,
       setMesocycleTargetCycles,

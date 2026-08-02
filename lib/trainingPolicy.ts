@@ -1,6 +1,7 @@
 import { DEFAULT_EXERCISES } from "./exercises";
 import { MUSCLE_ORDER, type Equipment, type MuscleGroup } from "./muscles";
 import type { AppData, MovementPattern, Schedule, TemplateItem } from "./types";
+import { emitPersistenceStatus } from "./persistence";
 
 export const TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v3";
 export const LEGACY_TRAINING_POLICY_STORAGE_KEY = "fitlog:training-policy:v2";
@@ -129,25 +130,28 @@ const DECISION_OUTCOMES: TrainingDecisionOutcome[] = [
 ];
 
 const MUSCLE_ALIASES: Partial<Record<MuscleGroup, string[]>> = {
-  chest: ["胸", "胸肌"],
-  upperChest: ["上胸"],
-  back: ["背部"],
-  lats: ["背阔", "背阔肌"],
-  upperBack: ["上背"],
-  lowerBack: ["下背", "竖脊肌"],
-  traps: ["斜方肌", "斜方"],
-  frontDelt: ["肩前束", "前束"],
-  sideDelt: ["肩中束", "中束", "侧肩"],
-  rearDelt: ["肩后束", "后束"],
-  biceps: ["二头", "肱二头"],
-  triceps: ["三头", "肱三头"],
-  forearms: ["前臂", "小臂"],
-  quads: ["股四头", "股四", "大腿前侧", "腿"],
-  hamstrings: ["腘绳", "大腿后侧"],
-  glutes: ["臀", "臀部", "臀肌"],
-  calves: ["小腿"],
-  neck: ["颈部", "脖子"],
-  abs: ["腹肌", "核心"],
+  chest: ["胸", "胸肌", "chest", "胸筋"],
+  upperChest: ["上胸", "upper chest", "上部胸筋"],
+  back: ["背部", "back", "背中"],
+  lats: ["背阔", "背阔肌", "lats", "latissimus", "広背筋"],
+  upperBack: ["上背", "upper back", "上背部"],
+  lowerBack: ["下背", "竖脊肌", "lower back", "脊柱起立筋"],
+  traps: ["斜方肌", "斜方", "traps", "trapezius"],
+  serratus: ["前锯肌", "serratus", "前鋸筋"],
+  frontDelt: ["肩前束", "前束", "front delt", "anterior delt", "三角筋前部"],
+  sideDelt: ["肩中束", "中束", "侧肩", "side delt", "lateral delt", "middle delt", "三角筋中部"],
+  rearDelt: ["肩后束", "后束", "rear delt", "posterior delt", "三角筋後部"],
+  biceps: ["二头", "肱二头", "biceps", "上腕二頭筋"],
+  triceps: ["三头", "肱三头", "triceps", "上腕三頭筋"],
+  forearms: ["前臂", "小臂", "forearms", "前腕"],
+  quads: ["股四头", "股四", "大腿前侧", "腿", "quads", "quadriceps", "大腿四頭筋"],
+  hamstrings: ["腘绳", "大腿后侧", "hamstrings", "ハムストリング"],
+  glutes: ["臀", "臀部", "臀肌", "glutes", "glute", "臀筋"],
+  adductors: ["内收肌", "adductors", "内転筋"],
+  abductors: ["外展肌", "abductors", "外転筋"],
+  calves: ["小腿", "calves", "calf", "ふくらはぎ"],
+  neck: ["颈部", "脖子", "neck", "首"],
+  abs: ["腹肌", "核心", "abs", "core", "腹筋"],
 };
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number) {
@@ -434,8 +438,11 @@ export function saveTrainingPolicy(policy: TrainingPolicy) {
     window.localStorage.removeItem(LEGACY_TRAINING_POLICY_STORAGE_KEY);
     window.localStorage.removeItem(OLDEST_TRAINING_POLICY_STORAGE_KEY);
     window.dispatchEvent(new CustomEvent("fitlog:training-policy", { detail: { updatedAt: normalized.updatedAt } }));
+    emitPersistenceStatus("saved");
     return true;
-  } catch {
+  } catch (error) {
+    console.warn("训练倾向保存失败：", error);
+    emitPersistenceStatus("error");
     return false;
   }
 }
@@ -551,16 +558,16 @@ function parseExercisePreferences(data: AppData, text: string) {
   const preferences: Record<string, ExercisePreference> = {};
   const recognized: string[] = [];
   for (const exercise of [...DEFAULT_EXERCISES, ...data.customExercises]) {
-    const names = [exercise.name, ...(exercise.aliases ?? [])].map(compact).filter(Boolean);
+    const names = [exercise.name, exercise.englishName, ...(exercise.aliases ?? [])].map((name) => compact(name ?? "")).filter(Boolean);
     const matched = names.find((name) => normalized.includes(name));
     if (!matched) continue;
-    if ([`不做${matched}`, `不要做${matched}`, `排除${matched}`, `禁用${matched}`].some((phrase) => normalized.includes(phrase))) {
+    if ([`不做${matched}`, `不要做${matched}`, `排除${matched}`, `禁用${matched}`, `exclude${matched}`, `avoid${matched}`, `no${matched}`, `${matched}をしない`, `${matched}を除外`].some((phrase) => normalized.includes(phrase))) {
       preferences[exercise.id] = "exclude";
       recognized.push(`排除动作：${exercise.name}`);
-    } else if ([`喜欢${matched}`, `优先做${matched}`, `多做${matched}`].some((phrase) => normalized.includes(phrase))) {
+    } else if ([`喜欢${matched}`, `优先做${matched}`, `多做${matched}`, `prefer${matched}`, `prioritize${matched}`, `${matched}を優先`].some((phrase) => normalized.includes(phrase))) {
       preferences[exercise.id] = "prefer";
       recognized.push(`偏好动作：${exercise.name}`);
-    } else if ([`少做${matched}`, `避免${matched}`].some((phrase) => normalized.includes(phrase))) {
+    } else if ([`少做${matched}`, `避免${matched}`, `limit${matched}`, `${matched}を避ける`].some((phrase) => normalized.includes(phrase))) {
       preferences[exercise.id] = "avoid";
       recognized.push(`尽量避免：${exercise.name}`);
     }
@@ -577,32 +584,32 @@ export function parseTrainingPolicyText(
   const recognized: string[] = [];
   const patch: Partial<TrainingPolicy> = {};
 
-  if (normalized.includes("减脂保肌") || normalized.includes("减脂期保肌")) {
+  if (["减脂保肌", "减脂期保肌", "fatloss", "cutretention", "retainmuscle", "減量", "筋量維持"].some((value) => normalized.includes(value))) {
     patch.goal = "fatLossRetention";
     recognized.push("目标：减脂保肌");
-  } else if (normalized.includes("力量") || normalized.includes("提高力量")) {
+  } else if (["力量", "提高力量", "strength", "筋力"].some((value) => normalized.includes(value))) {
     patch.goal = "strength";
     recognized.push("目标：力量");
-  } else if (normalized.includes("增肌") || normalized.includes("体型塑造")) {
+  } else if (["增肌", "体型塑造", "hypertrophy", "musclegain", "筋肥大"].some((value) => normalized.includes(value))) {
     patch.goal = "hypertrophy";
     recognized.push("目标：增肌/体型塑造");
   }
 
-  if (normalized.includes("安全自动") || normalized.includes("自动调整计划")) {
+  if (["安全自动", "自动调整计划", "safeauto", "automaticadaptation", "安全自動"].some((value) => normalized.includes(value))) {
     patch.adaptationMode = "safeAuto";
     recognized.push("计划调整：安全自动");
-  } else if (normalized.includes("只给建议") || normalized.includes("仅建议")) {
+  } else if (["只给建议", "仅建议", "suggestonly", "recommendonly", "提案のみ"].some((value) => normalized.includes(value))) {
     patch.adaptationMode = "suggestOnly";
     recognized.push("计划调整：仅建议");
   }
 
-  const minuteMatch = normalized.match(/(?:最多|不超过|控制在|上限)?(\d{2,3})分钟/);
+  const minuteMatch = normalized.match(/(?:最多|不超过|控制在|上限|max|maximum|まで)?(\d{2,3})(?:分钟|分|minutes?|mins?)/);
   if (minuteMatch) {
     const minutes = Math.min(240, Math.max(20, Number(minuteMatch[1])));
     patch.maxSessionMinutes = minutes;
     recognized.push(`单次训练上限：${minutes} 分钟`);
   }
-  const dayMatch = normalized.match(/(?:每周|一周)(\d)(?:天|练)/);
+  const dayMatch = normalized.match(/(?:每周|一周|weekly|perweek|週)(\d)(?:天|练|days?|times?|日|回)/);
   if (dayMatch) {
     const days = Math.min(7, Math.max(1, Number(dayMatch[1])));
     patch.weeklyTrainingDays = {
@@ -618,13 +625,13 @@ export function parseTrainingPolicyText(
     for (const alias of MUSCLE_ALIASES[muscle] ?? []) {
       const key = compact(alias);
       if (!normalized.includes(key)) continue;
-      if ([`${key}优先`, `${key}重点`, `强化${key}`, `多练${key}`].some((phrase) => normalized.includes(phrase))) {
+      if ([`${key}优先`, `${key}重点`, `强化${key}`, `多练${key}`, `prioritize${key}`, `${key}priority`, `focus${key}`, `${key}を優先`, `${key}重点`].some((phrase) => normalized.includes(phrase))) {
         musclePriorities[muscle] = "specialize";
         recognized.push(`${alias}：专项强化`);
-      } else if ([`${key}维持`, `${key}保留`, `${key}够用`].some((phrase) => normalized.includes(phrase))) {
+      } else if ([`${key}维持`, `${key}保留`, `${key}够用`, `maintain${key}`, `${key}maintenance`, `${key}を維持`].some((phrase) => normalized.includes(phrase))) {
         musclePriorities[muscle] = "maintain";
         recognized.push(`${alias}：维持`);
-      } else if ([`${key}少练`, `降低${key}`, `${key}不重要`].some((phrase) => normalized.includes(phrase))) {
+      } else if ([`${key}少练`, `降低${key}`, `${key}不重要`, `deprioritize${key}`, `reduce${key}`, `${key}を減らす`].some((phrase) => normalized.includes(phrase))) {
         musclePriorities[muscle] = "deprioritize";
         recognized.push(`${alias}：降低优先级`);
       }
@@ -635,10 +642,10 @@ export function parseTrainingPolicyText(
 
   const unavailableEquipment = new Set(base.unavailableEquipment);
   const equipmentTerms: Array<[Equipment, string[]]> = [
-    ["free", ["没有自由重量", "不用自由重量", "不做自由重量"]],
-    ["machine", ["没有器械", "不用器械"]],
-    ["cable", ["没有绳索", "没有龙门架", "不用绳索"]],
-    ["bodyweight", ["不做自重", "不用自重"]],
+    ["free", ["没有自由重量", "不用自由重量", "不做自由重量", "no free weights", "no barbell", "フリーウェイトなし"]],
+    ["machine", ["没有器械", "不用器械", "no machines", "マシンなし"]],
+    ["cable", ["没有绳索", "没有龙门架", "不用绳索", "no cables", "ケーブルなし"]],
+    ["bodyweight", ["不做自重", "不用自重", "no bodyweight", "自重なし"]],
   ];
   for (const [equipment, phrases] of equipmentTerms) {
     if (phrases.some((phrase) => normalized.includes(compact(phrase)))) {

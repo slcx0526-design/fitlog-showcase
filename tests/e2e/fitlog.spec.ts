@@ -12,11 +12,45 @@ const ROUTES = [
   "/cardio",
   "/cut",
   "/settings",
+  "/training-policy",
+  "/adaptive-outcomes",
 ];
 
 function localDateKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function trainingPolicy(goal: "strength" | "hypertrophy" = "strength") {
+  return {
+    version: 3,
+    goal,
+    musclePriorities: {},
+    exercisePreferences: {},
+    preferredEquipment: [],
+    unavailableEquipment: [],
+    weeklyTrainingDays: { minimum: 3, target: 5, maximum: 6 },
+    maxSessionMinutes: 90,
+    maxExercisesPerSession: 9,
+    maxWorkingSetsPerSession: 30,
+    restrictions: [],
+    overrides: [],
+    adaptationMode: "approvalRequired",
+    evidenceMode: "preview",
+    evidenceMinimumConfidence: "building",
+    autoApply: {
+      loadChanges: false,
+      repChanges: false,
+      setChanges: false,
+      exerciseReplacement: false,
+      scheduleChanges: false,
+    },
+    decisionEvents: [],
+    confirmedLearningSignalIds: [],
+    dismissedLearningSignalIds: [],
+    ignoredPlanRevisions: [],
+    updatedAt: "2026-08-02T00:00:00.000Z",
+  };
 }
 
 test("primary routes stay visible and inside the viewport", async ({ page }) => {
@@ -112,6 +146,41 @@ test("starter setup remains localized and contained", async ({ page }, testInfo)
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(width, `${locale.id} setup overflow`).toBeLessThanOrEqual(391);
   }
+});
+
+test("adaptive planning stays localized, persistent, and contained", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.addInitScript(({ policy }) => {
+    localStorage.setItem("fitlog:locale", "en");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+  }, { policy: trainingPolicy("hypertrophy") });
+
+  await page.goto("/training-policy");
+  await expect(page.getByRole("heading", { name: "Adaptive training plan" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Training plan views" })).toBeVisible();
+  await page.getByRole("button", { name: /^Strength/ }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
+
+  const policyWidth = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }));
+  expect(policyWidth.width).toBeLessThanOrEqual(policyWidth.viewport + 1);
+  await page.goto("/adaptive-outcomes");
+  await expect(page.getByRole("heading", { name: "Personal response" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue training" })).toBeVisible();
+  const outcomeWidth = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }));
+  expect(outcomeWidth.width).toBeLessThanOrEqual(outcomeWidth.viewport + 1);
+  expect(consoleErrors).toEqual([]);
 });
 
 test("empty workspace can create a complete starter cycle", async ({ page }) => {
@@ -365,6 +434,149 @@ test("backup preview offers non-destructive merge", async ({ page }) => {
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}"));
   expect(stored.days[currentDate].nutrition.calories).toBe(2000);
   expect(stored.days[incomingDate].recovery.energy).toBe(4);
+});
+
+test("backup preview does not replace adaptive policy before confirmation", async ({ page }) => {
+  await page.addInitScript(({ policy }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+  }, { policy: trainingPolicy("strength") });
+  await page.goto("/settings");
+  const importedPolicy = trainingPolicy("hypertrophy");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "fitlog-policy-preview.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      app: "fitlog",
+      version: 18,
+      exportedAt: "2026-08-02T00:00:00.000Z",
+      days: { "2026-01-02": { date: "2026-01-02", recovery: { energy: 4 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+      adaptiveTraining: {
+        app: "fitlog-adaptive-training",
+        version: 3,
+        exportedAt: "2026-08-02T00:00:00.000Z",
+        policy: importedPolicy,
+      },
+    })),
+  });
+  await expect(page.getByRole("button", { name: "确认覆盖导入" })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
+
+  await page.getByRole("button", { name: "确认覆盖导入" }).click();
+  await expect.poll(() => page.evaluate(() => ({
+    goal: JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal,
+    imported: Boolean(JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.["2026-01-02"]),
+  }))).toEqual({ goal: "hypertrophy", imported: true });
+});
+
+test("adaptive plan apply and undo commit templates with policy", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The transactional flow needs one focused browser regression.");
+  const policy = trainingPolicy("strength");
+  policy.exercisePreferences = { lg_squat: "exclude" };
+  policy.weeklyTrainingDays = { minimum: 1, target: 1, maximum: 2 };
+  await page.addInitScript(({ storedPolicy }) => {
+    localStorage.setItem("fitlog:locale", "en");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{
+        id: "tpl_legs",
+        name: "Leg strength",
+        type: "legs",
+        items: [{ exerciseId: "lg_squat", name: "深蹲", sets: 4, repsLow: 4, repsHigh: 6 }],
+      }],
+      schedule: {
+        split: ["legs", "rest", "rest", "rest", "rest", "rest", "rest"],
+        microcycle: [
+          { id: "step_1", type: "legs", label: "Legs", templateId: "tpl_legs" },
+          { id: "step_2", type: "rest", label: "Rest" },
+        ],
+      },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+  }, { storedPolicy: policy });
+
+  await page.goto("/training-policy");
+  await expect(page.getByRole("button", { name: "Apply selected changes" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply selected changes" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
+      rollback: Boolean(policyValue.rollbackSnapshot),
+    };
+  })).toEqual({ exerciseId: "lg_front_squat", rollback: true });
+
+  await page.getByText("Undo and backup", { exact: true }).click();
+  await page.getByRole("button", { name: "Undo latest plan adaptation" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
+      rollback: Boolean(policyValue.rollbackSnapshot),
+    };
+  })).toEqual({ exerciseId: "lg_squat", rollback: false });
+});
+
+test("adaptive plan rolls back when policy persistence fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The storage rollback needs one focused browser regression.");
+  const policy = trainingPolicy("strength");
+  policy.exercisePreferences = { lg_squat: "exclude" };
+  policy.weeklyTrainingDays = { minimum: 1, target: 1, maximum: 2 };
+  await page.addInitScript(({ storedPolicy }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{
+        id: "tpl_legs",
+        name: "Leg strength",
+        type: "legs",
+        items: [{ exerciseId: "lg_squat", name: "深蹲", sets: 4, repsLow: 4, repsHigh: 6 }],
+      }],
+      schedule: {
+        split: ["legs", "rest", "rest", "rest", "rest", "rest", "rest"],
+        microcycle: [{ id: "step_1", type: "legs", label: "Legs", templateId: "tpl_legs" }],
+      },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+  }, { storedPolicy: policy });
+  await page.goto("/training-policy");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:training-policy:v3") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "应用所选变化" }).click();
+  await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
+  expect(await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
+      rollback: Boolean(policyValue.rollbackSnapshot),
+    };
+  })).toEqual({ exerciseId: "lg_squat", rollback: false });
 });
 
 test("native Apple Health bridge imports facts without replacing manual weight", async ({ page }) => {

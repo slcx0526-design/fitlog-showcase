@@ -40,18 +40,19 @@ import {
   exportTrainingPolicyBackup,
   importTrainingPolicyBackup,
   loadTrainingPolicy,
-  saveTrainingPolicy,
+  type TrainingPolicy,
   type PortableTrainingPolicyBackup,
 } from "./trainingPolicy";
+import {
+  emitPersistenceStatus,
+  PERSISTENCE_EVENT,
+  type PersistenceEventDetail,
+} from "./persistence";
 
 export type { AppData } from "./types";
 
 export const STORAGE_KEY = "fitlog:v1";
-export const PERSISTENCE_EVENT = "fitlog:persistence";
-export type PersistenceEventDetail = {
-  status: "saved" | "error";
-  at: string;
-};
+export { PERSISTENCE_EVENT, type PersistenceEventDetail };
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
 export const SCHEMA_VERSION = 18;
 
@@ -381,22 +382,16 @@ export function loadData(): AppData {
   } catch { return emptyData(); }
 }
 
-function emitPersistence(status: PersistenceEventDetail["status"]) {
-  window.dispatchEvent(new CustomEvent<PersistenceEventDetail>(PERSISTENCE_EVENT, {
-    detail: { status, at: new Date().toISOString() },
-  }));
-}
-
 export function saveData(data: AppData): boolean {
   if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
-    emitPersistence("saved");
+    emitPersistenceStatus("saved");
     return true;
   } catch (error) {
     console.warn("保存失败：", error);
-    emitPersistence("error");
+    emitPersistenceStatus("error");
     return false;
   }
 }
@@ -937,26 +932,31 @@ export function downloadBackup(data: AppData): void {
   URL.revokeObjectURL(url);
 }
 
-function restoreAdaptiveTrainingFromBackup(parsed: Record<string, unknown>) {
-  if (!parsed.adaptiveTraining) return;
-  const policy = importTrainingPolicyBackup(parsed.adaptiveTraining);
-  saveTrainingPolicy(policy);
+function adaptiveTrainingFromBackup(parsed: Record<string, unknown>): TrainingPolicy | undefined {
+  if (!parsed.adaptiveTraining) return undefined;
+  return importTrainingPolicyBackup(parsed.adaptiveTraining);
 }
 
 export function parseBackup(text: string): AppData {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
-  restoreAdaptiveTrainingFromBackup(parsed);
+  adaptiveTrainingFromBackup(parsed);
   return normalizeData(parsed);
 }
 
-export function parseBackupWithMeta(text: string): { data: AppData; exportedAt?: string; version?: number } {
+export function parseBackupWithMeta(text: string): {
+  data: AppData;
+  exportedAt?: string;
+  version?: number;
+  adaptiveTraining?: TrainingPolicy;
+} {
   const parsed = JSON.parse(text) as Record<string, unknown>;
   if (!parsed || parsed.app !== "fitlog") throw new Error("文件格式不正确：不是 fitlog 备份");
-  restoreAdaptiveTrainingFromBackup(parsed);
+  const adaptiveTraining = adaptiveTrainingFromBackup(parsed);
   return {
     data: normalizeData(parsed),
     exportedAt: typeof parsed.exportedAt === "string" ? parsed.exportedAt : undefined,
     version: typeof parsed.version === "number" ? parsed.version : undefined,
+    ...(adaptiveTraining ? { adaptiveTraining } : {}),
   };
 }

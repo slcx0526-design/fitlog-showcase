@@ -981,6 +981,311 @@ body::after,
   color: var(--accent);
 }
 
+/* Adaptive training uses the same controls as the rest of FitLog, with a wider
+   desktop workspace so plan comparison does not remain trapped in a phone column. */
+.adaptive-workspace {
+  min-width: 0;
+  width: 100%;
+}
+
+.adaptive-page-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.adaptive-page-nav a {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  border-radius: calc(var(--radius-control) - 2px);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.adaptive-page-nav a[aria-current="page"] {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.adaptive-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.adaptive-fact,
+.adaptive-mini-fact {
+  min-width: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.adaptive-fact {
+  min-height: 58px;
+  padding: 9px 10px;
+}
+
+.adaptive-fact p,
+.adaptive-mini-fact p,
+.adaptive-recommendation p {
+  color: var(--faint);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.adaptive-fact strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.adaptive-mini-fact {
+  min-height: 50px;
+  padding: 8px 10px;
+}
+
+.adaptive-mini-fact strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--fg);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.adaptive-conclusion {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  padding: 12px;
+}
+
+.adaptive-conclusion[data-confidence="low"] {
+  border-left-color: var(--faint);
+}
+
+.adaptive-recommendation {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.adaptive-recommendation strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--fg);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.adaptive-inline-details summary,
+.adaptive-warning summary {
+  display: flex;
+  min-height: 36px;
+  cursor: pointer;
+  align-items: center;
+  color: var(--accent);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  list-style: none;
+}
+
+.adaptive-inline-details summary::-webkit-details-marker,
+.adaptive-warning summary::-webkit-details-marker,
+.adaptive-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.adaptive-inline-details p,
+.adaptive-warning p {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.adaptive-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.adaptive-segmented button {
+  min-height: 58px;
+  border-radius: calc(var(--radius-control) - 2px);
+  padding: 7px 6px;
+  text-align: left;
+}
+
+.adaptive-segmented button strong,
+.adaptive-segmented button small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.adaptive-segmented button strong {
+  color: var(--fg);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.adaptive-segmented button small {
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 0.625rem;
+  line-height: 1.35;
+}
+
+.adaptive-segmented button[aria-pressed="true"] {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--surface);
+}
+
+.adaptive-segmented button[aria-pressed="true"] strong {
+  color: var(--accent);
+}
+
+.adaptive-day-picker {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.adaptive-day-picker button {
+  min-height: 36px;
+  border-radius: calc(var(--radius-control) - 3px);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.adaptive-day-picker button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.adaptive-check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--accent-fg);
+}
+
+.adaptive-check[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.adaptive-scale,
+.adaptive-outcome {
+  display: inline-flex;
+  min-height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 5px;
+  background: var(--surface-2);
+  padding: 3px 7px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.adaptive-outcome[data-outcome="positive"] {
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+  color: var(--accent);
+}
+
+.adaptive-outcome[data-outcome="negative"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.adaptive-disclosure {
+  overflow: hidden;
+}
+
+.adaptive-disclosure > summary {
+  display: flex;
+  min-height: 62px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  list-style: none;
+}
+
+.adaptive-disclosure > summary span,
+.adaptive-disclosure > summary strong,
+.adaptive-disclosure > summary small {
+  display: block;
+  min-width: 0;
+}
+
+.adaptive-disclosure > summary strong {
+  color: var(--fg);
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.adaptive-disclosure > summary small {
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.adaptive-chevron {
+  flex: 0 0 auto;
+  color: var(--faint);
+  transition: transform 150ms ease;
+}
+
+.adaptive-disclosure[open] > summary .adaptive-chevron {
+  transform: rotate(180deg);
+}
+
+@media (min-width: 860px) {
+  .adaptive-workspace {
+    width: min(900px, calc(100vw - 64px));
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .adaptive-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .adaptive-workspace .page-heading {
+    align-items: end;
+  }
+}
+
 .app-main .text-\[9px\] {
   font-size: 0.625rem !important;
 }

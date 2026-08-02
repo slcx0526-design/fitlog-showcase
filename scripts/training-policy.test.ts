@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { selectSafeAutomaticChanges } from "../lib/adaptiveAutomation";
+import { applyAdaptivePlanPatch } from "../lib/adaptivePlanCommit";
+import { adaptiveText } from "../lib/adaptiveText";
 import { deriveAdaptiveLearningSignals } from "../lib/adaptiveLearning";
 import { buildPlanAdaptation } from "../lib/planAdaptation";
 import { buildScheduleAdaptation } from "../lib/scheduleAdaptation";
+import { defaultMicrocycle } from "../lib/microcycle";
 import {
   defaultTrainingPolicy,
   exportTrainingPolicyBackup,
@@ -10,7 +13,7 @@ import {
   mergeTrainingPolicy,
   parseTrainingPolicyText,
 } from "../lib/trainingPolicy";
-import type { AppData, ExercisePreset, Template } from "../lib/types";
+import type { AppData, ExercisePreset, Schedule, Template } from "../lib/types";
 
 const TODAY = "2026-07-28";
 
@@ -177,6 +180,30 @@ function data(): AppData {
 }
 
 {
+  const result = parseTrainingPolicyText(
+    "Prioritize side delts, train 5 days per week, max 70 minutes, exclude squat",
+    data(),
+    defaultTrainingPolicy(),
+  );
+  assert.equal(result.policy.maxSessionMinutes, 70);
+  assert.equal(result.policy.weeklyTrainingDays.target, 5);
+  assert.equal(result.policy.musclePriorities.sideDelt, "specialize");
+  assert.equal(result.policy.exercisePreferences.lg_squat, "exclude");
+}
+
+{
+  const result = parseTrainingPolicyText(
+    "三角筋中部を優先、週4日、1回60分まで",
+    data(),
+    defaultTrainingPolicy(),
+  );
+  assert.equal(result.policy.maxSessionMinutes, 60);
+  assert.equal(result.policy.weeklyTrainingDays.target, 4);
+  assert.equal(result.policy.musclePriorities.sideDelt, "specialize");
+  assert.equal(adaptiveText("en", "高难度训练占比下降"), "The share of hard sessions decreased");
+}
+
+{
   const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
     weeklyTrainingDays: { minimum: 4, target: 5, maximum: 6 },
     musclePriorities: { sideDelt: "specialize", quads: "maintain" },
@@ -254,6 +281,29 @@ function data(): AppData {
   assert.equal(restored.decisionEvents.length, 1);
   assert.equal(restored.evidenceMode, "preview");
   assert.equal(restored.evidenceMinimumConfidence, "building");
+}
+
+{
+  const current = data();
+  current.microcycle = defaultMicrocycle(TODAY, current.schedule, current.templates);
+  const nextSchedule: Schedule = {
+    split: ["legs", "rest", "push", "pull", "rest", "rest", "rest"],
+    microcycle: [
+      { id: "next_1", type: "legs" as const, label: "腿", templateId: legTemplate.id },
+      { id: "next_2", type: "rest" as const, label: "休息" },
+      { id: "next_3", type: "push" as const, label: "推", templateId: pushTemplate.id },
+      { id: "next_4", type: "pull" as const, label: "拉", templateId: pullTemplate.id },
+    ],
+  };
+  const next = applyAdaptivePlanPatch(current, [{
+    templateId: legTemplate.id,
+    nextItems: [{ ...legTemplate.items[0], sets: 4 }],
+  }], nextSchedule);
+  assert.equal(current.templates?.find((template) => template.id === legTemplate.id)?.items[0].sets, 5);
+  assert.equal(next.templates?.find((template) => template.id === legTemplate.id)?.items[0].sets, 4);
+  assert.equal(next.schedule.microcycle?.[0].templateId, legTemplate.id);
+  assert.equal(next.microcycle?.steps?.[0].templateSnapshot?.items[0].sets, 4);
+  assert.notEqual(next, current, "Adaptive plan commit must produce one immutable next state");
 }
 
 console.log("training-policy tests passed");

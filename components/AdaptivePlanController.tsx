@@ -17,7 +17,7 @@ import {
 import { todayKey } from "@/lib/date";
 
 export default function AdaptivePlanController() {
-  const { loaded, data, setTemplateItems, setSchedule } = useStore();
+  const { loaded, data, commitAdaptivePlan } = useStore();
   const [policy, setPolicy] = useState<TrainingPolicy>(() => defaultTrainingPolicy());
   const [policyLoaded, setPolicyLoaded] = useState(false);
   const today = todayKey();
@@ -64,8 +64,7 @@ export default function AdaptivePlanController() {
     const hasChanges = automatic.templateChanges.length > 0 || automatic.applySchedule;
     if (!hasChanges) {
       const evaluated = mergeTrainingPolicy(policy, { lastAutoAppliedRevision: automatic.revision });
-      setPolicy(evaluated);
-      saveTrainingPolicy(evaluated);
+      if (saveTrainingPolicy(evaluated)) setPolicy(evaluated);
       return;
     }
 
@@ -78,11 +77,6 @@ export default function AdaptivePlanController() {
       "撤销最近一次安全自动调整",
     );
 
-    for (const change of automatic.templateChanges) {
-      setTemplateItems(change.templateId, change.nextItems);
-    }
-    if (automatic.applySchedule) setSchedule(scheduleProposal.nextSchedule);
-
     let next = mergeTrainingPolicy(policy, {
       rollbackSnapshot,
       lastAutoAppliedRevision: automatic.revision,
@@ -94,8 +88,15 @@ export default function AdaptivePlanController() {
       templateIds,
       scheduleApplied: automatic.applySchedule,
     });
-    setPolicy(next);
-    saveTrainingPolicy(next);
+    const committed = commitAdaptivePlan(
+      automatic.templateChanges.map((change) => ({
+        templateId: change.templateId,
+        nextItems: change.nextItems,
+      })),
+      automatic.applySchedule ? scheduleProposal.nextSchedule : undefined,
+      next,
+    );
+    if (committed) setPolicy(next);
   }, [
     automatic,
     data,
@@ -104,8 +105,7 @@ export default function AdaptivePlanController() {
     policyLoaded,
     scheduleProposal.nextSchedule,
     scheduleProposal.sourceRevision,
-    setSchedule,
-    setTemplateItems,
+    commitAdaptivePlan,
     templateProposal.sourceRevision,
   ]);
 

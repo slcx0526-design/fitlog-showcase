@@ -1,1 +1,1 @@
-FitLog 11.3.0 interface foundation convergence
+FitLog 12.0.1 adaptive reliability and interface completion
