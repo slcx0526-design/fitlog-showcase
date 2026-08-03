@@ -175,7 +175,8 @@ export default function BodyFatTrendChart({
                 key={value}
                 type="button"
                 onClick={() => setRange(value)}
-                className={"press rounded px-2 py-1 text-[11px] font-medium " + (active ? "bg-surface text-fg shadow-sm" : "text-faint")}
+                style={{ minWidth: 40 }}
+                className={"press min-h-[40px] min-w-[40px] rounded px-2 py-1 text-[11px] font-medium " + (active ? "bg-surface text-fg shadow-sm" : "text-faint")}
                 aria-pressed={active}
               >
                 {label}

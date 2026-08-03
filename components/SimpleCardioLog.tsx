@@ -22,7 +22,7 @@ const CARDIO_MODES = ["走路", "跑步", "单车", "椭圆机", "划船", "爬�
 function modeLabel(locale: Locale, mode: string) {
   const labels: Record<string, [string, string]> = {
     走路: ["Walk", "ウォーキング"], 跑步: ["Run", "ランニング"], 单车: ["Bike", "バイク"],
-    椭圆机: ["Elliptical", "エリプティカル"], 划船: ["Row", "ローイング"], 爬楼梯: ["Stairs", "階段"], 有氧: ["Cardio", "有酸素"],
+    椭圆机: ["Elliptical", "エリプティカル"], 划船: ["Row", "ローイング"], 爬楼梯: ["Stairs", "階段"], 坡走: ["Incline walk", "傾斜ウォーク"], 有氧: ["Cardio", "有酸素"],
   };
   const translated = labels[mode];
   return translated ? localeText(locale, mode, translated[0], translated[1]) : mode;

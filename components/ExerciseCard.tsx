@@ -286,9 +286,9 @@ export default function ExerciseCard({
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
         <div className="mt-2 space-y-2">
-          <HistoryRows title={tx(locale, "同轨道", "Same track", "同一トラック")} rows={histories.same.slice(0, 4)} locale={locale} />
-          <HistoryRows title={tx(locale, "其他轨道参考", "Other track reference", "他トラックの参考")} rows={histories.other.slice(0, 3)} locale={locale} showTrack />
-          <HistoryRows title={tx(locale, "Legacy 旧记录", "Legacy records", "旧記録")} rows={histories.legacy.slice(0, 3)} locale={locale} />
+          <HistoryRows title={tx(locale, "同轨道", "Same track", "同一トラック")} rows={histories.same.slice(0, 4)} locale={locale} tr={tr} />
+          <HistoryRows title={tx(locale, "其他轨道参考", "Other track reference", "他トラックの参考")} rows={histories.other.slice(0, 3)} locale={locale} tr={tr} showTrack />
+          <HistoryRows title={tx(locale, "Legacy 旧记录", "Legacy records", "旧記録")} rows={histories.legacy.slice(0, 3)} locale={locale} tr={tr} />
         </div>
       </details>}
       </div>
@@ -327,9 +327,9 @@ export default function ExerciseCard({
   </section>;
 }
 
-function HistoryRows({ title, rows, locale, showTrack = false }: { title: string; rows: TrackHistoryResult[]; locale: Locale; showTrack?: boolean }) {
+function HistoryRows({ title, rows, locale, tr, showTrack = false }: { title: string; rows: TrackHistoryResult[]; locale: Locale; tr: (source: string) => string; showTrack?: boolean }) {
   if (!rows.length) return null;
-  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${exerciseTrackId(row.exercise)}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack ? ` · ${exerciseTrackLabel(row.exercise)}` : ""}{row.implicitCompletion ? ` · ${tx(locale, "未结束", "Unclosed", "未終了")}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, exercisePrescription(row.exercise).performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
+  return <div><p className="text-[9px] font-semibold uppercase tracking-wide text-faint">{title}</p>{rows.map((row) => <p key={`${title}-${row.date}-${exerciseTrackId(row.exercise)}`} className="tnum mt-1 flex items-start justify-between gap-2 text-[10px] text-muted"><span>{formatCompact(row.date, locale).md}{showTrack ? ` · ${tr(exerciseTrackLabel(row.exercise))}` : ""}{row.implicitCompletion ? ` · ${tx(locale, "未结束", "Unclosed", "未終了")}` : ""}</span><span className="shrink-0 text-right">{summarize(row.sets, exercisePrescription(row.exercise).performanceMode ?? performanceModeFor(row.exercise.recordModes), locale)}</span></p>)}</div>;
 }
 
 function Chip({ label, accent = false }: { label: string; accent?: boolean }) {

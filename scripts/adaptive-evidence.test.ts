@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { buildAdaptiveEvidenceProfile, buildAdaptiveRuntimePlan } from "../lib/adaptiveEvidence";
+import { adaptiveText } from "../lib/adaptiveText";
 import { buildScheduleAdaptation } from "../lib/scheduleAdaptation";
 import { defaultTrainingPolicy, mergeTrainingPolicy } from "../lib/trainingPolicy";
 import type { AppData, DayLog, Template, TemplateItem } from "../lib/types";
 
 const TODAY = "2026-07-28";
+
+assert.equal(adaptiveText("en", "减脂模式按 80% 容量保护主项"), "Cut mode protects main lifts at 80% volume");
+assert.equal(adaptiveText("en", "恢复样本：近 7 天 7 天，平均 71"), "Recovery samples: 7 days in the last 7, 71 average");
+assert.equal(adaptiveText("en", "健康信号：2 项有效，1 项不利"), "Health signals: 2 qualified, 1 adverse");
+assert.equal(adaptiveText("en", "有氧压力：近 7 天 100 分钟，高强度近 3 天 20 分钟"), "Cardio load: 100 minutes in 7 days, 20 high-intensity minutes in 3 days");
+assert.equal(adaptiveText("ja", "跨周期模型：4 个周期，3 次比较，置信度 ready"), "周期間モデル：4周期、3比較、信頼度 確立");
+assert.equal(adaptiveText("en", "减脂状态：hold"), "Cut state: hold");
 
 const pushItems: TemplateItem[] = [
   {

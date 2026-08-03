@@ -50,7 +50,7 @@ function targetLimits(item: TemplateItem) {
 
 /** 单个模板 → 纯文字（无 RPE、无署名，跟随语言） */
 function templateToText(tpl: Template, tr: Tr): string {
-  const head = `${tpl.name.trim() || tr("未命名模板")} · ${tr(TYPE_LABEL[tpl.type as "push" | "pull" | "legs"])}`;
+  const head = `${tpl.name.trim() ? tr(tpl.name.trim()) : tr("未命名模板")} · ${tr(TYPE_LABEL[tpl.type as "push" | "pull" | "legs"])}`;
   const lines = tpl.items.map(
     (it, i) => {
       return `${i + 1}. ${it.supersetGroup ? `[${tr("超级组")} ${it.supersetGroup}] ` : ""}${tr(it.name)}  ${it.sets} × ${formatReps(it.repsLow, it.repsHigh)} ${targetUnit(it, tr)}`;
@@ -383,7 +383,7 @@ function TemplateCard({
           aria-expanded={open}
         >
           <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-fg">
-            {tpl.name.trim() || tr("未命名模板")}
+            {tpl.name.trim() ? tr(tpl.name.trim()) : tr("未命名模板")}
           </span>
           <span className="tnum shrink-0 text-[12px] text-muted">
             {items.length ? tr("{n} 动作 · {m} 组", { n: items.length, m: totalSets }) : tr("空模板")}
@@ -434,7 +434,7 @@ function TemplateCard({
           {/* 名字 + 删除模板 */}
           <div className="flex items-center gap-2">
             <input
-              value={tpl.name}
+              value={tr(tpl.name)}
               aria-label={tr("模板名称")}
               onChange={(e) => renameTemplate(tpl.id, e.target.value)}
               placeholder={tr("模板名称…")}

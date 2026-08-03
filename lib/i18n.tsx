@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { DICT_EN, DICT_JA } from "./dict";
 import { DICT_EN_SUPPLEMENT, DICT_JA_SUPPLEMENT } from "./dictSupplement";
 import { DEFAULT_EXERCISES } from "./exercises";
+import { localizeSystemText } from "./systemText";
 
 export type Locale = "zh" | "ja" | "en";
 const LS_KEY = "fitlog:locale";
@@ -105,11 +106,12 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const tr = useCallback((zh: string, params?: Params) => {
-    if (locale === "zh") return interpolate(zh, params, locale);
+    const systemText = localizeSystemText(locale, zh);
+    if (locale === "zh") return interpolate(systemText ?? zh, params, locale);
     const builtInName = translatedBuiltInName(locale, zh);
     const base = locale === "ja" ? DICT_JA : DICT_EN;
     const supplement = locale === "ja" ? DICT_JA_SUPPLEMENT : DICT_EN_SUPPLEMENT;
-    const translated = builtInName ?? base[zh] ?? supplement[zh] ?? CORE_FALLBACK[locale][zh] ?? zh;
+    const translated = systemText ?? builtInName ?? base[zh] ?? supplement[zh] ?? CORE_FALLBACK[locale][zh] ?? zh;
     return interpolate(translated, params, locale);
   }, [locale]);
 

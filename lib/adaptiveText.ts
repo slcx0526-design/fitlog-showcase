@@ -38,6 +38,36 @@ const PATTERNS: Array<{
   ja: (...groups: string[]) => string;
 }> = [
   {
+    pattern: /^减脂模式按 (\d+)% 容量保护主项$/,
+    en: (percent) => `Cut mode protects main lifts at ${percent}% volume`,
+    ja: (percent) => `減量モードではメイン種目のボリュームを ${percent}% に保ちます`,
+  },
+  {
+    pattern: /^恢复样本：近 7 天 (\d+) 天(?:，平均 ([\d.]+))?$/,
+    en: (days, average) => `Recovery samples: ${days} days in the last 7${average ? `, ${average} average` : ""}`,
+    ja: (days, average) => `回復データ：直近7日で${days}日${average ? `、平均 ${average}` : ""}`,
+  },
+  {
+    pattern: /^健康信号：(\d+) 项有效，(\d+) 项不利$/,
+    en: (qualified, adverse) => `Health signals: ${qualified} qualified, ${adverse} adverse`,
+    ja: (qualified, adverse) => `健康シグナル：有効 ${qualified}、注意 ${adverse}`,
+  },
+  {
+    pattern: /^有氧压力：近 7 天 (\d+) 分钟，高强度近 3 天 (\d+) 分钟$/,
+    en: (week, recentHigh) => `Cardio load: ${week} minutes in 7 days, ${recentHigh} high-intensity minutes in 3 days`,
+    ja: (week, recentHigh) => `有酸素負荷：7日で${week}分、直近3日の高強度は${recentHigh}分`,
+  },
+  {
+    pattern: /^跨周期模型：(\d+) 个周期，(\d+) 次比较，置信度 (low|building|ready)$/,
+    en: (cycles, comparisons, confidence) => `Cross-cycle model: ${cycles} cycles, ${comparisons} comparisons, ${confidence} confidence`,
+    ja: (cycles, comparisons, confidence) => `周期間モデル：${cycles}周期、${comparisons}比較、信頼度 ${confidence === "ready" ? "確立" : confidence === "building" ? "構築中" : "低"}`,
+  },
+  {
+    pattern: /^减脂状态：(setup|collect|hold|slowDown|speedUp|guardrail)$/,
+    en: (state) => `Cut state: ${{ setup: "setup", collect: "collecting", hold: "hold", slowDown: "slow down", speedUp: "speed up", guardrail: "recovery guardrail" }[state] ?? state}`,
+    ja: (state) => `減量状態：${{ setup: "初期設定", collect: "収集中", hold: "維持", slowDown: "減速", speedUp: "加速", guardrail: "回復保護" }[state] ?? state}`,
+  },
+  {
     pattern: /^目标：(减脂保肌|力量|增肌\/体型塑造)$/,
     en: (goal) => `Goal: ${goal === "力量" ? "strength" : goal === "减脂保肌" ? "cut retention" : "hypertrophy"}`,
     ja: (goal) => `目標：${goal === "力量" ? "筋力" : goal === "减脂保肌" ? "減量・筋量維持" : "筋肥大"}`,

@@ -194,23 +194,71 @@ test("planning controls stay reachable without floating overlap", async ({ page 
 
 test("existing daily and review surfaces remain fully localized", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Locale copy is a focused mobile regression.");
-  await page.addInitScript(() => {
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
     localStorage.setItem("fitlog:locale", "en");
     localStorage.setItem("fitlog:v1", JSON.stringify({
       onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
       profile: { trainingLevel: "intermediate" },
-      days: {},
-      bodyWeights: [],
-      waistEntries: [],
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              recordModes: ["weight", "reps"],
+              prescription: {
+                progressionTrackId: "px_barbell_bench:hypertrophy:8-12:3:reps",
+                progressionTrackLabel: "增肌 · 8–12 次",
+                trainingIntent: "hypertrophy",
+                targetRepMin: 8,
+                targetRepMax: 12,
+                workingSets: 3,
+                loadIncrementKg: 2.5,
+                progressionRule: "doubleProgression",
+                performanceMode: "reps",
+              },
+              sets: [],
+            }],
+          },
+        },
+      },
+      bodyWeights: [{ date: "2026-07-01", weight: 80 }, { date: "2026-07-15", weight: 79.4 }],
+      waistEntries: [{ date: "2026-07-01", waist: 84 }, { date: "2026-07-15", waist: 82.5 }],
       customExercises: [],
-      templates: [],
-      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+      templates: [{ id: "starter_push_strength", name: "推 · 力量", type: "push", items: [] }],
+      schedule: {
+        split: ["push", "pull", "legs", "rest", "", "", ""],
+        microcycle: [
+          { id: "step_push", type: "push", label: "Push Strength", templateId: "starter_push_strength" },
+          { id: "step_rest", type: "rest", label: "Rest" },
+        ],
+      },
     }));
-  });
+  }, { dateKey: date });
 
   await page.goto("/progress?tab=training");
   await expect(page.getByText("Muscle volume prescription", { exact: true })).toBeVisible();
   await expect(page.getByText("肌群容量处方", { exact: true })).toHaveCount(0);
+  await page.goto("/train");
+  await expect(page.getByText("Hypertrophy · 8–12 reps", { exact: true })).toBeVisible();
+  await expect(page.getByText("Push · Strength", { exact: true })).toBeVisible();
+  await expect(page.getByText("增肌 · 8–12 次", { exact: true })).toHaveCount(0);
+  await page.goto("/schedule");
+  await expect(page.getByText("Push strength", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Push Strength", { exact: true })).toHaveCount(0);
+  await page.goto("/progress?tab=body");
+  const chartRangeButtons = page.locator('[aria-label="Chart range"] button');
+  await expect(chartRangeButtons.first()).toBeVisible();
+  const chartRangeSizes = await chartRangeButtons.evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height) };
+  }));
+  expect(chartRangeSizes.every(({ width, height }) => width >= 40 && height >= 40)).toBe(true);
   await page.goto("/nutrition");
   await expect(page.getByText("Total calories", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("总热量", { exact: true })).toHaveCount(0);
@@ -243,6 +291,8 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
   await page.goto("/training-policy");
   await expect(page.getByRole("heading", { name: "Adaptive training plan" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Training plan views" })).toBeVisible();
+  await page.getByText("Quick preference input", { exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Training preference description" })).toBeVisible();
   await page.getByRole("button", { name: /^Strength/ }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
@@ -272,7 +322,8 @@ test("empty workspace can create a complete starter cycle", async ({ page }) => 
   expect(stored.onboarding.starterPlan).toBe("compact3");
 
   await page.goto("/schedule");
-  await expect(page.getByText("Push", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("推", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Push", { exact: true })).toHaveCount(0);
 });
 
 test("training execution exposes superset navigation and plate loading", async ({ page }) => {

@@ -16,6 +16,14 @@ import {
 } from "../lib/trainingMetrics";
 import type { Exercise, ExercisePreset, SetRecord, Template } from "../lib/types";
 import { defaultTrainingPolicy, exportTrainingPolicyBackup } from "../lib/trainingPolicy";
+import { localizeSystemText } from "../lib/systemText";
+
+assert.equal(localizeSystemText("zh", "Push Strength"), "推 · 力量");
+assert.equal(localizeSystemText("en", "推 · 力量"), "Push · Strength");
+assert.equal(localizeSystemText("ja", "腿 · 综合"), "脚・総合");
+assert.equal(localizeSystemText("en", "增肌 · 8–12 次"), "Hypertrophy · 8–12 reps");
+assert.equal(localizeSystemText("ja", "恢复 · 力量 · 4–6 次"), "回復 · 筋力 · 4–6 回");
+assert.equal(localizeSystemText("en", "用户自定义模板"), undefined, "User-authored labels must remain untouched");
 
 const sets: SetRecord[] = [
   { weight: 80, reps: 8, type: "working", completion: "completed" },

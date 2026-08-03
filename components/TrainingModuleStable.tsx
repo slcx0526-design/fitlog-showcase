@@ -130,9 +130,10 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     // then the template can fully replace the unrecorded session shell.
     draftIds.forEach((id) => removeExercise(date, id));
     const added = applyTemplate(templateId, date);
+    const localizedTemplateName = tr(templateName || tx(locale, "模板", "template", "テンプレート"));
     toast.show(
       added
-        ? tx(locale, `已套用 ${templateName || "模板"}`, `Applied ${templateName || "template"}`, `${templateName || "テンプレート"}を適用しました`)
+        ? tx(locale, `已套用 ${localizedTemplateName}`, `Applied ${localizedTemplateName}`, `${localizedTemplateName}を適用しました`)
         : tx(locale, "模板动作已经都在本次训练中", "All template exercises are already in this workout", "テンプレートの種目はすべて今回のトレーニングにあります"),
       added ? undefined : { tone: "info" },
     );

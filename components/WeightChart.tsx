@@ -184,8 +184,9 @@ export default function WeightChart({
                 key={value}
                 type="button"
                 onClick={() => setRange(value)}
+                style={{ minWidth: 40 }}
                 className={
-                  "press rounded px-2 py-1 text-[11px] font-medium " +
+                  "press min-h-[40px] min-w-[40px] rounded px-2 py-1 text-[11px] font-medium " +
                   (active ? "bg-surface text-fg shadow-sm" : "text-faint")
                 }
                 aria-pressed={active}
