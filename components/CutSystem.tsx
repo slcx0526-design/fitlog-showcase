@@ -51,7 +51,7 @@ export default function CutSystem() {
             <h1 className="mt-1 text-[24px] font-bold tracking-tight text-fg">减脂控制台</h1>
             <p className="mt-1 text-[12px] leading-relaxed text-muted">饮食决定基础赤字；记录有氧会计入本周减脂速度预测。</p>
           </div>
-          <button type="button" onClick={() => setCutPlan({ enabled: !active })} className={"press relative mt-1 h-8 w-14 rounded-full transition-colors " + (active ? "bg-accent" : "border border-border bg-surface-2")} aria-label={active ? "关闭减脂模式" : "开启减脂模式"}><span className={"absolute top-1 h-6 w-6 rounded-full bg-white shadow-sm transition-transform " + (active ? "translate-x-6" : "translate-x-1")} /></button>
+          <button type="button" onClick={() => setCutPlan({ enabled: !active })} className={"press relative mt-1 h-10 w-14 rounded-full transition-colors " + (active ? "bg-accent" : "border border-border bg-surface-2")} aria-label={active ? "关闭减脂模式" : "开启减脂模式"} aria-pressed={active}><span className={"absolute top-2 h-6 w-6 rounded-full bg-white shadow-sm transition-transform " + (active ? "translate-x-6" : "translate-x-1")} /></button>
         </div>
         <div className="control-strip mt-3 grid grid-cols-2 gap-1 rounded-2xl p-1">
           <button type="button" onClick={() => setTab("control")} aria-pressed={tab === "control"} className={"choice-chip press h-9 text-[12px] font-semibold " + (tab === "control" ? "bg-fg text-bg" : "text-muted")}>执行控制</button>

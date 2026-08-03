@@ -148,6 +148,80 @@ test("starter setup remains localized and contained", async ({ page }, testInfo)
   }
 });
 
+test("planning controls stay reachable without floating overlap", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Touch geometry is a focused mobile regression.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      profile: { trainingLevel: "intermediate" },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{ id: "tpl_push", name: "Push Strength", type: "push", items: [] }],
+      schedule: {
+        split: ["push", "pull", "legs", "rest", "", "", ""],
+        microcycle: [
+          { id: "step_push", type: "push", label: "Push Strength", templateId: "tpl_push" },
+          { id: "step_pull", type: "pull", label: "Pull" },
+          { id: "step_legs", type: "legs", label: "Legs" },
+          { id: "step_rest", type: "rest", label: "Rest" },
+        ],
+      },
+    }));
+  });
+
+  await page.goto("/schedule");
+  const editor = page.locator("[data-microcycle-editor]");
+  await expect(editor).not.toHaveAttribute("open", "");
+  await expect(page.locator("[data-training-policy-shortcut]")).toHaveCSS("position", "static");
+  await editor.locator("summary").click();
+  await expect(editor).toHaveAttribute("open", "");
+  const controlHeights = await editor.locator("button, input, select, summary").evaluateAll((elements) => elements
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    })
+    .map((element) => Math.round(element.getBoundingClientRect().height)));
+  expect(Math.min(...controlHeights)).toBeGreaterThanOrEqual(40);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+
+  await page.goto("/templates");
+  await expect(page.locator("[data-training-policy-shortcut]")).toHaveCSS("position", "static");
+  await expect(page.getByRole("button", { name: "复制全部计划" })).toBeVisible();
+});
+
+test("existing daily and review surfaces remain fully localized", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Locale copy is a focused mobile regression.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "en");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      profile: { trainingLevel: "intermediate" },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/progress?tab=training");
+  await expect(page.getByText("Muscle volume prescription", { exact: true })).toBeVisible();
+  await expect(page.getByText("肌群容量处方", { exact: true })).toHaveCount(0);
+  await page.goto("/nutrition");
+  await expect(page.getByText("Total calories", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("总热量", { exact: true })).toHaveCount(0);
+  await page.goto("/cardio");
+  await expect(page.getByText("Quick log", { exact: true })).toBeVisible();
+  await expect(page.getByText("快速记录", { exact: true })).toHaveCount(0);
+  await page.goto("/settings");
+  await expect(page.getByText("Preferences", { exact: true })).toBeVisible();
+  await expect(page.getByText("Clear and bright", { exact: true })).toBeVisible();
+});
+
 test("adaptive planning stays localized, persistent, and contained", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {

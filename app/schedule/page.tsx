@@ -26,6 +26,7 @@ import { computeVolumeSummary } from "@/lib/volume";
 import { workingSets } from "@/lib/trainingMetrics";
 import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
+import TrainingPolicyShortcut from "@/components/TrainingPolicyShortcut";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
   { value: "push", label: "推" },
@@ -77,6 +78,7 @@ export default function SchedulePage() {
           <p className="page-heading__eyebrow">{tr("训练规划")}</p>
           <h1>{tr("计划")}</h1>
         </div>
+        <TrainingPolicyShortcut />
       </header>
 
       {/* —— 今日计划 + 入口 —— */}
@@ -127,10 +129,10 @@ export default function SchedulePage() {
               <span className="tnum text-[11px] text-faint">{formatCompact(week[idx], locale).md}</span>
               {canOpen ? <DayStatus date={week[idx]} /> : <span className="ml-auto text-[10px] font-medium text-faint">{localeText(locale, "待开始", "Upcoming", "予定")}</span>}
             </>;
-            return <div key={idx} className="soft-divider border-t py-2 first:border-t-0">
+            return <div key={idx} className="soft-divider border-t py-2.5 first:border-t-0">
               <div className="mb-1.5 flex items-center gap-2">
-                {canOpen ? <Link href={`/train?date=${week[idx]}`} className={"press flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 " + (idx === todayIdx ? "text-accent" : "text-fg")}>{daySummary}</Link> : <div className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-muted">{daySummary}</div>}
-                {canOpen && <Link href={`/train?date=${week[idx]}`} className="press rounded-lg bg-surface-2 px-2 py-1 text-[11px] font-semibold text-accent">
+                {canOpen ? <Link href={`/train?date=${week[idx]}`} className={"press flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 " + (idx === todayIdx ? "text-accent" : "text-fg")}>{daySummary}</Link> : <div className="flex min-h-10 min-w-0 flex-1 items-center gap-2 px-1.5 text-muted">{daySummary}</div>}
+                {canOpen && <Link href={`/train?date=${week[idx]}`} className="press flex min-h-10 items-center rounded-lg bg-surface-2 px-3 text-[11px] font-semibold text-accent">
                   {tr("训练")}
                 </Link>}
               </div>

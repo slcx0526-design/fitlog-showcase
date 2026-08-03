@@ -29,7 +29,7 @@ const config: Config = {
         xl: "18px",
       },
       maxWidth: {
-        app: "480px",
+        app: "680px",
       },
     },
   },

@@ -23,6 +23,7 @@ import {
   type MuscleGroup,
 } from "@/lib/muscles";
 import type { ExercisePreset, RecordMode, SupersetGroup, Template, TemplateItem } from "@/lib/types";
+import TrainingPolicyShortcut from "@/components/TrainingPolicyShortcut";
 
 const EQUIP_ORDER: Equipment[] = ["machine", "cable", "free", "bodyweight"];
 type CustomRecordKind = "weightReps" | "reps" | "duration" | "distance";
@@ -155,18 +156,21 @@ export default function TemplatesPage() {
             <h1>{tr("训练模板")}</h1>
             <p className="page-heading__meta">{tr("每类型可建多个模板（最多 5 个），自由命名；存组数×次数不存重量")}</p>
           </div>
-          <span
-            className={
-              "page-status shrink-0 transition-opacity duration-300 " +
-              (showSaved ? "opacity-100" : "opacity-0")
-            }
-            aria-hidden={!showSaved}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="M5 13L9 17L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {tr("已保存")}
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className={
+                "page-status shrink-0 transition-opacity duration-300 " +
+                (showSaved ? "opacity-100" : "opacity-0")
+              }
+              aria-hidden={!showSaved}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M5 13L9 17L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {tr("已保存")}
+            </span>
+            <TrainingPolicyShortcut />
+          </div>
         </div>
       </header>
 

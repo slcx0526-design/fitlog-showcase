@@ -15,7 +15,7 @@ const TABS = [
 export default function BottomNav() {
   const pathname = usePathname();
   const { tr } = useI18n();
-  return <nav className="app-nav fixed inset-x-0 bottom-0 z-20 border-t border-border/80 bg-surface/95 backdrop-blur-xl" aria-label={tr("主导航")}>
+  return <nav className="app-nav fixed inset-x-0 bottom-0 z-20 mx-auto border-t border-border/80 bg-surface/95 backdrop-blur-xl" aria-label={tr("主导航")}>
     <div className="mx-auto grid max-w-app grid-cols-4 gap-1 px-3 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1">
       {TABS.map((tab) => {
         const active = tab.match(pathname); const Icon = tab.icon;

@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { localeText, useI18n } from "@/lib/i18n";
 
-const VISIBLE_ROUTES = ["/schedule", "/templates", "/train"];
-
-export default function TrainingPolicyShortcut() {
-  const pathname = usePathname();
+export default function TrainingPolicyShortcut({ className = "" }: { className?: string }) {
   const { locale } = useI18n();
   const t = (zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
-  if (pathname === "/training-policy" || pathname === "/adaptive-outcomes") return null;
-  if (!VISIBLE_ROUTES.some((route) => pathname.startsWith(route))) return null;
   const label = t("打开动态训练计划", "Open adaptive training plan", "適応トレーニングプランを開く");
 
   return (
@@ -20,8 +14,7 @@ export default function TrainingPolicyShortcut() {
       title={label}
       aria-label={label}
       data-training-policy-shortcut
-      className="page-icon-button press fixed right-4 z-[18] border border-border bg-surface/95 text-accent shadow-md backdrop-blur-xl"
-      style={{ bottom: "calc(4.85rem + env(safe-area-inset-bottom))" }}
+      className={`page-icon-button press text-accent ${className}`.trim()}
     >
       <PlanIcon />
     </Link>

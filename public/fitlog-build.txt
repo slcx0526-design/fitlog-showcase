@@ -1,1 +1,1 @@
-FitLog 12.0.1 adaptive reliability and interface completion
+FitLog 12.0.2 interaction and interface refinement
