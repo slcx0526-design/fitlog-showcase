@@ -47,7 +47,10 @@ export default class ErrorBoundary extends React.Component<
     );
     if (!ok) return;
     try {
-      window.localStorage.removeItem("fitlog:v1");
+      const keys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index));
+      keys.forEach((key) => {
+        if (key?.startsWith("fitlog:")) window.localStorage.removeItem(key);
+      });
     } catch {}
     try {
       if (window.caches) {

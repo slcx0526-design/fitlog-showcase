@@ -183,7 +183,8 @@ export default function DataManagement() {
                 type="button"
                 onClick={() => {
                   const repaired = repairData();
-                  flash("ok", tr("已整理 {n} 项数据", { n: repaired }));
+                  if (repaired == null) flash("err", tr("整理失败，当前数据未改变"));
+                  else flash("ok", tr("已整理 {n} 项数据", { n: repaired }));
                 }}
                 className="choice-chip press h-8 shrink-0 border border-border bg-surface px-2.5 text-[11px] font-semibold text-fg"
               >
@@ -363,9 +364,12 @@ export default function DataManagement() {
             </button>
             <button type="button"
               onClick={() => {
-                clearAll();
-                setConfirming(false);
-                flash("ok", tr("已清空"));
+                if (clearAll()) {
+                  setConfirming(false);
+                  flash("ok", tr("已清空"));
+                } else {
+                  flash("err", tr("清空失败，当前数据未改变"));
+                }
               }}
               className="press h-9 rounded-md bg-accent px-3 text-[13px] font-semibold text-accent-fg"
             >

@@ -39,6 +39,25 @@ function emptySummary(): DataMergeSummary {
   };
 }
 
+function hasMeaningfulCycleState(data: AppData) {
+  const microcycle = data.microcycle;
+  const mesocycle = data.mesocycle;
+  return Boolean(
+    data.lastCycleReview
+      || (microcycle && (
+        microcycle.index > 1
+        || microcycle.phase === "deload"
+        || Boolean(microcycle.sourceReviewId)
+        || (microcycle.mesocycleCycleNumber ?? 1) > 1
+      ))
+      || (mesocycle && (
+        mesocycle.index > 1
+        || mesocycle.currentBuildCycle > 1
+        || mesocycle.targetBuildCycles !== 4
+      ))
+  );
+}
+
 function isEmptyWorkspace(data: AppData) {
   return Object.keys(data.days).length === 0
     && !data.bodyWeights.length
@@ -52,9 +71,7 @@ function isEmptyWorkspace(data: AppData) {
     && !data.onboarding
     && !data.trainingPreferences
     && !data.healthSync
-    && !data.lastCycleReview
-    && !data.microcycle
-    && !data.mesocycle
+    && !hasMeaningfulCycleState(data)
     && same(data.schedule, defaultSchedule());
 }
 

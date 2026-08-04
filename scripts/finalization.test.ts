@@ -4,8 +4,8 @@ import { calculatePlateLoad } from "../lib/plateCalculator";
 import { buildPersonalCalibration } from "../lib/personalization";
 import { defaultTrackId } from "../lib/prescription";
 import { needsStarterSetup, STARTER_PLANS } from "../lib/starterPlans";
-import { emptyData, parseBackup, SCHEMA_VERSION, toBackup } from "../lib/storage";
-import type { AppData, DayLog, Exercise, Template } from "../lib/types";
+import { emptyData, normalizeData, parseBackup, SCHEMA_VERSION, toBackup } from "../lib/storage";
+import type { AppData, DayLog, Exercise, Schedule, Template } from "../lib/types";
 
 assert.equal(STARTER_PLANS.length, 3);
 assert.deepEqual(STARTER_PLANS.map((plan) => plan.trainingDays), [3, 5, 6]);
@@ -263,5 +263,22 @@ const healthOnlyMerge = mergeAppData(emptyData(), {
 });
 assert.equal(healthOnlyMerge.summary.importedDays, 1, "A HealthKit-only date must remain visible in merge accounting");
 assert.equal(healthOnlyMerge.data.days["2026-07-26"].health?.steps, 12345);
+
+const normalizedEmptyWorkspace = normalizeData(emptyData());
+assert.ok(normalizedEmptyWorkspace.microcycle, "Normalization creates a default active microcycle");
+assert.ok(normalizedEmptyWorkspace.mesocycle, "Normalization creates a default active mesocycle");
+const importedSchedule: Schedule = {
+  split: ["push", "rest", "legs", "pull", "rest", "", ""],
+  microcycle: [
+    { id: "import_push", type: "push" as const, label: "Push Strength", templateId: importedTemplate.id },
+    { id: "import_rest", type: "rest" as const, label: "Rest" },
+  ],
+};
+const emptyWorkspaceMerge = mergeAppData(normalizedEmptyWorkspace, {
+  ...incomingData,
+  schedule: importedSchedule,
+});
+assert.deepEqual(emptyWorkspaceMerge.data.schedule, importedSchedule, "Generated default cycle state must not block a backup from replacing a cleared workspace");
+assert.equal(emptyWorkspaceMerge.data.templates?.[0].id, importedTemplate.id);
 
 console.log("finalization tests passed");

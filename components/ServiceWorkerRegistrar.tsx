@@ -124,11 +124,11 @@ export default function ServiceWorkerRegistrar() {
       className="fixed inset-x-0 z-40 flex justify-center px-4"
       style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
     >
-      <div className="flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
+      <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
         <span>{tr("有新版本")}</span>
         <button type="button"
           onClick={() => waiting.postMessage("SKIP_WAITING")}
-          className="press rounded-full bg-bg px-3 py-1 text-[12px] font-semibold text-fg"
+          className="press min-h-10 rounded-full bg-bg px-3 text-[12px] font-semibold text-fg"
         >
           {tr("刷新")}
         </button>

@@ -164,7 +164,7 @@ test("planning controls stay reachable without floating overlap", async ({ page 
         microcycle: [
           { id: "step_push", type: "push", label: "Push Strength", templateId: "tpl_push" },
           { id: "step_pull", type: "pull", label: "Pull" },
-          { id: "step_legs", type: "legs", label: "Legs" },
+          { id: "step_legs", type: "legs", label: "脚" },
           { id: "step_rest", type: "rest", label: "Rest" },
         ],
       },
@@ -177,6 +177,15 @@ test("planning controls stay reachable without floating overlap", async ({ page 
   await expect(page.locator("[data-training-policy-shortcut]")).toHaveCSS("position", "static");
   await editor.locator("summary").click();
   await expect(editor).toHaveAttribute("open", "");
+  await expect(editor.getByRole("textbox", { name: "第 3 步名称" })).toHaveValue("腿");
+  const fourthStepName = editor.getByRole("textbox", { name: "第 4 步名称" });
+  await expect(fourthStepName).toHaveValue("休息");
+  await editor.getByRole("combobox", { name: "第 4 步训练类型" }).selectOption("push");
+  await expect(fourthStepName).toHaveValue("推");
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return data.schedule?.microcycle?.[3]?.label;
+  })).toBe("推");
   const controlHeights = await editor.locator("button, input, select, summary").evaluateAll((elements) => elements
     .filter((element) => {
       const rect = element.getBoundingClientRect();
@@ -401,6 +410,62 @@ test("training execution exposes superset navigation and plate loading", async (
   await expect(targetExercise.getByRole("button", { name: /添加下一组/ })).toBeVisible();
 });
 
+test("the latest set survives an immediate reload", async ({ page }) => {
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    if (sessionStorage.getItem("fitlog:e2e:immediate-reload-seeded")) return;
+    sessionStorage.setItem("fitlog:e2e:immediate-reload-seeded", "1");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              equipment: "free",
+              recordModes: ["weight", "reps"],
+              prescription: {
+                progressionTrackId: "px_barbell_bench:hypertrophy:8-12:3:reps",
+                progressionTrackLabel: "增肌 · 8–12 次",
+                trainingIntent: "hypertrophy",
+                targetRepMin: 8,
+                targetRepMax: 12,
+                workingSets: 3,
+                loadIncrementKg: 2.5,
+                progressionRule: "doubleProgression",
+                performanceMode: "reps",
+              },
+              sets: [],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  const exercise = page.locator("#exercise-px_barbell_bench");
+  const addSet = exercise.getByRole("button", { name: /添加下一组/ });
+  if (!(await addSet.isVisible())) await exercise.getByRole("button", { name: "展开平板杠铃卧推" }).click();
+  await addSet.click();
+  await exercise.getByRole("textbox", { name: "第1组次数" }).fill("6");
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return data.days?.[dateKey]?.workout?.exercises?.[0]?.sets?.[0]?.reps;
+  }, date)).toBe(6);
+});
+
 test("exercise picker behaves as an accessible mobile sheet", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("fitlog:v1", JSON.stringify({
@@ -559,6 +624,81 @@ test("backup preview offers non-destructive merge", async ({ page }) => {
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}"));
   expect(stored.days[currentDate].nutrition.calories).toBe(2000);
   expect(stored.days[incomingDate].recovery.energy).toBe(4);
+});
+
+test("failed backup merge keeps the current workspace unchanged", async ({ page }) => {
+  const currentDate = localDateKey();
+  const incomingDate = "2026-01-03";
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { [dateKey]: { date: dateKey, recovery: { energy: 3 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  }, { dateKey: currentDate });
+  await page.goto("/settings");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "fitlog-failed-merge.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      app: "fitlog",
+      version: 18,
+      exportedAt: "2026-01-04T00:00:00.000Z",
+      days: { [incomingDate]: { date: incomingDate, recovery: { energy: 5 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    })),
+  });
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "安全合并缺少数据" }).click();
+  await expect(page.getByText("合并失败", { exact: true })).toBeVisible();
+  expect(await page.evaluate(({ current, incoming }) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      current: data.days?.[current]?.recovery?.energy,
+      imported: Boolean(data.days?.[incoming]),
+    };
+  }, { current: currentDate, incoming: incomingDate })).toEqual({ current: 3, imported: false });
+});
+
+test("clearing all data also resets adaptive training policy", async ({ page }) => {
+  await page.addInitScript(({ policy }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      days: { "2026-01-02": { date: "2026-01-02", recovery: { energy: 4 } } },
+      bodyWeights: [{ date: "2026-01-02", weight: 80 }],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+  }, { policy: trainingPolicy("strength") });
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "清空全部数据" }).click();
+  await page.getByRole("button", { name: "确认清空" }).click();
+
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      dayCount: Object.keys(data.days ?? {}).length,
+      bodyWeightCount: data.bodyWeights?.length,
+      onboarding: Boolean(data.onboarding),
+      goal: policy.goal,
+      decisionEvents: policy.decisionEvents?.length,
+    };
+  })).toEqual({ dayCount: 0, bodyWeightCount: 0, onboarding: false, goal: "hypertrophy", decisionEvents: 0 });
 });
 
 test("backup preview does not replace adaptive policy before confirmation", async ({ page }) => {

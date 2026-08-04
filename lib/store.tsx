@@ -56,6 +56,7 @@ import {
 } from "./templates";
 import { buildAdaptiveRuntimePlan } from "./adaptiveEvidence";
 import {
+  defaultTrainingPolicy,
   loadTrainingPolicy,
   saveTrainingPolicy,
   type TrainingPolicy,
@@ -221,8 +222,8 @@ interface StoreApi {
   importFromText: (text: string) => void;
   importData: (data: AppData, adaptiveTraining?: TrainingPolicy) => boolean;
   mergeData: (data: AppData) => DataMergeSummary;
-  repairData: () => number;
-  clearAll: () => void;
+  repairData: () => number | null;
+  clearAll: () => boolean;
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -238,10 +239,17 @@ function workoutCycleContext(microcycle: MicrocycleState, microcycleId: string):
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
-  const [data, setData] = useState<AppData>(emptyData);
+  const [data, setDataState] = useState<AppData>(emptyData);
   const firstRun = useRef(true);
   const dataRef = useRef(data);
-  dataRef.current = data;
+  const setData = useCallback((update: React.SetStateAction<AppData>) => {
+    const current = dataRef.current;
+    const next = typeof update === "function"
+      ? (update as (value: AppData) => AppData)(current)
+      : update;
+    dataRef.current = next;
+    setDataState(next);
+  }, []);
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
   const pendingLocalWriteRef = useRef(false);
@@ -251,7 +259,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setData(loadData());
     setLoaded(true);
-  }, []);
+  }, [setData]);
 
   // 跨标签页 / 跨窗口同步：监听同一浏览器内其他标签的 localStorage 写入
   // 避免多标签同时打开时谁后保存谁覆盖的静默丢失
@@ -273,7 +281,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [setData]);
 
   // 写穿透：data 变化后防抖落盘（避免输入时频繁写）
   useEffect(() => {
@@ -323,7 +331,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, days: { ...prev.days, [date]: next } };
       });
     },
-    []
+    [setData]
   );
 
   const mutateWorkout = useCallback(
@@ -371,7 +379,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return nextData;
       });
     },
-    []
+    [setData]
   );
 
   const mutateExercise = useCallback(
@@ -447,7 +455,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return nextData;
       });
     },
-    []
+    [setData]
   );
 
   const setWorkoutDone = useCallback(
@@ -471,7 +479,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
-    []
+    [setData]
   );
 
   const setWorkoutDifficulty = useCallback((date: string, difficulty?: SessionDifficulty) => {
@@ -486,7 +494,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         },
       };
     });
-  }, []);
+  }, [setData]);
 
   const addExercise = useCallback(
     (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => {
@@ -655,7 +663,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return { ...prev, profile: Object.keys(merged).length ? merged : undefined };
     });
-  }, []);
+  }, [setData]);
 
   // ---- 减脂计划 / 主动活动消耗 ----
   const setCutPlan = useCallback((patch: Partial<CutPlan>) => {
@@ -670,7 +678,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         cutPlan: Object.keys(merged).length ? merged : undefined,
       };
     });
-  }, []);
+  }, [setData]);
 
   const addActivityEnergy = useCallback(
     (date: string, entry: Omit<ActivityEnergyEntry, "id" | "at">) => {
@@ -719,7 +727,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, templates, microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates) };
     });
     return id;
-  }, []);
+  }, [setData]);
 
   const duplicateTemplate = useCallback((id: string): string | null => {
     const current = dataRef.current.templates ?? [];
@@ -747,7 +755,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, templates: next, microcycle: microcycleForTemplateEdit({ ...prev, templates: next }, next) };
     });
     return nextId;
-  }, []);
+  }, [setData]);
 
   const moveTemplate = useCallback((id: string, dir: -1 | 1) => {
     setData((prev) => {
@@ -756,14 +764,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (next === list) return prev;
       return { ...prev, templates: next };
     });
-  }, []);
+  }, [setData]);
 
   const renameTemplate = useCallback((id: string, name: string) => {
     setData((prev) => {
       const templates = (prev.templates ?? []).map((template) => template.id === id ? { ...template, name } : template);
       return { ...prev, templates, microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates) };
     });
-  }, []);
+  }, [setData]);
 
   const setTemplateItems = useCallback((id: string, items: TemplateItem[]) => {
     setData((prev) => {
@@ -782,7 +790,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates),
       };
     });
-  }, []);
+  }, [setData]);
 
   const deleteTemplate = useCallback((id: string) => {
     setData((prev) => {
@@ -804,7 +812,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         microcycle: microcycleForTemplateEdit(base, next),
       };
     });
-  }, []);
+  }, [setData]);
 
   /**
    * 套用模板到某天：合并去重（已有的动作保留，模板里缺的补进来）。
@@ -925,7 +933,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       return added;
     },
-    []
+    [setData]
   );
 
   // ---- 跨天查询 ----
@@ -968,14 +976,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       );
       return { ...prev, bodyWeights: next };
     });
-  }, []);
+  }, [setData]);
 
   const removeBodyWeight = useCallback((date: string) => {
     setData((prev) => ({
       ...prev,
       bodyWeights: prev.bodyWeights.filter((e) => e.date !== date),
     }));
-  }, []);
+  }, [setData]);
 
   // ---- 腰围 ----
   const setWaist = useCallback((date: string, waist: number) => {
@@ -986,14 +994,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       );
       return { ...prev, waistEntries: next };
     });
-  }, []);
+  }, [setData]);
 
   const removeWaist = useCallback((date: string) => {
     setData((prev) => ({
       ...prev,
       waistEntries: prev.waistEntries.filter((e) => e.date !== date),
     }));
-  }, []);
+  }, [setData]);
 
   // ---- 自定义动作 ----
   const addCustomExercise = useCallback(
@@ -1024,7 +1032,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }));
       return preset;
     },
-    []
+    [setData]
   );
 
   const removeCustomExercise = useCallback((id: string) => {
@@ -1033,7 +1041,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       customExercises: prev.customExercises.filter((e) => e.id !== id),
       favoriteExerciseIds: prev.favoriteExerciseIds?.filter((exerciseId) => exerciseId !== id),
     }));
-  }, []);
+  }, [setData]);
 
   const toggleFavoriteExercise = useCallback((id: string) => {
     setData((prev) => {
@@ -1043,7 +1051,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : [...current, id];
       return { ...prev, favoriteExerciseIds: favoriteExerciseIds.length ? favoriteExerciseIds : undefined };
     });
-  }, []);
+  }, [setData]);
 
   /**
    * 编辑自定义动作：改名 / 部位 / 器械。
@@ -1108,13 +1116,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
-    []
+    [setData]
   );
 
   // ---- 计划 ----
   const setSchedule = useCallback((schedule: Schedule) => {
     setData((prev) => ({ ...prev, schedule, microcycle: microcycleForScheduleEdit(prev, schedule) }));
-  }, []);
+  }, [setData]);
 
   const commitAdaptivePlan = useCallback((
     patches: AdaptiveTemplatePatch[],
@@ -1134,7 +1142,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dataRef.current = next;
     setData(next);
     return true;
-  }, []);
+  }, [setData]);
 
   const setMuscleTarget = useCallback((muscle: MuscleGroup, low: number, high: number) => {
     setData((prev) => ({
@@ -1144,7 +1152,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         [muscle]: { low: Math.max(0, Math.round(low)), high: Math.max(Math.round(low), Math.round(high)) },
       },
     }));
-  }, []);
+  }, [setData]);
 
   const resetMuscleTarget = useCallback((muscle: MuscleGroup) => {
     setData((prev) => {
@@ -1153,7 +1161,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       delete muscleTargets[muscle];
       return { ...prev, muscleTargets: Object.keys(muscleTargets).length ? muscleTargets : undefined };
     });
-  }, []);
+  }, [setData]);
 
   const setMesocycleTargetCycles = useCallback((cycles: number) => {
     setData((prev) => {
@@ -1161,7 +1169,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const targetBuildCycles = Math.min(8, Math.max(current.currentBuildCycle, Math.max(2, Math.round(cycles))));
       return { ...prev, mesocycle: { ...current, targetBuildCycles } };
     });
-  }, []);
+  }, [setData]);
 
   const completeSetup = useCallback((options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => {
     const prev = dataRef.current;
@@ -1192,14 +1200,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dataRef.current = next;
     setData(next);
     saveData(next);
-  }, []);
+  }, [setData]);
 
   const dismissSetup = useCallback(() => {
     setData((prev) => ({
       ...prev,
       onboarding: { ...prev.onboarding, dismissedAt: new Date().toISOString() },
     }));
-  }, []);
+  }, [setData]);
 
   const setTrainingPreferences = useCallback((patch: Partial<TrainingPreferences>) => {
     setData((prev) => {
@@ -1222,7 +1230,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         },
       };
     });
-  }, []);
+  }, [setData]);
 
   const importAppleHealthSnapshot = useCallback((snapshot: unknown) => {
     const result = mergeAppleHealthData(dataRef.current, snapshot);
@@ -1230,14 +1238,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData(result.data);
     saveData(result.data);
     return result.summary;
-  }, []);
+  }, [setData]);
 
   const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
     setData((prev) => {
       const advanced = advanceTrainingCycle(prev, date, phase);
       return { ...prev, microcycle: advanced.microcycle, mesocycle: advanced.mesocycle };
     });
-  }, []);
+  }, [setData]);
 
   const applyCycleReview = useCallback((review: CycleReview, date: string, phase?: TrainingCyclePhase) => {
     const result = applyCycleReviewToData(dataRef.current, review, date, phase);
@@ -1245,7 +1253,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dataRef.current = result.data;
     setData(result.data);
     return true;
-  }, []);
+  }, [setData]);
 
   // ---- 跨天 type 查询 ----
   const lastWorkoutByType = useCallback(
@@ -1278,7 +1286,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     import("./storage").then((m) => m.downloadBackup(data));
     // 标记最后一次备份
     setData((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
-  }, [data]);
+  }, [data, setData]);
 
   const importData = useCallback((input: AppData, adaptiveTraining?: TrainingPolicy) => {
     const previous = dataRef.current;
@@ -1296,7 +1304,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dataRef.current = next;
     setData(next);
     return true;
-  }, []);
+  }, [setData]);
 
   const importFromText = useCallback((text: string) => {
     const parsed = parseBackupWithMeta(text);
@@ -1306,26 +1314,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const mergeData = useCallback((incoming: AppData) => {
     const result = mergeAppData(dataRef.current, incoming);
     result.data.lastBackupAt = new Date().toISOString();
-    dataRef.current = result.data;
+    if (!saveData(result.data)) throw new Error("合并失败");
     setData(result.data);
-    saveData(result.data);
     return result.summary;
-  }, []);
+  }, [setData]);
 
   const repairData = useCallback(() => {
     const current = dataRef.current;
     const issueCount = inspectDataHealth(current).issueCount;
     const repaired = normalizeData(current);
+    if (!saveData(repaired)) return null;
     setData(repaired);
-    saveData(repaired);
     return issueCount;
-  }, []);
+  }, [setData]);
 
   const clearAll = useCallback(() => {
+    const previousData = dataRef.current;
+    const previousPolicy = loadTrainingPolicy();
     const fresh = emptyData();
+    if (!saveData(fresh)) return false;
+    if (!saveTrainingPolicy(defaultTrainingPolicy())) {
+      saveData(previousData);
+      saveTrainingPolicy(previousPolicy);
+      emitPersistenceStatus("error");
+      return false;
+    }
     setData(fresh);
-    saveData(fresh);
-  }, []);
+    return true;
+  }, [setData]);
 
   const getDay = useCallback(
     (date: string) => data.days[date],

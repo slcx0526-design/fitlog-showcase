@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { currentMicrocycleProgress, ensureMesocycle, microcyclePatternFor, microcycleStepHref } from "@/lib/microcycle";
+import {
+  currentMicrocycleProgress,
+  defaultMicrocycleStepLabel,
+  ensureMesocycle,
+  isDefaultMicrocycleStepLabel,
+  microcyclePatternFor,
+  microcycleStepHref,
+} from "@/lib/microcycle";
 import type { MicrocycleStep, TrainingType } from "@/lib/types";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
@@ -15,13 +22,6 @@ const TYPE_OPTIONS: Array<{ value: Exclude<TrainingType, "custom">; label: strin
   { value: "legs", label: "腿" },
   { value: "rest", label: "休息" },
 ];
-
-const DEFAULT_LABELS: Record<Exclude<TrainingType, "custom">, string> = {
-  push: "推",
-  pull: "拉",
-  legs: "腿",
-  rest: "休息",
-};
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
@@ -69,7 +69,7 @@ export default function MicrocycleEditor() {
     const lastType = steps.at(-1)?.type;
     const nextType: Exclude<TrainingType, "custom"> = lastType === "push" ? "pull" : lastType === "pull" ? "legs" : lastType === "legs" ? "rest" : "push";
     setPendingDeleteIndex(null);
-    save([...steps, { id: stepId(), type: nextType, label: DEFAULT_LABELS[nextType] }]);
+    save([...steps, { id: stepId(), type: nextType, label: defaultMicrocycleStepLabel(nextType) }]);
   }
 
   function useWeeklySchedule() {
@@ -130,7 +130,14 @@ export default function MicrocycleEditor() {
                       value={step.type}
                       onChange={(event) => {
                         const type = event.target.value as Exclude<TrainingType, "custom">;
-                        update(index, { type, templateId: undefined, label: step.label === DEFAULT_LABELS[step.type as Exclude<TrainingType, "custom">] ? DEFAULT_LABELS[type] : step.label });
+                        const previousType = step.type as Exclude<TrainingType, "custom">;
+                        update(index, {
+                          type,
+                          templateId: undefined,
+                          label: isDefaultMicrocycleStepLabel(step.label, previousType)
+                            ? defaultMicrocycleStepLabel(type)
+                            : step.label,
+                        });
                       }}
                       aria-label={tx(locale, `第 ${index + 1} 步训练类型`, `Step ${index + 1} workout type`, `ステップ ${index + 1} の種別`)}
                       className="h-10 w-full rounded-md border border-border bg-surface px-2 text-[16px] text-fg outline-none focus:border-accent sm:text-[13px]"
@@ -138,9 +145,11 @@ export default function MicrocycleEditor() {
                       {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{tr(option.label)}</option>)}
                     </select>
                     <input
-                      value={step.label === DEFAULT_LABELS[step.type as Exclude<TrainingType, "custom">] ? tr(step.label) : step.label}
+                      value={isDefaultMicrocycleStepLabel(step.label, step.type as Exclude<TrainingType, "custom">)
+                        ? tr(defaultMicrocycleStepLabel(step.type as Exclude<TrainingType, "custom">))
+                        : step.label}
                       onChange={(event) => update(index, { label: event.target.value.slice(0, 24) })}
-                      onBlur={() => !step.label.trim() && update(index, { label: DEFAULT_LABELS[step.type as Exclude<TrainingType, "custom">] })}
+                      onBlur={() => !step.label.trim() && update(index, { label: defaultMicrocycleStepLabel(step.type as Exclude<TrainingType, "custom">) })}
                       aria-label={tx(locale, `第 ${index + 1} 步名称`, `Step ${index + 1} name`, `ステップ ${index + 1} の名前`)}
                       className="h-10 min-w-0 rounded-md border border-border bg-surface px-2.5 text-[16px] text-fg outline-none focus:border-accent sm:text-[13px]"
                     />

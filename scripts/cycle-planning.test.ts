@@ -6,9 +6,12 @@ import {
 } from "../lib/cyclePlanning";
 import {
   advanceTrainingCycle,
+  defaultMicrocycleStepLabel,
+  isDefaultMicrocycleStepLabel,
   templateForCyclePhase,
 } from "../lib/microcycle";
 import { normalizeData, toBackup } from "../lib/storage";
+import { localizeSystemText } from "../lib/systemText";
 import type { AppData, Exercise, Template } from "../lib/types";
 
 const template: Template = {
@@ -200,5 +203,14 @@ assert.equal(nextMeso.mesocycle.currentBuildCycle, 1);
 const incompleteReset = advanceTrainingCycle({ ...data, days: {} }, "2026-07-21", "build");
 assert.equal(incompleteReset.mesocycle.currentId, "meso_review");
 assert.equal(incompleteReset.mesocycle.currentBuildCycle, 1, "Resetting an incomplete cycle must not consume a completed build-cycle slot");
+
+assert.equal(defaultMicrocycleStepLabel("pull"), "拉");
+assert.equal(isDefaultMicrocycleStepLabel("Rest", "rest"), true, "Imported English defaults must remain editable as defaults");
+assert.equal(isDefaultMicrocycleStepLabel("Push", "push"), true);
+assert.equal(isDefaultMicrocycleStepLabel("プッシュ", "push"), true);
+assert.equal(isDefaultMicrocycleStepLabel("Push Strength", "push"), false, "A user-authored intent label must be preserved");
+assert.equal(localizeSystemText("zh", "プッシュ"), "推");
+assert.equal(localizeSystemText("en", "休み"), "Rest");
+assert.equal(localizeSystemText("ja", "Rest"), "休み");
 
 console.log("cycle planning tests passed");

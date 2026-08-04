@@ -18,12 +18,27 @@ export function makeMesocycleId(index: number, startedAt: string) { return `meso
 
 function localDate() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; }
 const STEP_LABELS: Record<TrainingType, string> = { push: "推", pull: "拉", legs: "腿", rest: "休息", custom: "自定义" };
+const STEP_LABEL_ALIASES: Record<Exclude<TrainingType, "custom">, string[]> = {
+  push: ["推", "Push", "プッシュ"],
+  pull: ["拉", "Pull", "プル"],
+  legs: ["腿", "Legs", "脚"],
+  rest: ["休息", "Rest", "休み"],
+};
+
+export function defaultMicrocycleStepLabel(type: Exclude<TrainingType, "custom">) {
+  return STEP_LABELS[type];
+}
+
+export function isDefaultMicrocycleStepLabel(label: string, type: Exclude<TrainingType, "custom">) {
+  return STEP_LABEL_ALIASES[type].includes(label.trim());
+}
+
 export function microcyclePatternFor(schedule: Schedule | undefined): MicrocycleStep[] {
   if (schedule?.microcycle?.length) {
     return schedule.microcycle.map(({ templateSnapshot: _snapshot, ...step }) => ({ ...step }));
   }
   const split = schedule?.split.filter((type): type is Exclude<TrainingType, "custom"> => Boolean(type) && type !== "custom");
-  const pattern: TrainingType[] = split?.length ? split : ["push", "pull", "legs", "rest", "push", "pull", "rest"];
+  const pattern: Exclude<TrainingType, "custom">[] = split?.length ? split : ["push", "pull", "legs", "rest", "push", "pull", "rest"];
   return pattern.map((type, index) => ({ id: `cycle_step_${index + 1}`, type, label: STEP_LABELS[type] }));
 }
 
