@@ -359,6 +359,7 @@ test("training execution exposes superset navigation and plate loading", async (
           workout: {
             type: "push",
             done: false,
+            templateId: "tpl_push_focus",
             exercises: [
               {
                 id: "px_barbell_bench",
@@ -388,11 +389,28 @@ test("training execution exposes superset navigation and plate loading", async (
       bodyWeights: [],
       waistEntries: [],
       customExercises: [],
+      templates: [{
+        id: "tpl_push_focus",
+        name: "推 · 增肌",
+        type: "push",
+        items: [
+          { exerciseId: "px_barbell_bench", name: "平板杠铃卧推", sets: 3, repsLow: 8, repsHigh: 12, isMain: true, prescription },
+          { exerciseId: "px_lateral_raise", name: "哑铃侧平举", sets: 3, repsLow: 10, repsHigh: 15, isMain: false, prescription: { ...prescription, progressionTrackId: "px_lateral_raise:hypertrophy:10-15:3:reps", progressionTrackLabel: "增肌 · 10–15 次", targetRepMin: 10, targetRepMax: 15 } },
+        ],
+      }],
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
     }));
   }, { dateKey: date });
 
   await page.goto("/train");
+  await expect(page.locator("[data-integrated-coach]")).toHaveCount(0);
+  await expect(page.locator("[data-workout-type-control]")).toContainText("推");
+  await expect(page.locator("[data-workout-type-picker]")).toHaveCount(0);
+  await page.getByRole("button", { name: "更改", exact: true }).click();
+  await expect(page.locator("[data-workout-type-picker]")).toBeVisible();
+  await page.getByRole("button", { name: "收起", exact: true }).click();
+  const volumePlan = page.locator("[data-session-volume-plan-details]");
+  await expect(volumePlan).not.toHaveAttribute("open", "");
   await expect(page.getByText("超级组 A").first()).toBeVisible();
   const bench = page.locator("#exercise-px_barbell_bench");
   const expandBench = bench.getByRole("button", { name: "展开平板杠铃卧推" });
@@ -408,6 +426,13 @@ test("training execution exposes superset navigation and plate loading", async (
   const targetExercise = page.locator("#exercise-px_lateral_raise");
   await expect(targetExercise.getByText("哑铃侧平举", { exact: true })).toBeVisible();
   await expect(targetExercise.getByRole("button", { name: /添加下一组/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "休息 60 秒" }).click();
+  await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem("fitlog:rest-timer:v1")) > Date.now())).toBe(true);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("button", { name: "结束休息" })).toBeVisible();
+  await page.getByRole("button", { name: "结束休息" }).click();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("fitlog:rest-timer:v1"))).toBeNull();
 });
 
 test("the latest set survives an immediate reload", async ({ page }) => {
@@ -535,6 +560,7 @@ test("workout drafts and rest days keep explicit completion state", async ({ pag
   }, date)).toBe(false);
   await expect(page.getByText("进行中", { exact: true })).toBeVisible();
 
+  await page.getByRole("button", { name: "更改", exact: true }).click();
   await page.getByRole("button", { name: "休息", exact: true }).click();
   await expect.poll(() => page.evaluate((dateKey) => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
@@ -545,6 +571,7 @@ test("workout drafts and rest days keep explicit completion state", async ({ pag
     };
   }, date)).toEqual({ type: "rest", done: true, completed: true });
 
+  await page.getByRole("button", { name: "更改", exact: true }).click();
   await page.getByRole("button", { name: "推", exact: true }).click();
   await expect.poll(() => page.evaluate((dateKey) => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");

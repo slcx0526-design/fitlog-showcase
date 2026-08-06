@@ -41,6 +41,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const done = workout?.done === true;
   const difficulty = workout?.difficulty ?? "onTarget";
   const [nextType, setNextType] = useState<TrainingType | null>(null);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
   const finishConfirmationRef = useRef<HTMLDivElement>(null);
@@ -70,19 +71,20 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   }, [confirmFinish]);
 
   function selectType(next: TrainingType) {
-    if (next === type) return;
+    if (next === type) { setTypePickerOpen(false); return; }
     if (next === "rest" && recordEntries) {
       toast.show(tx(locale, "已有训练组，不能改为休息日；删除记录后再切换", "A workout with logged sets cannot become a rest day. Remove the sets first.", "セット記録があるトレーニングは休息日に変更できません。先に記録を削除してください"), { tone: "warning" });
       haptic([12, 28, 12]);
       return;
     }
-    if (recordEntries) { setNextType(next); return; }
+    if (recordEntries) { setNextType(next); setTypePickerOpen(false); return; }
     draftIds.forEach((id) => removeExercise(date, id));
     if (next === "rest") rest.stop(true);
     setWorkoutType(date, next);
+    setTypePickerOpen(false);
     haptic(8);
   }
-  function confirmSwitch() { if (!nextType) return; if (nextType === "rest") rest.stop(); setWorkoutType(date, nextType); setNextType(null); setConfirmFinish(false); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
+  function confirmSwitch() { if (!nextType) return; if (nextType === "rest") rest.stop(); setWorkoutType(date, nextType); setNextType(null); setTypePickerOpen(false); setConfirmFinish(false); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
   function finishWorkout() {
     if (!workout?.difficulty) setWorkoutDifficulty(date, "onTarget");
     rest.stop(true);
@@ -148,7 +150,13 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       {cyclePhase === "deload" && <p className="mt-1 text-[10px] leading-relaxed text-muted">{tx(locale, "工作组按恢复快照缩减，本轮不触发加重，也不覆盖正常训练轨道。", "Working sets use a reduced recovery snapshot; this cycle does not trigger load progression or overwrite normal tracks.", "セット数を回復用に縮小し、増量判定や通常トラックへの上書きは行いません。")}</p>}
     </div>}
     {type === undefined && <div className="control-card mb-3 p-3.5"><p className="text-[14px] font-semibold text-fg">{tx(locale, "开始一场训练", "Start a workout", "トレーニングを始める")}</p><p className="mt-0.5 text-[11px] leading-relaxed text-faint">{suggestedType ? tx(locale, `今天计划：${typeName(locale, suggestedType)}。选择后才写入记录。`, `Scheduled today: ${typeName(locale, suggestedType)}. It is saved only after you choose it.`, `今日の予定：${typeName(locale, suggestedType)}。選択後に記録されます。`) : tx(locale, "先选择训练类型，再添加动作或套用模板。", "Choose a workout type, then add exercises or apply a template.", "トレーニング種別を選んでから、種目を追加またはテンプレートを適用します。")}</p>{suggestedType && <button type="button" onClick={() => selectType(suggestedType)} className="press mt-3 h-11 w-full rounded-xl bg-fg text-[14px] font-semibold text-bg">{tx(locale, `开始${typeName(locale, suggestedType)}训练`, `Start ${typeName(locale, suggestedType)}`, `${typeName(locale, suggestedType)}を開始`)}</button>}</div>}
-    <div className="control-strip grid grid-cols-5 gap-1 rounded-2xl p-1">{TYPES.map((item) => <button key={item} type="button" onClick={() => selectType(item)} aria-pressed={type === item} className={"choice-chip press border text-[14px] font-semibold " + (type === item ? "border-accent bg-accent text-accent-fg" : "border-transparent text-muted active:bg-surface")}>{typeName(locale, item)}</button>)}</div>
+    {type === undefined ? <div className="control-strip grid grid-cols-5 gap-1 rounded-2xl p-1" role="group" aria-label={tx(locale, "选择训练类型", "Choose workout type", "トレーニング種別を選択")} data-workout-type-picker>{TYPES.map((item) => <button key={item} type="button" onClick={() => selectType(item)} aria-pressed={false} className="choice-chip press border border-transparent text-[14px] font-semibold text-muted active:bg-surface">{typeName(locale, item)}</button>)}</div> : <>
+      <div className="control-strip flex min-h-11 items-center gap-3 rounded-xl px-3 py-1.5" data-workout-type-control>
+        <div className="min-w-0 flex-1"><p className="text-[9px] font-semibold text-faint">{tx(locale, "训练类型", "Workout type", "トレーニング種別")}</p><p className="truncate text-[13px] font-semibold text-fg">{typeName(locale, type)}</p></div>
+        <button type="button" onClick={() => setTypePickerOpen((value) => !value)} className="choice-chip press min-h-9 shrink-0 border border-border bg-surface px-3 text-[12px] font-semibold text-accent" aria-expanded={typePickerOpen} aria-controls="workout-type-picker">{typePickerOpen ? tx(locale, "收起", "Close", "閉じる") : tx(locale, "更改", "Change", "変更")}</button>
+      </div>
+      {typePickerOpen && <div id="workout-type-picker" className="control-strip mt-2 grid grid-cols-5 gap-1 rounded-xl p-1" role="group" aria-label={tx(locale, "更改训练类型", "Change workout type", "トレーニング種別を変更")} data-workout-type-picker>{TYPES.map((item) => <button key={item} type="button" onClick={() => selectType(item)} aria-pressed={type === item} className={"choice-chip press border text-[14px] font-semibold " + (type === item ? "border-accent bg-accent text-accent-fg" : "border-transparent text-muted active:bg-surface")}>{typeName(locale, item)}</button>)}</div>}
+    </>}
     {nextType && <div className="mt-2 rounded-xl border border-warn/30 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `切换到${typeName(locale, nextType)}？`, `Switch to ${typeName(locale, nextType)}?`, `${typeName(locale, nextType)}に切り替えますか？`)}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "已有输入和已完成组不会删除，但同一场训练最好保持一个类型。", "Existing inputs and completed sets stay, but one workout should normally keep one type.", "入力済み内容と完了セットは残りますが、1回のトレーニングは通常1つの種別に保ちます。")}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setNextType(null)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={confirmSwitch} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "确认切换", "Confirm switch", "切り替える")}</button></div></div>}
     {type === "rest" && <div className="control-card mt-3 p-3.5"><p className="text-[14px] font-semibold text-fg">{tx(locale, "今天记录为休息日", "Today is logged as rest", "今日は休息日として記録されます")}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "无需用训练组数补偿。保持饮食计划，按恢复状态做轻松活动即可。", "Do not compensate with extra sets. Keep nutrition on plan and do light activity based on recovery.", "トレーニングセットで補う必要はありません。食事計画を保ち、回復状態に合わせて軽い活動を行ってください。")}</p></div>}
     {type && type !== "rest" && <div className="mt-3 space-y-2.5">

@@ -21,7 +21,7 @@ export default function IntegratedCoachBrief({ compact = false, showAction = tru
   const badge = analysis.status === "recover" ? "bg-warn text-white" : analysis.status === "ready" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted";
   const href = analysis.primaryAction === "logRecovery" ? "#recovery-check-in" : analysis.primaryAction === "takeRecovery" ? "/train?start=rest" : "/train";
 
-  return <section className={"mb-3 rounded-2xl border p-3.5 shadow-sm " + tone}>
+  return <section className={"mb-3 rounded-2xl border p-3.5 shadow-sm " + tone} data-integrated-coach>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-semibold text-faint">{tx(locale, "今日建议", "Daily guidance", "今日の提案")}</p><h2 className="mt-1 text-[15px] font-semibold text-fg">{copy.title}</h2></div><span className={"shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold " + badge}>{confidenceLabel(locale, analysis)}</span></div>
     <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{copy.detail}</p>
     {!compact && <div className="mt-3 grid grid-cols-3 gap-2"><Metric label={tx(locale, "今日状态", "Today", "今日")} value={analysis.recovery.today ? String(analysis.recovery.today.score) : "—"} /><Metric label={tx(locale, "近 7 天", "7-day avg", "7日平均")} value={analysis.recovery.average7d == null ? "—" : String(analysis.recovery.average7d)} /><Metric label={tx(locale, "训练日", "Training days", "トレ日")} value={String(analysis.training.load.sessions7d)} /></div>}

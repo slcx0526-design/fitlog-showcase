@@ -85,7 +85,13 @@ export default function SessionGuide({ workout }: { workout: WorkoutSession | un
         ) : (
           <>
             {[60, 90, 120].map((seconds) => (
-              <button key={seconds} type="button" onClick={() => rest.start(seconds)} className="press">
+              <button
+                key={seconds}
+                type="button"
+                onClick={() => rest.start(seconds)}
+                className="press"
+                aria-label={tx(locale, `休息 ${seconds} 秒`, `Rest for ${seconds} seconds`, `${seconds}秒休憩`)}
+              >
                 {seconds}<small>{tx(locale, "秒", "s", "秒")}</small>
               </button>
             ))}

@@ -77,7 +77,7 @@ function TrainInner() {
       </div>
       <CycleReviewPanel />
     </div> : <>
-      {!isPast && <IntegratedCoachBrief compact showAction={false} />}
+      {!isPast && !workout && <IntegratedCoachBrief compact showAction={false} />}
       {!isPast && <SessionGuide workout={workout} />}
       <SessionVolumePlan date={date} workout={workout} />
       <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />

@@ -799,6 +799,23 @@ body::after,
   color: var(--accent);
 }
 
+.session-volume-plan summary::-webkit-details-marker {
+  display: none;
+}
+
+.session-volume-plan__chevron {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 140ms ease-out;
+}
+
+.session-volume-plan details[open] > summary .session-volume-plan__chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
 /* Reusable controls */
 .ui-icon-button {
   display: inline-grid;

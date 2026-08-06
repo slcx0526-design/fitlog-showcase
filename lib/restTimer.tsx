@@ -16,6 +16,22 @@ interface RestTimerState {
 
 const RestTimerControlsContext = createContext<RestTimerControls | null>(null);
 const RestTimerStateContext = createContext<RestTimerState | null>(null);
+export const REST_TIMER_SESSION_KEY = "fitlog:rest-timer:v1";
+
+function storedEndTime(raw: string | null, now: number) {
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > now ? value : null;
+}
+
+function persistEndTime(value: number | null) {
+  try {
+    if (value == null) window.sessionStorage.removeItem(REST_TIMER_SESSION_KEY);
+    else window.sessionStorage.setItem(REST_TIMER_SESSION_KEY, String(value));
+  } catch {
+    // The timer still works in memory when private browsing blocks storage.
+  }
+}
 
 export function formatRestTime(seconds: number) {
   const safe = Math.max(0, Math.round(seconds));
@@ -30,7 +46,20 @@ export function RestTimerProvider({ children }: { children: React.ReactNode }) {
   const updateEndsAt = useCallback((value: number | null) => {
     endsAtRef.current = value;
     setEndsAt(value);
+    persistEndTime(value);
   }, []);
+
+  useEffect(() => {
+    const stamp = Date.now();
+    let restored: number | null = null;
+    try {
+      restored = storedEndTime(window.sessionStorage.getItem(REST_TIMER_SESSION_KEY), stamp);
+    } catch {
+      // Storage is optional; leave the timer stopped when it cannot be read.
+    }
+    setNow(stamp);
+    updateEndsAt(restored);
+  }, [updateEndsAt]);
 
   useEffect(() => {
     if (endsAt == null) return;
