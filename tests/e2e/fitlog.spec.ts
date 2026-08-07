@@ -615,6 +615,144 @@ test("pending local edits merge cross-tab updates before persistence", async ({ 
   await remote.close();
 });
 
+test("large legacy JSON migrates to compact storage without changing portable backups", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Long-term storage migration needs one focused browser regression.");
+  await page.addInitScript(() => {
+    if (localStorage.getItem("fitlog:v1")) return;
+    const days: Record<string, unknown> = {};
+    for (let dayIndex = 0; dayIndex < 360; dayIndex += 1) {
+      const date = new Date(Date.UTC(2024, 0, 1 + dayIndex)).toISOString().slice(0, 10);
+      days[date] = {
+        date,
+        workout: {
+          type: dayIndex % 3 === 0 ? "push" : dayIndex % 3 === 1 ? "pull" : "legs",
+          done: true,
+          microcycleId: `legacy_cycle_${Math.floor(dayIndex / 7)}`,
+          exercises: Array.from({ length: 6 }, (_, exerciseIndex) => ({
+            id: `legacy_exercise_${exerciseIndex}`,
+            name: `历史动作 ${exerciseIndex + 1}`,
+            isMain: exerciseIndex < 2,
+            primaryMuscle: exerciseIndex < 2 ? "chest" : "upperBack",
+            volumeContributions: [{ muscle: exerciseIndex < 2 ? "chest" : "upperBack", weight: 1, direct: true }],
+            prescription: {
+              progressionTrackId: `legacy_exercise_${exerciseIndex}:hypertrophy:8-12`,
+              progressionTrackLabel: "增肌 · 8–12 次",
+              trainingIntent: "hypertrophy",
+              targetRepMin: 8,
+              targetRepMax: 12,
+              targetRirMin: 1,
+              targetRirMax: 2,
+              workingSets: 4,
+              loadIncrementKg: 2.5,
+              progressionRule: "doubleProgression",
+            },
+            sets: Array.from({ length: 4 }, (_, setIndex) => ({
+              weight: 40 + exerciseIndex * 5,
+              reps: 8 + (setIndex % 3),
+              type: "working",
+              completion: "completed",
+              at: `${date}T10:${String(setIndex).padStart(2, "0")}:00.000Z`,
+            })),
+          })),
+        },
+      };
+    }
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days,
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/train");
+  await expect.poll(() => page.evaluate(() => (
+    localStorage.getItem("fitlog:v1")?.startsWith("fitlog:deflate:v1:") ?? false
+  ))).toBe(true);
+
+  await page.goto("/settings");
+  await expect(page.getByText(/本地已无损压缩/)).toBeVisible();
+  const layout = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    width: document.documentElement.scrollWidth,
+  }));
+  expect(layout.width).toBeLessThanOrEqual(layout.viewport + 1);
+});
+
+test("an interrupted storage transaction restores its readable checkpoint", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Recovery needs one focused browser regression.");
+  await page.addInitScript(() => {
+    const recovery = JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { "2026-08-01": { date: "2026-08-01", recovery: { energy: 4 } } },
+      bodyWeights: [{ date: "2026-08-01", weight: 78.4 }],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    });
+    localStorage.setItem("fitlog:v1", "fitlog:deflate:v1:not-valid");
+    localStorage.setItem("fitlog:v1:recovery", recovery);
+  });
+
+  await page.goto("/");
+  await expect(page.locator("main")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const restored = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      energy: restored.days?.["2026-08-01"]?.recovery?.energy,
+      weight: restored.bodyWeights?.[0]?.weight,
+      checkpoint: localStorage.getItem("fitlog:v1:recovery"),
+    };
+  })).toEqual({ energy: 4, weight: 78.4, checkpoint: null });
+});
+
+test("installed PWA reloads the current workout offline", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Offline recovery needs one focused PWA regression.");
+  const date = localDateKey();
+  await page.addInitScript(() => {
+    if (localStorage.getItem("fitlog:v1")) return;
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/train");
+  await page.getByRole("button", { name: "推", exact: true }).click();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return data.days?.[dateKey]?.workout?.type;
+  }, date)).toBe("push");
+
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+  // One controlled online load gives the worker the exact document and chunks
+  // that the installed app needs for its next offline launch.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-session-guide]")).toBeVisible();
+
+  await context.setOffline(true);
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("main")).toBeVisible();
+    await expect(page.locator("[data-session-guide]")).toBeVisible();
+    expect(await page.evaluate((dateKey) => {
+      const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+      return data.days?.[dateKey]?.workout?.type;
+    }, date)).toBe("push");
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
 test("backup preview offers non-destructive merge", async ({ page }) => {
   const currentDate = localDateKey();
   await page.addInitScript(({ dateKey }) => {
@@ -772,6 +910,64 @@ test("backup preview does not replace adaptive policy before confirmation", asyn
   }))).toEqual({ goal: "hypertrophy", imported: true });
 });
 
+test("failed overwrite import rolls back its adaptive policy and data", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Import rollback needs one focused browser regression.");
+  await page.addInitScript(({ policy }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { "2026-08-01": { date: "2026-08-01", recovery: { energy: 3 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+  }, { policy: trainingPolicy("strength") });
+  await page.goto("/settings");
+
+  const importedPolicy = trainingPolicy("hypertrophy");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "fitlog-rollback.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      app: "fitlog",
+      version: 18,
+      exportedAt: "2026-08-08T00:00:00.000Z",
+      days: { "2026-08-02": { date: "2026-08-02", recovery: { energy: 5 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+      adaptiveTraining: {
+        app: "fitlog-adaptive-training",
+        version: 3,
+        exportedAt: "2026-08-08T00:00:00.000Z",
+        policy: importedPolicy,
+      },
+    })),
+  });
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "确认覆盖导入" }).click();
+  await expect(page.getByText("导入失败", { exact: true })).toBeVisible();
+  await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
+  expect(await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      original: data.days?.["2026-08-01"]?.recovery?.energy,
+      imported: Boolean(data.days?.["2026-08-02"]),
+      goal: policy.goal,
+      checkpoint: Boolean(localStorage.getItem("fitlog:v1:recovery")),
+    };
+  })).toEqual({ original: 3, imported: false, goal: "strength", checkpoint: true });
+});
+
 test("adaptive plan apply and undo commit templates with policy", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "The transactional flow needs one focused browser regression.");
   const policy = trainingPolicy("strength");
@@ -856,6 +1052,51 @@ test("adaptive plan rolls back when policy persistence fails", async ({ page }, 
     const originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function setItem(key: string, value: string) {
       if (key === "fitlog:training-policy:v3") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "应用所选变化" }).click();
+  await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
+  expect(await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    return {
+      exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
+      rollback: Boolean(policyValue.rollbackSnapshot),
+    };
+  })).toEqual({ exerciseId: "lg_squat", rollback: false });
+});
+
+test("adaptive plan rolls back policy when data persistence fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The second transaction failure needs one focused browser regression.");
+  const policy = trainingPolicy("strength");
+  policy.exercisePreferences = { lg_squat: "exclude" };
+  policy.weeklyTrainingDays = { minimum: 1, target: 1, maximum: 2 };
+  await page.addInitScript(({ storedPolicy }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{
+        id: "tpl_legs",
+        name: "Leg strength",
+        type: "legs",
+        items: [{ exerciseId: "lg_squat", name: "深蹲", sets: 4, repsLow: 4, repsHigh: 6 }],
+      }],
+      schedule: {
+        split: ["legs", "rest", "rest", "rest", "rest", "rest", "rest"],
+        microcycle: [{ id: "step_1", type: "legs", label: "Legs", templateId: "tpl_legs" }],
+      },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+  }, { storedPolicy: policy });
+  await page.goto("/training-policy");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
       originalSetItem.call(this, key, value);
     };
   });

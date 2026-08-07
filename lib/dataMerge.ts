@@ -1,6 +1,7 @@
 import type { AppData, DayLog, HealthDailySummary, RecoveryCheckIn } from "./types";
 import { defaultSchedule, normalizeData, toBackup } from "./storage";
 import { dayHasLogContent } from "./trainingHistory";
+import { encodeStorageValue } from "./storageCodec";
 
 export interface DataMergeSummary {
   importedDays: number;
@@ -19,7 +20,17 @@ export interface DataFootprint {
   bytes: number;
   kilobytes: number;
   megabytes: number;
+  storedBytes: number;
+  storedKilobytes: number;
+  storedMegabytes: number;
+  compressed: boolean;
   status: "normal" | "attention" | "high";
+}
+
+export interface StorageReconciliation {
+  data: AppData;
+  shouldPersist: boolean;
+  source: "incoming" | "merged";
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -324,14 +335,49 @@ export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
   return { data, summary };
 }
 
+/**
+ * Reconciles a storage event against the value it replaced. Incoming storage
+ * wins true conflicts, while independent local edits are retained and written
+ * back so all open tabs converge on the same dataset.
+ */
+export function reconcileStorageEvent(
+  currentInput: AppData,
+  previousStoredInput: AppData,
+  incomingStoredInput: AppData,
+): StorageReconciliation {
+  const current = normalizeData(currentInput);
+  const previousStored = normalizeData(previousStoredInput);
+  const incomingStored = normalizeData(incomingStoredInput);
+  if (same(current, previousStored)) {
+    return { data: incomingStored, shouldPersist: false, source: "incoming" };
+  }
+
+  const merged = mergeAppData(incomingStored, current).data;
+  const localBackupAt = current.lastBackupAt;
+  if (localBackupAt && (!merged.lastBackupAt || Date.parse(localBackupAt) > Date.parse(merged.lastBackupAt))) {
+    merged.lastBackupAt = localBackupAt;
+  }
+  return {
+    data: merged,
+    shouldPersist: !same(merged, incomingStored),
+    source: "merged",
+  };
+}
+
 export function estimateDataFootprint(data: AppData): DataFootprint {
-  const json = JSON.stringify(toBackup(data));
+  const json = JSON.stringify(toBackup(data), null, 2);
   const bytes = typeof TextEncoder === "undefined" ? json.length * 2 : new TextEncoder().encode(json).length;
   const megabytes = bytes / (1024 * 1024);
+  const stored = encodeStorageValue(data);
+  const storedMegabytes = stored.storedBytes / (1024 * 1024);
   return {
     bytes,
     kilobytes: Math.round(bytes / 1024),
     megabytes: Math.round(megabytes * 100) / 100,
-    status: megabytes >= 4 ? "high" : megabytes >= 2.5 ? "attention" : "normal",
+    storedBytes: stored.storedBytes,
+    storedKilobytes: Math.round(stored.storedBytes / 1024),
+    storedMegabytes: Math.round(storedMegabytes * 100) / 100,
+    compressed: stored.compressed,
+    status: storedMegabytes >= 4 ? "high" : storedMegabytes >= 2.5 ? "attention" : "normal",
   };
 }

@@ -1,1 +1,1 @@
-FitLog 12.2.0 evidence-led training decisions
+FitLog 12.3.0 long-term local data resilience

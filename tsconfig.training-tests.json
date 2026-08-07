@@ -30,6 +30,7 @@
     "lib/trainingHistory.ts",
     "lib/dataHealth.ts",
     "lib/dataMerge.ts",
+    "lib/storageCodec.ts",
     "lib/appleHealth.ts",
     "lib/personalization.ts",
     "lib/plateCalculator.ts",
@@ -60,6 +61,7 @@
     "scripts/finalization.test.ts",
     "scripts/training-policy.test.ts",
     "scripts/adaptive-evidence.test.ts",
-    "scripts/adaptive-response.test.ts"
+    "scripts/adaptive-response.test.ts",
+    "scripts/storage-resilience.test.ts"
   ]
 }

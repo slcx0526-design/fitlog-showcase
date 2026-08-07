@@ -39,10 +39,12 @@ import type {
 import type { Equipment, MuscleGroup } from "./muscles";
 import {
   AppData,
+  downloadBackup,
   emptyData,
   loadData,
   normalizeData,
   parseBackupWithMeta,
+  parseStoredData,
   saveData,
   STORAGE_KEY,
 } from "./storage";
@@ -96,7 +98,7 @@ import {
   type CycleReview,
 } from "./cyclePlanning";
 import { starterPlanById } from "./starterPlans";
-import { mergeAppData, type DataMergeSummary } from "./dataMerge";
+import { mergeAppData, reconcileStorageEvent, type DataMergeSummary } from "./dataMerge";
 import {
   mergeAppleHealthSnapshot as mergeAppleHealthData,
   type AppleHealthMergeSummary,
@@ -218,7 +220,7 @@ interface StoreApi {
   ) => { date: string; exercises: Exercise[] } | null;
 
   // 数据管理
-  exportData: () => void;
+  exportData: () => boolean;
   importFromText: (text: string) => void;
   importData: (data: AppData, adaptiveTraining?: TrainingPolicy) => boolean;
   mergeData: (data: AppData) => DataMergeSummary;
@@ -267,14 +269,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     function onStorage(e: StorageEvent) {
       if (e.key !== STORAGE_KEY || e.newValue === null || !loadedRef.current) return;
       try {
-        const incoming = normalizeData(JSON.parse(e.newValue));
-        if (pendingLocalWriteRef.current) {
-          setData((current) => mergeAppData(current, incoming).data);
-          return;
+        const incoming = parseStoredData(e.newValue);
+        const previousStored = e.oldValue ? parseStoredData(e.oldValue) : emptyData();
+        const reconciled = reconcileStorageEvent(dataRef.current, previousStored, incoming);
+        if (reconciled.shouldPersist) {
+          pendingLocalWriteRef.current = true;
+          remoteDataRef.current = null;
+          setData(reconciled.data);
+        } else {
+          pendingLocalWriteRef.current = false;
+          remoteDataRef.current = reconciled.data;
+          dataRef.current = reconciled.data;
+          setData(reconciled.data);
         }
-        remoteDataRef.current = incoming;
-        dataRef.current = incoming;
-        setData(incoming);
       } catch {
         /* ignore */
       }
@@ -1132,9 +1139,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const previous = dataRef.current;
     const previousPolicy = loadTrainingPolicy();
     const next = applyAdaptivePlanPatch(previous, patches, schedule);
-    if (!saveData(next)) return false;
-    if (!saveTrainingPolicy(policy)) {
-      saveData(previous);
+    if (!saveTrainingPolicy(policy)) return false;
+    if (!saveData(next)) {
       saveTrainingPolicy(previousPolicy);
       emitPersistenceStatus("error");
       return false;
@@ -1197,9 +1203,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         starterPlan: options.starterPlan,
       },
     };
+    if (!saveData(next)) return;
     dataRef.current = next;
     setData(next);
-    saveData(next);
   }, [setData]);
 
   const dismissSetup = useCallback(() => {
@@ -1234,9 +1240,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const importAppleHealthSnapshot = useCallback((snapshot: unknown) => {
     const result = mergeAppleHealthData(dataRef.current, snapshot);
+    if (!saveData(result.data)) throw new Error("Apple Health 数据未能保存");
     dataRef.current = result.data;
     setData(result.data);
-    saveData(result.data);
     return result.summary;
   }, [setData]);
 
@@ -1283,20 +1289,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- 数据管理 ----
   const exportData = useCallback(() => {
-    import("./storage").then((m) => m.downloadBackup(data));
-    // 标记最后一次备份
-    setData((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
-  }, [data, setData]);
+    try {
+      downloadBackup(dataRef.current);
+      // Only mark a backup after the browser download has been created.
+      setData((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
+      return true;
+    } catch {
+      emitPersistenceStatus("error");
+      return false;
+    }
+  }, [setData]);
 
   const importData = useCallback((input: AppData, adaptiveTraining?: TrainingPolicy) => {
-    const previous = dataRef.current;
     const previousPolicy = adaptiveTraining ? loadTrainingPolicy() : undefined;
     const next = normalizeData(input);
     // 把导入时刻当作新的"已同步"基点
     next.lastBackupAt = new Date().toISOString();
-    if (!saveData(next)) return false;
-    if (adaptiveTraining && !saveTrainingPolicy(adaptiveTraining)) {
-      saveData(previous);
+    if (adaptiveTraining && !saveTrainingPolicy(adaptiveTraining)) return false;
+    if (!saveData(next, { checkpoint: "import" })) {
       if (previousPolicy) saveTrainingPolicy(previousPolicy);
       emitPersistenceStatus("error");
       return false;
@@ -1314,7 +1324,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const mergeData = useCallback((incoming: AppData) => {
     const result = mergeAppData(dataRef.current, incoming);
     result.data.lastBackupAt = new Date().toISOString();
-    if (!saveData(result.data)) throw new Error("合并失败");
+    if (!saveData(result.data, { checkpoint: "import" })) throw new Error("合并失败");
     setData(result.data);
     return result.summary;
   }, [setData]);
@@ -1323,18 +1333,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const current = dataRef.current;
     const issueCount = inspectDataHealth(current).issueCount;
     const repaired = normalizeData(current);
-    if (!saveData(repaired)) return null;
+    if (!saveData(repaired, { checkpoint: "repair" })) return null;
     setData(repaired);
     return issueCount;
   }, [setData]);
 
   const clearAll = useCallback(() => {
-    const previousData = dataRef.current;
     const previousPolicy = loadTrainingPolicy();
     const fresh = emptyData();
-    if (!saveData(fresh)) return false;
-    if (!saveTrainingPolicy(defaultTrainingPolicy())) {
-      saveData(previousData);
+    if (!saveTrainingPolicy(defaultTrainingPolicy())) return false;
+    if (!saveData(fresh)) {
       saveTrainingPolicy(previousPolicy);
       emitPersistenceStatus("error");
       return false;

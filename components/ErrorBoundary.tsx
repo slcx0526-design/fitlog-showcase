@@ -27,14 +27,19 @@ export default class ErrorBoundary extends React.Component<
   };
 
   private exportData = async () => {
+    let backup = window.localStorage.getItem("fitlog:v1") ?? "(empty)";
     try {
-      const raw = window.localStorage.getItem("fitlog:v1") ?? "(empty)";
-      await navigator.clipboard.writeText(raw);
+      const storage = await import("@/lib/storage");
+      backup = storage.serializeBackup(storage.loadData());
+    } catch {
+      /* Preserve the raw value as a last-resort diagnostic export. */
+    }
+    try {
+      await navigator.clipboard.writeText(backup);
       alert("数据已复制到剪贴板，请粘贴发给开发者。\nData copied to clipboard.");
     } catch {
       try {
-        const raw = window.localStorage.getItem("fitlog:v1") ?? "(empty)";
-        window.prompt("长按全选复制以下数据 / copy this:", raw);
+        window.prompt("长按全选复制以下数据 / copy this:", backup);
       } catch {
         alert("无法读取数据 / cannot read data");
       }

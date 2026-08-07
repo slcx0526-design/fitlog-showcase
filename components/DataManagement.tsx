@@ -175,7 +175,7 @@ export default function DataManagement() {
                 {tr(health.status === "healthy" ? "数据结构正常" : "发现 {n} 项数据需要整理", { n: health.issueCount })}
               </p>
               <p className="tnum mt-0.5 truncate text-[10px] text-faint">
-                Schema {SCHEMA_VERSION} · {tr("{n} 次训练", { n: health.totals.trainingSessions })} · {tr("{n} 个有效组", { n: health.totals.workingSets })} · {footprint.kilobytes} KB
+                Schema {SCHEMA_VERSION} · {tr("{n} 次训练", { n: health.totals.trainingSessions })} · {tr("{n} 个有效组", { n: health.totals.workingSets })} · {footprint.storedKilobytes} KB
               </p>
             </div>
             {health.status === "attention" && (
@@ -202,13 +202,21 @@ export default function DataManagement() {
               {tr("保留 {n} 条旧轨道历史作为参考，不参与新轨道自动建议。", { n: health.totals.legacyTrackExercises })}
             </p>
           )}
+          {footprint.compressed && (
+            <p className="mt-1 text-[10px] leading-relaxed text-faint">
+              {tr("本地已无损压缩：备份 {raw} MB · 本地 {stored} MB，导出仍为标准 JSON。", {
+                raw: footprint.megabytes,
+                stored: footprint.storedMegabytes,
+              })}
+            </p>
+          )}
           {footprint.status !== "normal" && (
             <p className={"mt-1 text-[10px] leading-relaxed " + (footprint.status === "high" ? "text-warn" : "text-faint")}>
               {tr(
                 footprint.status === "high"
-                  ? "本地数据约 {n} MB，建议立即导出备份并清理不需要的旧记录。"
-                  : "本地数据约 {n} MB，正在接近常见浏览器存储上限，建议保持近期备份。",
-                { n: footprint.megabytes },
+                  ? "本地占用约 {n} MB，建议立即导出备份并检查浏览器可用空间。"
+                  : "本地占用约 {n} MB，正在接近常见浏览器存储上限，建议保持近期备份。",
+                { n: footprint.storedMegabytes },
               )}
             </p>
           )}
@@ -320,8 +328,8 @@ export default function DataManagement() {
               </button>
               <button type="button"
                 onClick={() => {
-                  exportData();
-                  flash("ok", tr("当前数据已导出"));
+                  if (exportData()) flash("ok", tr("当前数据已导出"));
+                  else flash("err", tr("导出失败"));
                 }}
                 className="press h-9 flex-1 rounded-md border border-border bg-surface text-[13px] font-medium text-accent"
               >

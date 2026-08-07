@@ -48,10 +48,17 @@ import {
   PERSISTENCE_EVENT,
   type PersistenceEventDetail,
 } from "./persistence";
+import {
+  COMPRESSED_STORAGE_PREFIX,
+  decodeStorageValue,
+  encodeStorageValue,
+} from "./storageCodec";
 
 export type { AppData } from "./types";
 
 export const STORAGE_KEY = "fitlog:v1";
+export const STORAGE_RECOVERY_KEY = "fitlog:v1:recovery";
+const STORAGE_RECOVERY_META_KEY = "fitlog:v1:recovery-meta";
 export { PERSISTENCE_EVENT, type PersistenceEventDetail };
 const LEGACY_FAVORITES_KEY = "fitlog:favoriteExercises";
 export const SCHEMA_VERSION = 18;
@@ -366,11 +373,80 @@ function parseCustomExercise(input: unknown): ExercisePreset | null {
 export function defaultSchedule(): Schedule { return { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] }; }
 export function emptyData(): AppData { return { days: {}, bodyWeights: [], waistEntries: [], customExercises: [], schedule: defaultSchedule() }; }
 
+export function parseStoredData(value: string): AppData {
+  return normalizeData(decodeStorageValue(value));
+}
+
+function compactStoredValue(value: string) {
+  const encoded = encodeStorageValue(parseStoredData(value));
+  return encoded.compressed ? encoded.value : value;
+}
+
+function writeRecoveryCheckpoint(reason: "import" | "repair") {
+  const current = window.localStorage.getItem(STORAGE_KEY);
+  if (!current) return;
+  const compact = compactStoredValue(current);
+  // Compact the current value first so a large legacy JSON dataset does not
+  // consume the quota while its recovery copy is created.
+  if (compact !== current) window.localStorage.setItem(STORAGE_KEY, compact);
+  window.localStorage.setItem(STORAGE_RECOVERY_KEY, compact);
+  window.localStorage.setItem(STORAGE_RECOVERY_META_KEY, JSON.stringify({
+    version: 1,
+    reason,
+    createdAt: new Date().toISOString(),
+  }));
+}
+
+export function clearDataRecoveryCheckpoint() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_RECOVERY_KEY);
+  window.localStorage.removeItem(STORAGE_RECOVERY_META_KEY);
+}
+
 export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    const data = raw ? normalizeData(JSON.parse(raw)) : emptyData();
+    const recovery = window.localStorage.getItem(STORAGE_RECOVERY_KEY);
+    let data: AppData;
+    let recovered = false;
+    try {
+      if (raw) data = parseStoredData(raw);
+      else if (recovery) {
+        data = parseStoredData(recovery);
+        recovered = true;
+      } else data = emptyData();
+    } catch (primaryError) {
+      if (!recovery) throw primaryError;
+      data = parseStoredData(recovery);
+      recovered = true;
+      console.warn("主存储无法读取，已恢复最近的数据检查点：", primaryError);
+    }
+    const alreadyCompressed = Boolean(raw?.startsWith(COMPRESSED_STORAGE_PREFIX) && !recovered);
+    const compact = alreadyCompressed ? null : encodeStorageValue(data);
+    const repairedValue = compact?.compressed ? compact.value : recovered ? recovery : null;
+    let repairCommitted = !recovered;
+    if (repairedValue && repairedValue !== raw) {
+      try {
+        if (recovered && recovery !== repairedValue) {
+          window.localStorage.setItem(STORAGE_RECOVERY_KEY, repairedValue);
+        }
+        window.localStorage.setItem(STORAGE_KEY, repairedValue);
+        repairCommitted = true;
+      } catch (repairError) {
+        // Keep the in-memory workspace usable even when the browser temporarily
+        // refuses a recovery repair or legacy-data compaction write.
+        console.warn("数据已载入，但暂时无法完成本地存储整理：", repairError);
+        emitPersistenceStatus("error");
+      }
+    }
+    if (recovery && repairCommitted) {
+      try {
+        clearDataRecoveryCheckpoint();
+      } catch (cleanupError) {
+        console.warn("临时恢复点暂未清理：", cleanupError);
+      }
+    }
     let legacyFavorites: string[] = [];
     try {
       legacyFavorites = parseStringList(JSON.parse(window.localStorage.getItem(LEGACY_FAVORITES_KEY) ?? "[]")) ?? [];
@@ -379,14 +455,30 @@ export function loadData(): AppData {
     }
     if (legacyFavorites.length) data.favoriteExerciseIds = [...new Set([...(data.favoriteExerciseIds ?? []), ...legacyFavorites])];
     return data;
-  } catch { return emptyData(); }
+  } catch (error) {
+    console.warn("本地数据读取失败：", error);
+    emitPersistenceStatus("error");
+    return emptyData();
+  }
 }
 
-export function saveData(data: AppData): boolean {
+export function saveData(
+  data: AppData,
+  options: { checkpoint?: "import" | "repair" } = {},
+): boolean {
   if (typeof window === "undefined") return false;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+    const encoded = encodeStorageValue(data);
+    if (options.checkpoint) writeRecoveryCheckpoint(options.checkpoint);
+    window.localStorage.setItem(STORAGE_KEY, encoded.value);
+    try {
+      clearDataRecoveryCheckpoint();
+      window.localStorage.removeItem(LEGACY_FAVORITES_KEY);
+    } catch (cleanupError) {
+      // The main value is already committed. Cleanup is best-effort and must
+      // not make a completed data transaction look rolled back.
+      console.warn("主数据已保存，临时存储清理稍后重试：", cleanupError);
+    }
     emitPersistenceStatus("saved");
     return true;
   } catch (error) {
@@ -920,8 +1012,12 @@ export function toBackup(data: AppData): FitLogBackupData {
   };
 }
 
+export function serializeBackup(data: AppData): string {
+  return JSON.stringify(toBackup(data), null, 2);
+}
+
 export function downloadBackup(data: AppData): void {
-  const blob = new Blob([JSON.stringify(toBackup(data), null, 2)], { type: "application/json" });
+  const blob = new Blob([serializeBackup(data)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
