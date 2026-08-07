@@ -9,7 +9,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: minimal
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     CURRENT_PROJECT_VERSION: "1"
-    MARKETING_VERSION: "12.1.0"
+    MARKETING_VERSION: "12.2.0"
 targets:
   FitLog:
     type: application

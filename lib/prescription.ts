@@ -23,6 +23,9 @@ export interface TrackHistoryResult {
   sets: SetRecord[];
   kind: TrackHistoryKind;
   sessionDifficulty?: SessionDifficulty;
+  /** One-based exercise position within the completed session. Runtime analysis only. */
+  exercisePosition?: number;
+  exerciseCount?: number;
   implicitCompletion?: boolean;
 }
 
@@ -344,7 +347,8 @@ export function findTrackHistories(
   for (const date of dates) {
     const workout = days[date].workout;
     if (!workout || workout.type === "rest") continue;
-    const exercise = workout.exercises.find((item) => item.id === exerciseId && workingSets(item.sets).length > 0);
+    const exerciseIndex = workout.exercises.findIndex((item) => item.id === exerciseId && workingSets(item.sets).length > 0);
+    const exercise = workout.exercises[exerciseIndex];
     if (!exercise) continue;
     const normalized = normalizeExercisePrescription(exercise);
     const track = exerciseTrackId(normalized);
@@ -355,6 +359,8 @@ export function findTrackHistories(
       sets: workingSets(normalized.sets),
       kind: "other",
       sessionDifficulty: workout.difficulty,
+      exercisePosition: exerciseIndex + 1,
+      exerciseCount: workout.exercises.length,
       implicitCompletion: workout.done === false ? true : undefined,
     };
     if (progressionTrackId && track === progressionTrackId) {
@@ -466,7 +472,7 @@ export function summarizeExerciseTrackTrends(
   for (const date of dates) {
     const workout = days[date].workout;
     if (!workout || workout.type === "rest" || workout.done === false) continue;
-    for (const rawExercise of workout.exercises) {
+    for (const [exerciseIndex, rawExercise] of workout.exercises.entries()) {
       const sets = workingSets(rawExercise.sets);
       if (!sets.length) continue;
       const exercise = normalizeExercisePrescription(rawExercise);
@@ -479,7 +485,15 @@ export function summarizeExerciseTrackTrends(
         trackLabel: exerciseTrackLabel(exercise),
         histories: [],
       };
-      if (group.histories.length < 8) group.histories.push({ date, exercise, sets, kind: trackId.startsWith("legacy:") ? "legacy" : "same" });
+      if (group.histories.length < 8) group.histories.push({
+        date,
+        exercise,
+        sets,
+        kind: trackId.startsWith("legacy:") ? "legacy" : "same",
+        sessionDifficulty: workout.difficulty,
+        exercisePosition: exerciseIndex + 1,
+        exerciseCount: workout.exercises.length,
+      });
       groups.set(key, group);
     }
   }

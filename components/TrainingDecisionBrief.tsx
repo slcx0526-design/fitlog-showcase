@@ -7,26 +7,58 @@ import { useToday } from "@/lib/hooks";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { MUSCLE_LABELS } from "@/lib/muscles";
 import { typeLabel } from "@/lib/exercises";
-import { buildTrainingDecision, type TrainingDecisionAction, type TrainingDecisionConfidence } from "@/lib/trainingDecision";
+import { buildTrainingDecision, type TrainingDecision, type TrainingDecisionAction, type TrainingDecisionConfidence } from "@/lib/trainingDecision";
 import type { ProgressionSuggestion } from "@/lib/prescription";
 import { buildTemplateAdjustmentProposal, type TemplateAdjustmentProposal } from "@/lib/templateAdjustment";
 import { useToast } from "@/lib/toast";
 import type { TemplateItem } from "@/lib/types";
 import { shouldAdvanceMicrocycle } from "@/lib/microcycle";
+import type { IntegratedCoachTrigger } from "@/lib/integratedCoach";
+import type { TrackDiagnosis } from "@/lib/trackDiagnosis";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
-export default function TrainingDecisionBrief({ compact = false }: { compact?: boolean }) {
+export default function TrainingDecisionBrief({ compact = false, decision: providedDecision }: { compact?: boolean; decision?: TrainingDecision }) {
   const { data, setTemplateItems } = useStore();
   const { locale, tr } = useI18n();
   const toast = useToast();
   const today = useToday();
   const [previewKind, setPreviewKind] = useState<TrainingDecisionAction["kind"] | null>(null);
   const [undo, setUndo] = useState<{ templateId: string; templateName: string; items: TemplateItem[] } | null>(null);
-  const decision = useMemo(() => buildTrainingDecision(data, today, compact ? "home" : "review"), [compact, data, today]);
+  const decision = useMemo(
+    () => providedDecision ?? buildTrainingDecision(data, today, compact ? "home" : "review"),
+    [compact, data, providedDecision, today],
+  );
   const cycleReady = shouldAdvanceMicrocycle(data, today);
   const actions = decision.actions.slice(0, compact ? 1 : 3);
   if (!actions.length) return null;
+
+  const renderAction = (action: TrainingDecisionAction, index: number) => {
+    const copy = actionCopy(action, locale, tr);
+    const summarizedInReview = !compact && cycleReady && adjustableAction(action);
+    const proposal = !compact && !cycleReady && adjustableAction(action) ? buildTemplateAdjustmentProposal(data, action) : null;
+    const content = <>
+      <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-bold " + (copy.tone === "warn" ? "bg-warn-soft text-warn" : copy.tone === "accent" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted")}>{index + 1}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-semibold text-fg">{copy.title}</span>
+        <span className="mt-0.5 block text-[10px] leading-relaxed text-muted">{copy.detail}</span>
+        {index === 0 && !compact ? <span className="mt-1.5 grid gap-1 text-[9px] leading-relaxed text-faint sm:grid-cols-2">
+          <span><strong className="font-semibold text-muted">{tx(locale, "执行条件", "Condition", "実行条件")}</strong> · {conditionCopy(action, locale)}</span>
+          <span><strong className="font-semibold text-muted">{tx(locale, "复查时间", "Review", "再確認")}</strong> · {recheckCopy(action, locale)}</span>
+        </span> : null}
+      </span>
+      <span className="shrink-0 text-[11px] font-semibold text-accent" aria-hidden="true">{proposal ? tx(locale, "预览", "Preview", "確認") : summarizedInReview ? tx(locale, "已汇总", "Bundled", "統合済み") : "›"}</span>
+    </>;
+    return <div key={`${action.kind}-${index}`} className="soft-divider border-t first:border-t-0">
+      {proposal ? <button type="button" onClick={() => setPreviewKind((current) => current === action.kind ? null : action.kind)} aria-expanded={previewKind === action.kind} className="press flex w-full items-center gap-3 px-3.5 py-3 text-left">{content}</button> : summarizedInReview ? <div className="flex items-center gap-3 px-3.5 py-3">{content}</div> : <Link href={action.href} className="press flex items-center gap-3 px-3.5 py-3">{content}</Link>}
+      {proposal && previewKind === action.kind ? <ProposalPreview proposal={proposal} locale={locale} tr={tr} onCancel={() => setPreviewKind(null)} onApply={() => {
+        setTemplateItems(proposal.templateId, proposal.nextItems);
+        setUndo({ templateId: proposal.templateId, templateName: proposal.templateName, items: proposal.previousItems });
+        setPreviewKind(null);
+        toast.show(tx(locale, "模板已按建议调整", "Template adjusted", "提案どおりテンプレートを調整しました"));
+      }} /> : null}
+    </div>;
+  };
 
   return <section className={"control-card overflow-hidden " + (compact ? "mb-3" : "mb-4")}>
     <div className="flex items-start justify-between gap-3 px-3.5 py-3">
@@ -38,25 +70,14 @@ export default function TrainingDecisionBrief({ compact = false }: { compact?: b
       <ConfidenceBadge confidence={decision.confidence} locale={locale} />
     </div>
     <div className="soft-divider border-t">
-      {actions.map((action, index) => {
-        const copy = actionCopy(action, locale, tr);
-        const summarizedInReview = !compact && cycleReady && adjustableAction(action);
-        const proposal = !compact && !cycleReady && adjustableAction(action) ? buildTemplateAdjustmentProposal(data, action) : null;
-        const content = <>
-          <span className={"grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-bold " + (copy.tone === "warn" ? "bg-warn-soft text-warn" : copy.tone === "accent" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted")}>{index + 1}</span>
-          <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-fg">{copy.title}</span><span className="mt-0.5 block text-[10px] leading-relaxed text-muted">{copy.detail}</span></span>
-          <span className="shrink-0 text-[11px] font-semibold text-accent" aria-hidden="true">{proposal ? tx(locale, "预览", "Preview", "確認") : summarizedInReview ? tx(locale, "已汇总", "Bundled", "統合済み") : "›"}</span>
-        </>;
-        return <div key={action.kind} className="soft-divider border-t first:border-t-0">
-          {proposal ? <button type="button" onClick={() => setPreviewKind((current) => current === action.kind ? null : action.kind)} aria-expanded={previewKind === action.kind} className="press flex w-full items-center gap-3 px-3.5 py-3 text-left">{content}</button> : summarizedInReview ? <div className="flex items-center gap-3 px-3.5 py-3">{content}</div> : <Link href={action.href} className="press flex items-center gap-3 px-3.5 py-3">{content}</Link>}
-          {proposal && previewKind === action.kind && <ProposalPreview proposal={proposal} locale={locale} tr={tr} onCancel={() => setPreviewKind(null)} onApply={() => {
-            setTemplateItems(proposal.templateId, proposal.nextItems);
-            setUndo({ templateId: proposal.templateId, templateName: proposal.templateName, items: proposal.previousItems });
-            setPreviewKind(null);
-            toast.show(tx(locale, "模板已按建议调整", "Template adjusted", "提案どおりテンプレートを調整しました"));
-          }} />}
-        </div>;
-      })}
+      {renderAction(actions[0], 0)}
+      {!compact && actions.length > 1 ? <details className="soft-divider border-t">
+        <summary className="press flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 px-3.5 text-[10px] font-semibold text-muted">
+          <span>{tx(locale, `后续检查 ${actions.length - 1} 项`, `${actions.length - 1} follow-up check${actions.length > 2 ? "s" : ""}`, `後続確認 ${actions.length - 1} 件`)}</span>
+          <span aria-hidden="true">+</span>
+        </summary>
+        <div className="soft-divider border-t">{actions.slice(1).map((action, index) => renderAction(action, index + 1))}</div>
+      </details> : null}
     </div>
     {!compact && undo && <div className="soft-divider flex items-center gap-2 border-t px-3.5 py-2.5"><p className="min-w-0 flex-1 truncate text-[11px] text-muted">{tx(locale, `已调整「${tr(undo.templateName || "未命名模板")}」`, `Adjusted “${tr(undo.templateName || "Untitled template")}”`, `「${tr(undo.templateName || "無題のテンプレート")}」を調整済み`)}</p><button type="button" onClick={() => { setTemplateItems(undo.templateId, undo.items); setUndo(null); toast.show(tx(locale, "已撤销模板调整", "Template change undone", "テンプレート変更を取り消しました")); }} className="press shrink-0 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] font-semibold text-accent">{tx(locale, "撤销", "Undo", "元に戻す")}</button></div>}
     {!compact && <DecisionEvidence decision={decision} locale={locale} />}
@@ -98,6 +119,8 @@ function DecisionEvidence({ decision, locale }: { decision: ReturnType<typeof bu
       <EvidenceItem label={tx(locale, "同轨道趋势", "Track trends", "トラック推移")} value={`${evidence.improvingTracks}↑ · ${evidence.plateauTracks}→ · ${evidence.regressingTracks}↓`} />
       <EvidenceItem label={tx(locale, "当前周期", "Current cycle", "現在周期")} value={`${evidence.cycleCompleted}/${evidence.cycleTotal}`} />
       <EvidenceItem label={tx(locale, "剩余容量预测", "Volume forecast", "残り容量予測")} value={projection} />
+      <EvidenceItem label={tx(locale, "综合状态", "Readiness", "総合状態")} value={readinessLabel(evidence.readinessStatus, locale)} />
+      <EvidenceItem label={tx(locale, "压力来源", "Pressure sources", "負荷要因")} value={evidence.readinessTriggers.length ? triggerLabels(evidence.readinessTriggers, locale).join(" · ") : tx(locale, "无交叉压力", "No corroborated pressure", "複合負荷なし")} />
     </div>
   </details>;
 }
@@ -109,6 +132,7 @@ function EvidenceItem({ label, value }: { label: string; value: string }) {
 function decisionHeadline(action: TrainingDecisionAction, locale: Locale) {
   if (action.kind === "continueSession" || action.kind === "reviewUnclosed") return tx(locale, "先确认训练记录", "Confirm the workout first", "まず記録を確定");
   if (action.kind === "recoveryPriority" || action.kind === "recoveryStep") return tx(locale, "当前恢复优先", "Recovery is the priority", "現在は回復優先");
+  if (action.kind === "conservativeSession") return tx(locale, "今天保守执行处方", "Use a conservative prescription today", "今日は処方を保守的に実行");
   if (action.kind === "simplifyPlan" || action.kind === "reduceVolume") return tx(locale, "计划需要收敛", "The plan needs trimming", "計画を絞る段階");
   if (action.kind === "addVolume") return tx(locale, "周期末仍有容量缺口", "A volume gap remains", "周期末も容量不足");
   if (action.kind === "trackRegression" || action.kind === "trackPlateau") return tx(locale, "先处理局部表现", "Address the local performance issue", "局所パフォーマンスを優先");
@@ -130,7 +154,9 @@ function actionCopy(action: TrainingDecisionAction, locale: Locale, tr: (value: 
     case "reviewUnclosed":
       return { title: tx(locale, `确认 ${action.date.slice(5).replace("-", ".")} 的训练`, `Confirm the workout from ${action.date}`, `${action.date} の記録を確認`), detail: tx(locale, `已有 ${action.setCount} 个有效工作组，但训练未显式结束。确认后再纳入模板执行率和处方判断。`, `${action.setCount} effective sets exist, but the session was never closed. Confirm it before using it for plan decisions.`, `有効セット ${action.setCount} 件がありますが未終了です。確定後に計画判断へ使用します。`), tone: "warn" };
     case "recoveryPriority":
-      return { title: tx(locale, "多项信号同时指向恢复受限", "Multiple signals point to limited recovery", "複数の指標が回復不足を示しています"), detail: tx(locale, `最近 ${action.difficultySamples} 次难度记录中 ${action.hardSessions} 次吃力，${action.regressingExercises} 个动作持续回落${action.overTargetMuscles ? `，${action.overTargetMuscles} 个肌群已超量` : ""}。下一步先安排恢复或轻量训练，不加组数。`, `${action.hardSessions} of ${action.difficultySamples} recent sessions felt hard and ${action.regressingExercises} exercises regressed${action.overTargetMuscles ? `, with ${action.overTargetMuscles} muscles above target` : ""}. Recover or train light before adding work.`, `直近 ${action.difficultySamples} 回中 ${action.hardSessions} 回がきつく、${action.regressingExercises} 種目が低下${action.overTargetMuscles ? `、${action.overTargetMuscles} 筋群が上限超過` : ""}。まず回復か軽量日にします。`), tone: "warn" };
+      return { title: tx(locale, "多项信号同时指向恢复受限", "Multiple signals point to limited recovery", "複数の指標が回復不足を示しています"), detail: tx(locale, `${triggerLabels(action.triggers, locale).join("、") || "训练表现"}形成交叉压力；近期吃力 ${action.hardSessions}/${action.difficultySamples}，持续回落动作 ${action.regressingExercises} 个${action.overTargetMuscles ? `，超量肌群 ${action.overTargetMuscles} 个` : ""}。本次不加重量或组数。`, `${triggerLabels(action.triggers, locale).join(", ") || "Training performance"} forms corroborated pressure; ${action.hardSessions}/${action.difficultySamples} recent sessions felt hard, ${action.regressingExercises} exercises regressed${action.overTargetMuscles ? `, and ${action.overTargetMuscles} muscles are over target` : ""}. Do not add load or sets today.`, `${triggerLabels(action.triggers, locale).join("・") || "トレーニング推移"}が複合負荷を示します。きつい ${action.hardSessions}/${action.difficultySamples}、低下種目 ${action.regressingExercises}${action.overTargetMuscles ? `、上限超過 ${action.overTargetMuscles} 筋群` : ""}。今日は重量もセットも増やしません。`), tone: "warn" };
+    case "conservativeSession":
+      return { title: tx(locale, "单项压力信号尚未被完全验证", "A pressure signal is not fully corroborated", "単独の負荷指標は未検証です"), detail: tx(locale, `${triggerLabels(action.triggers, locale).join("、")}出现偏紧信号。保持当前动作、重量和计划组数，不额外加量；完成后记录整体难度。`, `${triggerLabels(action.triggers, locale).join(", ")} shows pressure. Keep the current exercises, load, and planned sets without extra work, then log overall effort.`, `${triggerLabels(action.triggers, locale).join("・")}に負荷傾向があります。種目・重量・予定セットを維持し、追加せず終了後に難度を記録します。`), tone: "warn" };
     case "cycleComplete":
       return { title: tx(locale, "本轮已完成，下次训练进入新周期", "Cycle complete; the next workout starts a new one", "サイクル完了。次回から新サイクル"), detail: tx(locale, `已按顺序完成 ${action.completed}/${action.total} 步；旧记录保留在本轮。`, `${action.completed}/${action.total} steps were completed in order; existing logs stay in this cycle.`, `${action.completed}/${action.total} ステップ完了。既存ログはこのサイクルに残ります。`), tone: "accent" };
     case "nextStep":
@@ -146,9 +172,9 @@ function actionCopy(action: TrainingDecisionAction, locale: Locale, tr: (value: 
     case "addVolume":
       return { title: tx(locale, `${tr(MUSCLE_LABELS[action.muscle])} 完成本轮后仍预计不足`, `${tr(MUSCLE_LABELS[action.muscle])} remains low after the cycle forecast`, `${tr(MUSCLE_LABELS[action.muscle])} は周期完了後も不足見込み`), detail: tx(locale, `当前 ${action.current} 组，计入剩余模板预计 ${action.projected}，下限 ${action.targetLow}。下轮对应模板补 ${action.suggestedSets} 组后再复查。`, `${action.current} sets now and ${action.projected} after remaining templates vs a ${action.targetLow} floor. Add ${action.suggestedSets} sets next cycle, then review.`, `現在 ${action.current}、残り込みで ${action.projected} 見込み、下限 ${action.targetLow}。次周期に ${action.suggestedSets} セット追加して再確認します。`), tone: "accent" };
     case "trackRegression":
-      return { title: tx(locale, `${tr(action.exerciseName)} 同轨道表现连续回落`, `${tr(action.exerciseName)} is regressing on this track`, `${tr(action.exerciseName)} の同一トラックが低下`), detail: tx(locale, `${tr(action.trackLabel)} · ${action.sessions} 次样本${action.changePct == null ? "" : ` · 最近 ${action.changePct}%`}。下次先维持重量，检查动作顺序和恢复，不急着加量。`, `${tr(action.trackLabel)} · ${action.sessions} samples${action.changePct == null ? "" : ` · latest ${action.changePct}%`}. Hold load and check exercise order and recovery before adding volume.`, `${tr(action.trackLabel)}・${action.sessions} 回${action.changePct == null ? "" : `・直近 ${action.changePct}%`}。次回は重量を維持し、順序と回復を確認します。`), tone: "warn" };
+      return { title: tx(locale, `${tr(action.exerciseName)} 同轨道表现连续回落`, `${tr(action.exerciseName)} is regressing on this track`, `${tr(action.exerciseName)} の同一トラックが低下`), detail: `${tr(action.trackLabel)} · ${action.sessions} ${tx(locale, "次样本", "samples", "回")}${action.changePct == null ? "" : ` · ${action.changePct}%`}。${trackDiagnosisCopy(action.diagnosis, locale)}`, tone: "warn" };
     case "trackPlateau":
-      return { title: tx(locale, `${tr(action.exerciseName)} 连续表现持平`, `${tr(action.exerciseName)} has remained flat`, `${tr(action.exerciseName)} が横ばい`), detail: `${tr(action.trackLabel)} · ${action.sessions} ${tx(locale, "次样本", "samples", "回")}。${plateauNextStep(action.progressionStatus, locale)}`, tone: "muted" };
+      return { title: tx(locale, `${tr(action.exerciseName)} 连续表现持平`, `${tr(action.exerciseName)} has remained flat`, `${tr(action.exerciseName)} が横ばい`), detail: `${tr(action.trackLabel)} · ${action.sessions} ${tx(locale, "次样本", "samples", "回")}。${trackDiagnosisCopy(action.diagnosis, locale)}`, tone: "muted" };
     case "buildHistory":
       return { title: tx(locale, "先建立可比较的训练样本", "Build comparable workout history first", "まず比較できる履歴を作成"), detail: tx(locale, `近 28 天只有 ${action.sessions} 次有效训练；完成至少 2 次同轨道记录后再判断表现，避免拿少量数据硬下结论。`, `Only ${action.sessions} valid sessions exist in 28 days. Complete at least two same-track sessions before judging performance.`, `28日間の有効トレーニングは ${action.sessions} 回です。同一トラックを2回以上完了してから判断します。`), tone: "muted" };
     case "maintain":
@@ -161,4 +187,54 @@ function plateauNextStep(status: ProgressionSuggestion["status"] | undefined, lo
   if (status === "addReps" || status === "finishSets") return tx(locale, "先保持重量并补齐目标次数或计划组数。", "Keep the load and finish the target reps or planned sets first.", "重量を維持し、目標回数か予定セットを先に満たします。");
   if (status === "stabilize" || status === "effortCheck") return tx(locale, "先稳定目标下限与整体难度，不同时加重量和组数。", "Stabilize the target floor and session effort; do not add load and sets together.", "目標下限と全体負荷を安定させ、重量とセットを同時に増やしません。");
   return tx(locale, "保持当前变量再观察一次，只改一个因素。", "Hold the current variables for one more session and change only one factor.", "現在の条件でもう1回確認し、変更は1要素だけにします。");
+}
+
+function trackDiagnosisCopy(diagnosis: TrackDiagnosis, locale: Locale) {
+  if (diagnosis.constraint === "sessionEffort") return tx(locale, `近 ${diagnosis.difficultySamples} 次难度样本中 ${diagnosis.hardSessions} 次吃力；下次不加重，先完成处方并记录整体难度。`, `${diagnosis.hardSessions} of ${diagnosis.difficultySamples} effort samples felt hard. Hold load, complete the prescription, and log session effort next time.`, `難度サンプル ${diagnosis.difficultySamples} 回中 ${diagnosis.hardSessions} 回がきつめ。次回は増量せず処方を完了し、全体難度を記録します。`);
+  if (diagnosis.constraint === "exerciseOrder") return tx(locale, `本次排第 ${diagnosis.latestPosition ?? "—"}，之前通常第 ${diagnosis.priorTypicalPosition ?? "—"}；下次恢复原顺序，重量和组数不变。`, `It was performed ${diagnosis.latestPosition ?? "—"} this time versus a typical ${diagnosis.priorTypicalPosition ?? "—"}. Restore the prior order and keep load and sets unchanged.`, `今回は ${diagnosis.latestPosition ?? "—"} 番目、通常は ${diagnosis.priorTypicalPosition ?? "—"} 番目。以前の順序に戻し、重量とセットを維持します。`);
+  if (diagnosis.constraint === "muscleVolume") return tx(locale, `主目标肌群本周期 ${diagnosis.volume?.current ?? "—"} 个直接有效组，已高于 ${diagnosis.volume?.targetHigh ?? "—"} 的上限；先处理容量，不把回落当成加量理由。`, `The primary muscle has ${diagnosis.volume?.current ?? "—"} direct effective sets this cycle, above the ${diagnosis.volume?.targetHigh ?? "—"} ceiling. Address volume before treating regression as a reason to add work.`, `主働筋は現周期 ${diagnosis.volume?.current ?? "—"} 直接有効セットで、上限 ${diagnosis.volume?.targetHigh ?? "—"} 超過。低下を増量理由にせず容量を先に調整します。`);
+  if (diagnosis.constraint === "prescription" || diagnosis.constraint === "onTrack") return plateauNextStep(diagnosis.progressionStatus, locale);
+  return tx(locale, "恢复、容量和动作顺序都没有形成明确解释；保持变量不变，收集两次可比记录。", "Recovery, volume, and exercise order do not yet explain the change. Hold variables and collect two comparable records.", "回復・容量・種目順のいずれも明確な説明になっていません。条件を維持し、比較可能な記録を2回集めます。");
+}
+
+function conditionCopy(action: TrainingDecisionAction, locale: Locale) {
+  if (action.kind === "continueSession" || action.kind === "reviewUnclosed") return tx(locale, "先确认现有记录，不调整计划", "Confirm the existing record before changing the plan", "既存記録を確定してから計画を変更");
+  if (action.kind === "recoveryPriority") return tx(locale, "不增加重量、组数或高强度有氧", "No added load, sets, or high-intensity cardio", "重量・セット・高強度有酸素を追加しない");
+  if (action.kind === "conservativeSession") return tx(locale, "保持当前处方，不追加训练量", "Keep the prescription without extra work", "現在の処方を維持し追加しない");
+  if (action.kind === "simplifyPlan") return tx(locale, "只改这一份模板并先看预览", "Change only this template after reviewing the preview", "このテンプレートだけをプレビュー後に変更");
+  if (action.kind === "reduceVolume" || action.kind === "addVolume") return tx(locale, "只调整下轮模板，本轮记录不变", "Adjust only the next cycle; keep this cycle intact", "次周期のみ調整し現周期は保持");
+  if (action.kind === "trackRegression" || action.kind === "trackPlateau") return tx(locale, "只改一个变量，使用同一轨道比较", "Change one variable and compare within the same track", "1要素だけ変更し同一トラックで比較");
+  if (action.kind === "buildHistory") return tx(locale, "使用同一动作和同一训练轨道", "Use the same exercise and progression track", "同じ種目・進行トラックを使用");
+  return tx(locale, "按当前周期顺序执行", "Follow the current cycle order", "現在の周期順で実行");
+}
+
+function recheckCopy(action: TrainingDecisionAction, locale: Locale) {
+  if (action.kind === "continueSession" || action.kind === "reviewUnclosed") return tx(locale, "记录确认后立即重算", "Recalculate immediately after confirmation", "記録確定後すぐ再計算");
+  if (action.kind === "recoveryPriority" || action.kind === "conservativeSession") return tx(locale, "下一次状态记录或训练完成后", "After the next check-in or completed session", "次の状態記録または完了セッション後");
+  if (action.kind === "simplifyPlan") return tx(locale, "同模板再完成 2 次后", "After 2 more sessions with this template", "同テンプレートをさらに2回完了後");
+  if (action.kind === "reduceVolume" || action.kind === "addVolume" || action.kind === "cycleComplete") return tx(locale, "下一个完整微周期结束时", "At the end of the next complete microcycle", "次の完全なマイクロサイクル終了時");
+  if (action.kind === "trackRegression" || action.kind === "trackPlateau") return tx(locale, `完成 ${action.diagnosis.recheckSessions} 次同轨道训练后`, `After ${action.diagnosis.recheckSessions} completed same-track session${action.diagnosis.recheckSessions === 1 ? "" : "s"}`, `同一トラックを ${action.diagnosis.recheckSessions} 回完了後`);
+  if (action.kind === "buildHistory") return tx(locale, "至少 2 次同轨道训练后", "After at least 2 same-track sessions", "同一トラックを2回以上完了後");
+  return tx(locale, "当前微周期结束时", "At the end of the current microcycle", "現在のマイクロサイクル終了時");
+}
+
+function readinessLabel(status: ReturnType<typeof buildTrainingDecision>["evidence"]["readinessStatus"], locale: Locale) {
+  if (status === "recover") return tx(locale, "恢复优先", "Recovery", "回復優先");
+  if (status === "caution") return tx(locale, "保守执行", "Conservative", "保守実行");
+  if (status === "ready") return tx(locale, "按计划", "Ready", "計画どおり");
+  return tx(locale, "收集中", "Collecting", "収集中");
+}
+
+function triggerLabels(triggers: IntegratedCoachTrigger[], locale: Locale) {
+  const labels: Record<IntegratedCoachTrigger, string> = {
+    subjectiveLow: tx(locale, "今日状态", "today's check-in", "今日の状態"),
+    sustainedLow: tx(locale, "近 7 天状态", "7-day recovery", "7日間の状態"),
+    trainingPressure: tx(locale, "训练表现与容量", "training performance and volume", "パフォーマンスと容量"),
+    healthCaution: tx(locale, "健康单项基线", "one health baseline", "健康単項基準"),
+    healthLow: tx(locale, "健康多项基线", "multiple health baselines", "健康複数基準"),
+    fuelGap: tx(locale, "已记录能量摄入", "logged energy intake", "記録済み摂取量"),
+    cardioPressure: tx(locale, "近期高强度有氧", "recent high-intensity cardio", "直近の高強度有酸素"),
+    cutTooFast: tx(locale, "减脂速度", "cut pace", "減量ペース"),
+  };
+  return triggers.map((trigger) => labels[trigger]);
 }

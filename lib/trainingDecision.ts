@@ -1,12 +1,14 @@
 import type { AppData } from "./storage";
 import type { TrainingType } from "./types";
 import type { MuscleGroup } from "./muscles";
+import { buildIntegratedCoachAnalysis, type IntegratedCoachStatus, type IntegratedCoachTrigger } from "./integratedCoach";
 import { currentMicrocycleProgress, microcycleStepHref, shouldAdvanceMicrocycle } from "./microcycle";
 import { exercisePrescription, progressionSuggestion, type ProgressionSuggestion } from "./prescription";
+import { diagnoseTrackTrend, type TrackDiagnosis } from "./trackDiagnosis";
 import { summarizeWorkoutWork } from "./trainingMetrics";
 import {
-  buildTrainingAnalysis,
   recentPlanAdherence,
+  type TrainingAnalysis,
   type TrainingAnalysisConfidence,
 } from "./trainingAnalysis";
 
@@ -18,14 +20,15 @@ type DecisionBase = { priority: number; href: string };
 export type TrainingDecisionAction =
   | (DecisionBase & { kind: "continueSession"; setCount: number })
   | (DecisionBase & { kind: "reviewUnclosed"; date: string; setCount: number })
-  | (DecisionBase & { kind: "recoveryPriority"; hardSessions: number; difficultySamples: number; regressingExercises: number; sessions7d: number; overTargetMuscles: number })
+  | (DecisionBase & { kind: "recoveryPriority"; hardSessions: number; difficultySamples: number; regressingExercises: number; sessions7d: number; overTargetMuscles: number; triggers: IntegratedCoachTrigger[] })
+  | (DecisionBase & { kind: "conservativeSession"; triggers: IntegratedCoachTrigger[] })
   | (DecisionBase & { kind: "cycleComplete"; completed: number; total: number })
   | (DecisionBase & { kind: "nextStep"; type: TrainingType; label: string; completed: number; total: number })
   | (DecisionBase & { kind: "recoveryStep"; label: string; completed: number; total: number })
   | (DecisionBase & { kind: "simplifyPlan"; templateId: string; templateName: string; completionPct: number; sessions: number; averageMissingSets: number })
   | (DecisionBase & { kind: "reduceVolume"; muscle: MuscleGroup; basis: "actual" | "projected"; current: number; projected: number; targetHigh: number; suggestedSets: number; source?: string; sourceExerciseId?: string; templateId?: string })
   | (DecisionBase & { kind: "addVolume"; muscle: MuscleGroup; current: number; projected: number; targetLow: number; suggestedSets: number; source?: string; sourceExerciseId?: string; templateId?: string })
-  | (DecisionBase & { kind: "trackRegression" | "trackPlateau"; exerciseName: string; trackLabel: string; changePct: number | null; sessions: number; progressionStatus?: ProgressionSuggestion["status"] })
+  | (DecisionBase & { kind: "trackRegression" | "trackPlateau"; exerciseName: string; trackLabel: string; changePct: number | null; sessions: number; progressionStatus?: ProgressionSuggestion["status"]; diagnosis: TrackDiagnosis })
   | (DecisionBase & { kind: "buildHistory"; sessions: number })
   | (DecisionBase & { kind: "maintain"; sessions: number; completed: number; total: number; improvingTracks: number });
 
@@ -46,12 +49,14 @@ export interface TrainingDecision {
     projectionComplete: boolean;
     coveredRemainingSteps: number;
     remainingTrainingSteps: number;
+    readinessStatus: IntegratedCoachStatus;
+    readinessTriggers: IntegratedCoachTrigger[];
   };
   actions: TrainingDecisionAction[];
 }
 
 function strongestVolumeCorrection(
-  analysis: ReturnType<typeof buildTrainingAnalysis>,
+  analysis: TrainingAnalysis,
   allowAdd: boolean,
 ): TrainingDecisionAction | null {
   const over = analysis.cycle.rows
@@ -108,9 +113,26 @@ function strongestVolumeCorrection(
   };
 }
 
-function trendAction(analysis: ReturnType<typeof buildTrainingAnalysis>): TrainingDecisionAction | null {
+function trendDiagnosis(
+  item: ReturnType<typeof buildIntegratedCoachAnalysis>["training"]["trends"][number],
+  analysis: TrainingAnalysis,
+  recoveryPressure: boolean,
+) {
+  const primaryMuscle = item.histories[0]?.exercise.primaryMuscle;
+  const volume = primaryMuscle ? analysis.cycle.rows.find((row) => row.muscle === primaryMuscle) : undefined;
+  return diagnoseTrackTrend(item, {
+    recoveryPressure,
+    ...(volume ? { volume: { current: volume.current, targetHigh: volume.target.high, overTarget: volume.status === "over" } } : {}),
+  });
+}
+
+function trendAction(
+  analysis: TrainingAnalysis,
+  recoveryPressure: boolean,
+): TrainingDecisionAction | null {
   const regressing = analysis.trends.find((item) => item.trend.status === "regressing");
   if (regressing) {
+    const latest = regressing.histories[0];
     return {
       kind: "trackRegression",
       priority: 86,
@@ -119,6 +141,10 @@ function trendAction(analysis: ReturnType<typeof buildTrainingAnalysis>): Traini
       trackLabel: regressing.trackLabel,
       changePct: regressing.trend.changePct,
       sessions: regressing.trend.sessionCount,
+      progressionStatus: latest
+        ? progressionSuggestion(exercisePrescription(latest.exercise), latest).status
+        : undefined,
+      diagnosis: trendDiagnosis(regressing, analysis, recoveryPressure),
     };
   }
   const plateau = analysis.trends.find((item) => item.trend.status === "plateau");
@@ -135,17 +161,37 @@ function trendAction(analysis: ReturnType<typeof buildTrainingAnalysis>): Traini
     progressionStatus: latest
       ? progressionSuggestion(exercisePrescription(latest.exercise), latest).status
       : undefined,
+    diagnosis: trendDiagnosis(plateau, analysis, recoveryPressure),
   };
 }
 
-export function buildTrainingDecision(data: AppData, today: string, context: "home" | "review" = "review"): TrainingDecision {
-  const analysis = buildTrainingAnalysis(data, today);
+function decisionConfidence(
+  training: TrainingAnalysisConfidence,
+  integrated: ReturnType<typeof buildIntegratedCoachAnalysis>["confidence"],
+  status: IntegratedCoachStatus,
+): TrainingAnalysisConfidence {
+  if (status === "ready") return training;
+  if (integrated === "low") return "starter";
+  if (integrated === "building" || training === "building") return "building";
+  return training;
+}
+
+export function buildTrainingDecision(
+  data: AppData,
+  today: string,
+  context: "home" | "review" = "review",
+  providedIntegrated?: ReturnType<typeof buildIntegratedCoachAnalysis>,
+): TrainingDecision {
+  const integrated = providedIntegrated ?? buildIntegratedCoachAnalysis(data, today);
+  const analysis = integrated.training;
   const cycle = currentMicrocycleProgress(data, today);
   const cycleComplete = shouldAdvanceMicrocycle(data, today);
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
   const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
   const activeSession = Boolean(todayWorkout?.type !== "rest" && todayWorkout?.done === false);
+  const recoveryPriority = integrated.status === "recover" || analysis.recovery.active;
+  const conservativeSession = integrated.status === "caution" && !analysis.recovery.active;
 
   if (context === "review" && activeSession) {
     actions.push({ kind: "continueSession", priority: 120, href: "/train", setCount: todaySets });
@@ -164,7 +210,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
   // Plan-changing advice waits until active or recently unclosed work has been
   // confirmed. Reference-only sessions remain visible elsewhere in the app.
   if (!activeSession && !analysis.unclosed) {
-    if (analysis.recovery.active) {
+    if (recoveryPriority) {
       actions.push({
         kind: "recoveryPriority",
         priority: 108,
@@ -174,6 +220,14 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
         regressingExercises: analysis.recovery.regressingExercises,
         sessions7d: analysis.load.sessions7d,
         overTargetMuscles: analysis.recovery.overTargetMuscles,
+        triggers: integrated.triggers,
+      });
+    } else if (conservativeSession) {
+      actions.push({
+        kind: "conservativeSession",
+        priority: 104,
+        href: "/train",
+        triggers: integrated.triggers,
       });
     }
 
@@ -193,13 +247,13 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
     if (analysis.load.sessions28d > 0) {
       const volumeAction = strongestVolumeCorrection(
         analysis,
-        !analysis.recovery.active && !analysis.weakTemplate && analysis.regressingTracks === 0,
+        !recoveryPriority && !conservativeSession && !analysis.weakTemplate && analysis.regressingTracks === 0,
       );
       if (volumeAction) actions.push(volumeAction);
     }
 
-    if (!analysis.recovery.active) {
-      const action = trendAction(analysis);
+    if (!recoveryPriority && !conservativeSession) {
+      const action = trendAction(analysis, false);
       if (action) actions.push(action);
     }
 
@@ -213,6 +267,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
 
     const corrective = actions.some((action) => [
       "recoveryPriority",
+      "conservativeSession",
       "simplifyPlan",
       "reduceVolume",
       "addVolume",
@@ -235,7 +290,7 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
   }
 
   return {
-    confidence: analysis.confidence,
+    confidence: decisionConfidence(analysis.confidence, integrated.confidence, integrated.status),
     evidence: {
       sessions7d: analysis.load.sessions7d,
       sessions28d: analysis.load.sessions28d,
@@ -251,6 +306,8 @@ export function buildTrainingDecision(data: AppData, today: string, context: "ho
       projectionComplete: analysis.cycle.projectionComplete,
       coveredRemainingSteps: analysis.cycle.coveredTrainingSteps,
       remainingTrainingSteps: analysis.cycle.remainingTrainingSteps,
+      readinessStatus: integrated.status,
+      readinessTriggers: integrated.triggers,
     },
     actions: actions.sort((a, b) => b.priority - a.priority).slice(0, context === "home" ? 2 : 4),
   };

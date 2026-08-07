@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
@@ -28,8 +28,9 @@ import ExerciseTrendReview from "./ExerciseTrendReview";
 import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
 import TrainingDecisionBrief from "./TrainingDecisionBrief";
 import CycleReviewPanel from "./CycleReviewPanel";
-import IntegratedCoachBrief from "./IntegratedCoachBrief";
 import PersonalCalibrationPanel from "./PersonalCalibrationPanel";
+import { buildIntegratedCoachAnalysis } from "@/lib/integratedCoach";
+import { buildTrainingDecision } from "@/lib/trainingDecision";
 
 const SCOPE_OPTIONS: VolumeScope[] = ["microcycle", "7d", "28d"];
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
@@ -53,6 +54,8 @@ export default function TrainingVolumeReview() {
   const [expandedMuscle, setExpandedMuscle] = useState<MuscleGroup | null>(null);
   const [confirmNewCycle, setConfirmNewCycle] = useState(false);
   const [showAllMuscles, setShowAllMuscles] = useState(false);
+  const integrated = useMemo(() => buildIntegratedCoachAnalysis(data, today), [data, today]);
+  const decision = useMemo(() => buildTrainingDecision(data, today, "review", integrated), [data, integrated, today]);
   const cutActive = isCutModeActive(data.cutPlan);
   const cutScale = data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE;
   const cycleScale = data.microcycle?.phase === "deload" ? 0.6 : 1;
@@ -80,9 +83,7 @@ export default function TrainingVolumeReview() {
     .slice(0, 8);
 
   return <div className="space-y-4">
-    <IntegratedCoachBrief compact showAction={false} />
-
-    <TrainingDecisionBrief />
+    <TrainingDecisionBrief decision={decision} />
 
     <CycleReviewPanel />
 
@@ -174,7 +175,7 @@ export default function TrainingVolumeReview() {
 
     <ExerciseHistoryArchive />
 
-    <ExerciseTrendReview />
+    <ExerciseTrendReview analysis={integrated.training} readinessStatus={integrated.status} />
 
     <section>
       <div className="mb-2"><h2 className="text-[14px] font-semibold text-fg">{tx(locale, "近期训练", "Recent workouts", "最近のトレーニング")}</h2><p className="mt-0.5 text-[11px] text-faint">{tx(locale, "计划工作组与实际完成分开记录；重量和吨位只用于表现趋势。", "Planned work sets and actual completion stay separate; load and tonnage are used only for performance trends.", "予定ワーキングセットと実績は別に記録し、重量と総負荷量はパフォーマンス推移にのみ使います。")}</p></div>

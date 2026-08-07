@@ -1047,4 +1047,10 @@ test("personal health baselines explain conservative training without editing th
   await page.getByRole("button", { name: /恢复状态/ }).click();
   await page.getByRole("button", { name: "采用 Health 5h" }).click();
   await expect(page.getByRole("textbox", { name: "睡眠时长" })).toHaveValue("5");
+
+  await page.goto("/progress?tab=training");
+  await expect(page.getByRole("heading", { name: "今天保守执行处方" })).toBeVisible();
+  await expect(page.getByText("执行条件", { exact: true })).toBeVisible();
+  await expect(page.getByText("复查时间", { exact: true })).toBeVisible();
+  await expect(page.getByText("综合教练", { exact: true })).toHaveCount(0);
 });

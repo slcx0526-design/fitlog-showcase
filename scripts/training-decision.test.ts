@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { buildTrainingDecision, recentPlanAdherence } from "../lib/trainingDecision";
+import { summarizeExerciseTrackTrends } from "../lib/prescription";
+import { diagnoseTrackTrend } from "../lib/trackDiagnosis";
 import { volumeTargetScale } from "../lib/volume";
 import type { AppData } from "../lib/storage";
 import type { DayLog, Exercise, ProgressionPrescription, TrainingType } from "../lib/types";
@@ -146,6 +148,55 @@ const regressionDays: Record<string, DayLog> = {
 };
 const regression = buildTrainingDecision(app(regressionDays), TODAY, "review");
 assert.equal(regression.actions.some((action) => action.kind === "trackRegression"), true);
+
+const lowRecovery = { sleepHours: 5, sleepQuality: 1 as const, energy: 1 as const, soreness: 5 as const, stress: 5 as const };
+const cautiousRegression = buildTrainingDecision(app({
+  ...regressionDays,
+  [TODAY]: { date: TODAY, recovery: lowRecovery },
+}), TODAY, "review");
+assert.equal(cautiousRegression.actions[0].kind, "conservativeSession", "A current recovery warning must become the single primary training recommendation");
+assert.equal(cautiousRegression.actions.some((action) => action.kind === "trackRegression" || action.kind === "addVolume"), false, "Conservative readiness must suppress conflicting progression and add-volume advice");
+assert.equal(cautiousRegression.evidence.readinessStatus, "caution");
+
+function positionedBench(date: string, weight: number, position: number, difficulty?: "easy" | "onTarget" | "hard"): DayLog {
+  const target = bench(date, 4, weight).workout!.exercises[0];
+  const filler = (index: number): Exercise => ({
+    id: `filler-${index}`,
+    name: `辅助动作 ${index}`,
+    isMain: false,
+    sets: [{ weight: 20, reps: 10, type: "working" }],
+  });
+  const exercises = Array.from({ length: Math.max(0, position - 1) }, (_, index) => filler(index));
+  exercises.push(target);
+  return { date, workout: { type: "push", done: true, difficulty, microcycleId: "mc_1", exercises } };
+}
+
+const orderTrend = summarizeExerciseTrackTrends({
+  "2026-07-01": positionedBench("2026-07-01", 100, 1, "onTarget"),
+  "2026-07-04": positionedBench("2026-07-04", 95, 1, "onTarget"),
+  "2026-07-08": positionedBench("2026-07-08", 90, 3, "hard"),
+}, TODAY, 10).find((item) => item.exerciseId === "bench");
+assert.ok(orderTrend);
+assert.equal(orderTrend.histories[0].sessionDifficulty, "hard", "Trend summaries must retain session difficulty evidence");
+assert.equal(orderTrend.histories[0].exercisePosition, 3, "Trend summaries must retain the exercise's session position");
+const orderDiagnosis = diagnoseTrackTrend(orderTrend);
+assert.equal(orderDiagnosis.constraint, "exerciseOrder");
+assert.equal(orderDiagnosis.intervention, "restoreOrder");
+assert.equal(orderDiagnosis.recheckSessions, 1);
+const readinessDiagnosis = diagnoseTrackTrend(orderTrend, { readinessStatus: "caution" });
+assert.equal(readinessDiagnosis.constraint, "readiness", "Overall readiness must override a conflicting local track intervention");
+assert.equal(readinessDiagnosis.intervention, "holdLoad");
+assert.equal(readinessDiagnosis.readinessStatus, "caution");
+
+const effortTrend = summarizeExerciseTrackTrends({
+  "2026-07-01": positionedBench("2026-07-01", 100, 1, "hard"),
+  "2026-07-04": positionedBench("2026-07-04", 95, 1, "hard"),
+  "2026-07-08": positionedBench("2026-07-08", 90, 1, "hard"),
+}, TODAY, 10).find((item) => item.exerciseId === "bench");
+assert.ok(effortTrend);
+const effortDiagnosis = diagnoseTrackTrend(effortTrend);
+assert.equal(effortDiagnosis.constraint, "sessionEffort");
+assert.equal(effortDiagnosis.intervention, "holdLoad");
 
 const staleDays = {
   "2026-04-01": bench("2026-04-01", 1, 100),

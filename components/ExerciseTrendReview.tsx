@@ -1,26 +1,25 @@
 "use client";
 
-import { useMemo } from "react";
-import { useStore } from "@/lib/store";
 import { formatCompact } from "@/lib/date";
 import { useI18n, type Locale } from "@/lib/i18n";
 import {
   exercisePrescription,
   progressionSuggestion,
-  summarizeExerciseTrackTrends,
   trackPerformanceMetric,
   type TrackHistoryResult,
   type TrackPerformanceMetric,
   type TrackTrend,
 } from "@/lib/prescription";
 import { progressionPresentation } from "@/lib/progressionPresentation";
+import type { TrainingAnalysis } from "@/lib/trainingAnalysis";
+import type { IntegratedCoachStatus } from "@/lib/integratedCoach";
+import { diagnoseTrackTrend, type TrackDiagnosis } from "@/lib/trackDiagnosis";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
 
-export default function ExerciseTrendReview() {
-  const { data } = useStore();
+export default function ExerciseTrendReview({ analysis, readinessStatus }: { analysis: TrainingAnalysis; readinessStatus: IntegratedCoachStatus }) {
   const { locale, tr } = useI18n();
-  const trends = useMemo(() => summarizeExerciseTrackTrends(data.days, "9999-12-31", 6), [data.days]);
+  const trends = analysis.trends.slice(0, 6);
   if (!trends.length) return null;
 
   return <section>
@@ -29,7 +28,15 @@ export default function ExerciseTrendReview() {
       <p className="mt-0.5 text-[11px] text-faint">{tx(locale, "只比较同一动作、同一训练轨道的已完成记录", "Completed sessions are compared only within the same exercise and track", "同じ種目・同じトラックの完了記録だけを比較します")}</p>
     </div>
     <div className="control-card overflow-hidden">
-      {trends.map((item) => <details key={item.key} className="soft-divider border-t px-3.5 py-3 first:border-t-0">
+      {trends.map((item) => {
+        const primaryMuscle = item.histories[0]?.exercise.primaryMuscle;
+        const volume = primaryMuscle ? analysis.cycle.rows.find((row) => row.muscle === primaryMuscle) : undefined;
+        const diagnosis = diagnoseTrackTrend(item, {
+          recoveryPressure: analysis.recovery.active,
+          ...(readinessStatus === "caution" || readinessStatus === "recover" ? { readinessStatus } : {}),
+          ...(volume ? { volume: { current: volume.current, targetHigh: volume.target.high, overTarget: volume.status === "over" } } : {}),
+        });
+        return <details key={item.key} className="soft-divider border-t px-3.5 py-3 first:border-t-0">
         <summary className="cursor-pointer list-none">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
@@ -44,27 +51,35 @@ export default function ExerciseTrendReview() {
           </div>
         </summary>
         <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
-          <p className="text-[10px] leading-relaxed text-muted">{trendMessage(item.trend, locale)}</p>
-          <TrackNextStep history={item.histories[0]} locale={locale} />
+          <TrackNextStep history={item.histories[0]} diagnosis={diagnosis} locale={locale} />
           <div className="mt-2 space-y-1">
             {item.histories.slice(0, 4).map((history) => <HistoryPoint key={`${item.key}-${history.date}`} history={history} locale={locale} />)}
           </div>
         </div>
-      </details>)}
+      </details>;
+      })}
     </div>
   </section>;
 }
 
-function TrackNextStep({ history, locale }: { history: TrackHistoryResult; locale: Locale }) {
+function TrackNextStep({ history, diagnosis, locale }: { history: TrackHistoryResult; diagnosis: TrackDiagnosis; locale: Locale }) {
   const prescription = exercisePrescription(history.exercise);
   const suggestion = progressionSuggestion(prescription, history);
   const presentation = progressionPresentation(suggestion, prescription, prescription.performanceMode ?? "reps", locale);
-  return <div className="mt-2 border-t border-border/70 pt-2">
+  return <div>
     <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0"><p className="text-[9px] font-semibold uppercase text-faint">{tx(locale, "处方下一步", "Prescription next step", "処方の次の一手")}</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted">{presentation.summary}</p></div>
-      <span className="tnum shrink-0 text-[11px] font-semibold text-fg">{presentation.value}</span>
+      <div className="min-w-0"><p className="text-[9px] font-semibold uppercase text-faint">{tx(locale, "主要判断", "Primary diagnosis", "主な判断")}</p><p className="mt-0.5 text-[11px] font-semibold text-fg">{diagnosisTitle(diagnosis, locale)}</p></div>
+      <span className={"shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-semibold " + (diagnosis.confidence === "ready" ? "bg-accent-soft text-accent" : "bg-surface text-muted")}>{diagnosis.confidence === "ready" ? tx(locale, "依据明确", "Supported", "根拠あり") : tx(locale, "继续观察", "Building", "観察中")}</span>
     </div>
-    <p className="mt-1 text-[9px] leading-relaxed text-faint">{tx(locale, "触发条件：", "Condition: ", "条件：")}{presentation.condition}</p>
+    <p className="mt-1 text-[10px] leading-relaxed text-muted">{diagnosisReason(diagnosis, locale)}</p>
+    <div className="mt-2 border-t border-border/70 pt-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0"><p className="text-[9px] font-semibold uppercase text-faint">{tx(locale, "只改这一项", "Change one variable", "変更は1項目")}</p><p className="mt-0.5 text-[10px] leading-relaxed text-muted">{interventionCopy(diagnosis, presentation.summary, locale)}</p></div>
+      <span className="tnum shrink-0 text-[11px] font-semibold text-fg">{interventionValue(diagnosis, presentation.value, locale)}</span>
+      </div>
+      <p className="mt-1 text-[9px] leading-relaxed text-faint">{tx(locale, "执行条件：", "Condition: ", "条件：")}{presentation.condition}</p>
+      <p className="mt-1 text-[9px] font-semibold text-accent">{tx(locale, `复查：完成 ${diagnosis.recheckSessions} 次同轨道训练后`, `Review after ${diagnosis.recheckSessions} completed same-track session${diagnosis.recheckSessions === 1 ? "" : "s"}`, `再確認：同一トラックを ${diagnosis.recheckSessions} 回完了後`)}</p>
+    </div>
   </div>;
 }
 
@@ -120,11 +135,42 @@ function formatMetricValue(kind: TrackTrend["metricKind"], value: number | null,
   return `${value}${tx(locale, "次", "", "回")}`;
 }
 
-function trendMessage(trend: TrackTrend, locale: Locale) {
-  if (trend.status === "improving") return tx(locale, "同轨道表现正在提升，继续当前进度规则。", "Performance is improving on this track. Keep the current progression rule.", "同一トラックのパフォーマンスが向上しています。現在の進行ルールを続けます。");
-  if (trend.status === "regressing") return tx(locale, "同轨道近期表现回落，下一次先维持训练变量并检查恢复。", "Recent performance has declined on this track. Hold the variables and check recovery next time.", "同一トラックの最近のパフォーマンスが低下しています。次回は条件を維持し、回復を確認します。");
-  if (trend.status === "plateau") return tx(locale, "连续 3 次变化很小，先补目标表现或调整动作顺序。", "Three sessions changed very little. Build the target performance or adjust exercise order first.", "3回連続で変化が小さいため、まず目標パフォーマンスか種目順を調整します。");
-  return tx(locale, "表现基本稳定，按当前目标继续推进。", "Performance is stable. Continue with the current target.", "パフォーマンスは安定しています。現在の目標を続けます。");
+function diagnosisTitle(diagnosis: TrackDiagnosis, locale: Locale) {
+  if (diagnosis.constraint === "onTrack") return tx(locale, "处方仍在正常推进", "The prescription is still progressing", "処方は順調に進行中");
+  if (diagnosis.constraint === "prescription") return tx(locale, "先完成当前处方目标", "Complete the current prescription first", "まず現在の処方目標を完了");
+  if (diagnosis.constraint === "readiness") return tx(locale, "综合状态暂缓局部进步", "Overall readiness pauses local progression", "総合状態により局所進行を一時停止");
+  if (diagnosis.constraint === "sessionEffort") return tx(locale, "近期整体难度可能限制表现", "Recent session effort may be limiting performance", "最近の全体負荷が制限要因の可能性");
+  if (diagnosis.constraint === "exerciseOrder") return tx(locale, "动作顺序变化可能影响比较", "Exercise order may be affecting the comparison", "種目順の変化が比較に影響した可能性");
+  if (diagnosis.constraint === "muscleVolume") return tx(locale, "本周期直接容量已经偏高", "Direct cycle volume is already high", "現周期の直接ボリュームが高め");
+  return tx(locale, "暂未找到单一限制因素", "No single constraint is supported yet", "単一の制限要因は未確定");
+}
+
+function diagnosisReason(diagnosis: TrackDiagnosis, locale: Locale) {
+  if (diagnosis.constraint === "readiness") return diagnosis.readinessStatus === "recover"
+    ? tx(locale, "综合信号当前以恢复为先；即使本轨道达到进步条件，这次也不加重量或组数。", "The combined signals currently prioritize recovery. Even if this track meets progression criteria, do not add load or sets this time.", "総合指標は現在、回復を優先しています。このトラックが進行条件を満たしていても、今回は重量もセットも増やしません。")
+    : tx(locale, "综合判断存在尚未完全验证的压力信号；先保持本轨道处方，避免局部建议与主建议冲突。", "The overall decision contains a pressure signal that is not fully corroborated. Hold this track's prescription so its local advice does not conflict with the primary recommendation.", "総合判断には未検証の負荷指標があります。局所提案が主提案と矛盾しないよう、このトラックの処方を維持します。");
+  if (diagnosis.constraint === "sessionEffort") return tx(locale, `近 ${diagnosis.difficultySamples} 次有难度记录的同轨道训练中，${diagnosis.hardSessions} 次标记为吃力；先验证恢复，再判断是否真退步。`, `${diagnosis.hardSessions} of ${diagnosis.difficultySamples} recent same-track sessions with effort data felt hard. Validate recovery before treating this as true regression.`, `難度記録のある直近 ${diagnosis.difficultySamples} 回中 ${diagnosis.hardSessions} 回がきつめ。真の低下と判断する前に回復を確認します。`);
+  if (diagnosis.constraint === "exerciseOrder") return tx(locale, `本次排在第 ${diagnosis.latestPosition ?? "—"} 个，前两次通常在第 ${diagnosis.priorTypicalPosition ?? "—"} 个；先恢复可比顺序。`, `This session placed it ${diagnosis.latestPosition ?? "—"}, versus a prior typical position of ${diagnosis.priorTypicalPosition ?? "—"}. Restore a comparable order first.`, `今回は ${diagnosis.latestPosition ?? "—"} 番目、以前は通常 ${diagnosis.priorTypicalPosition ?? "—"} 番目。まず比較可能な順序に戻します。`);
+  if (diagnosis.constraint === "muscleVolume") return tx(locale, `主目标肌群本周期已有 ${diagnosis.volume?.current ?? "—"} 个直接有效组，高于 ${diagnosis.volume?.targetHigh ?? "—"} 的目标上限；不把回落解释成需要加量。`, `The primary muscle has ${diagnosis.volume?.current ?? "—"} direct effective sets this cycle, above the ${diagnosis.volume?.targetHigh ?? "—"} ceiling. A decline is not treated as a reason to add work.`, `主働筋は現周期 ${diagnosis.volume?.current ?? "—"} 直接有効セットで、上限 ${diagnosis.volume?.targetHigh ?? "—"} を超過。低下を増量理由にはしません。`);
+  if (diagnosis.constraint === "prescription") return tx(locale, "最近一次记录尚未满足当前轨道的组数、次数或难度条件；先补齐处方，再比较趋势。", "The latest session did not yet meet this track's set, performance, or effort condition. Complete the prescription before judging the trend.", "直近はセット数・回数・難度条件をまだ満たしていません。処方を完了してから推移を判断します。");
+  if (diagnosis.constraint === "onTrack") return tx(locale, "同轨道记录支持继续当前双进步规则，不需要同时增加重量和组数。", "Same-track records support the current progression rule; do not add load and sets together.", "同一トラックの記録は現在の進行ルールを支持しています。重量とセットを同時に増やしません。");
+  return tx(locale, "现有记录不足以把变化归因于恢复、容量或动作顺序；保持其他变量不变再收集可比样本。", "The records do not support attributing the change to recovery, volume, or exercise order. Keep other variables stable and collect comparable samples.", "回復・容量・種目順のどれかに帰属できる根拠が不足しています。他の条件を維持して比較可能な記録を集めます。");
+}
+
+function interventionCopy(diagnosis: TrackDiagnosis, prescriptionSummary: string, locale: Locale) {
+  if (diagnosis.intervention === "restoreOrder") return tx(locale, "下次把动作放回之前的顺序，重量和组数保持不变。", "Restore the previous exercise order next time; keep load and sets unchanged.", "次回は以前の種目順に戻し、重量とセットは変更しません。");
+  if (diagnosis.intervention === "holdLoad") return tx(locale, "下次不加重量、不加组数，按处方完成并记录整体难度。", "Do not add load or sets next time. Complete the prescription and log overall effort.", "次回は重量もセットも増やさず、処方を完了して全体難度を記録します。");
+  if (diagnosis.intervention === "reduceVolume") return tx(locale, "先在周期复盘中处理容量上限，本动作保持重量，不额外补组。", "Address the volume ceiling in cycle review first. Hold this exercise's load and do not add sets.", "まず周期レビューで容量上限を調整し、この種目は重量を維持してセットを追加しません。");
+  if (diagnosis.intervention === "observe") return tx(locale, "保持重量、组数和顺序不变，再收集可比较记录。", "Keep load, sets, and order unchanged while collecting comparable records.", "重量・セット・順序を維持し、比較可能な記録を集めます。");
+  return prescriptionSummary;
+}
+
+function interventionValue(diagnosis: TrackDiagnosis, prescriptionValue: string, locale: Locale) {
+  if (diagnosis.intervention === "holdLoad") return tx(locale, "不加重", "Hold load", "重量維持");
+  if (diagnosis.intervention === "restoreOrder") return tx(locale, "恢复顺序", "Restore order", "順序を戻す");
+  if (diagnosis.intervention === "reduceVolume") return tx(locale, "先减量", "Reduce first", "先に減量");
+  if (diagnosis.intervention === "observe") return tx(locale, "保持", "Hold", "維持");
+  return prescriptionValue;
 }
 
 function trendColor(trend: TrackTrend) {
