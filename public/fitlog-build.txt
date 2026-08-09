@@ -1,1 +1,1 @@
-FitLog 13.0.3 exercise identity and reference integrity
+FitLog 13.0.4 stable input, adaptive distribution, and merge integrity

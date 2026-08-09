@@ -213,6 +213,91 @@ assert.equal(profileConflictMerge.data.profile?.heightCm, 180);
 assert.equal(profileConflictMerge.data.profile?.birthYear, 1995);
 assert.ok(profileConflictMerge.summary.conflicts >= 1);
 
+const mergeCollisionCurrent = normalizeData({
+  ...emptyData(),
+  days: { "2026-07-29": { date: "2026-07-29", recovery: { energy: 4 } } },
+  customExercises: [{
+    id: "cx_merge_collision",
+    name: "当前自定义推胸",
+    isMain: false,
+    type: "custom",
+    primaryMuscle: "chest",
+  }],
+  templates: [{
+    id: "tpl_merge_collision",
+    name: "当前胸训练",
+    type: "push",
+    items: [{ exerciseId: "cx_merge_collision", name: "当前自定义推胸", sets: 3, repsLow: 8, repsHigh: 12 }],
+  }],
+});
+const mergeCollisionIncoming = normalizeData({
+  ...emptyData(),
+  days: {
+    "2026-07-30": {
+      date: "2026-07-30",
+      workout: {
+        type: "push",
+        templateId: "tpl_merge_collision",
+        templateSnapshot: {
+          id: "tpl_merge_collision",
+          name: "导入肩训练",
+          type: "push",
+          items: [{ exerciseId: "cx_merge_collision", name: "导入自定义侧平举", sets: 4, repsLow: 12, repsHigh: 15 }],
+        },
+        done: true,
+        exercises: [{
+          id: "cx_merge_collision",
+          name: "导入自定义侧平举",
+          isMain: false,
+          primaryMuscle: "sideDelt",
+          volumeContributions: [{ muscle: "sideDelt", weight: 1, direct: true }],
+          sets: [{ weight: 12, reps: 15 }],
+        }],
+      },
+    },
+  },
+  customExercises: [{
+    id: "cx_merge_collision",
+    name: "导入自定义侧平举",
+    isMain: false,
+    type: "custom",
+    primaryMuscle: "sideDelt",
+  }],
+  favoriteExerciseIds: ["cx_merge_collision"],
+  templates: [{
+    id: "tpl_merge_collision",
+    name: "导入肩训练",
+    type: "push",
+    items: [{ exerciseId: "cx_merge_collision", name: "导入自定义侧平举", sets: 4, repsLow: 12, repsHigh: 15 }],
+  }],
+  cutPlan: { trainingTemplateIds: { push: "tpl_merge_collision" } },
+  lastCycleReview: {
+    id: "review_merge_collision",
+    sourceMicrocycleId: "mc_imported",
+    appliedAt: "2026-07-30T00:00:00.000Z",
+    nextPhase: "build",
+    changes: [{ templateId: "tpl_merge_collision", exerciseId: "cx_merge_collision", fromSets: 3, toSets: 4 }],
+  },
+});
+const collisionMerge = mergeAppData(mergeCollisionCurrent, mergeCollisionIncoming);
+assert.deepEqual(collisionMerge.data.customExercises.map((exercise) => exercise.id), ["cx_merge_collision", "cx_merge_collision_2"]);
+assert.deepEqual(collisionMerge.data.templates?.map((template) => template.id), ["tpl_merge_collision", "tpl_merge_collision_2"]);
+assert.equal(collisionMerge.data.templates?.[1].items[0].exerciseId, "cx_merge_collision_2");
+assert.equal(collisionMerge.data.days["2026-07-30"].workout?.exercises[0].id, "cx_merge_collision_2");
+assert.equal(collisionMerge.data.days["2026-07-30"].workout?.templateId, "tpl_merge_collision_2");
+assert.equal(collisionMerge.data.days["2026-07-30"].workout?.templateSnapshot?.items[0].exerciseId, "cx_merge_collision_2");
+assert.deepEqual(collisionMerge.data.favoriteExerciseIds, ["cx_merge_collision_2"]);
+assert.equal(collisionMerge.data.cutPlan?.trainingTemplateIds?.push, "tpl_merge_collision_2");
+assert.equal(collisionMerge.data.lastCycleReview?.changes[0].templateId, "tpl_merge_collision_2");
+assert.equal(collisionMerge.data.lastCycleReview?.changes[0].exerciseId, "cx_merge_collision_2");
+assert.equal(collisionMerge.summary.importedCustomExercises, 1);
+assert.equal(collisionMerge.summary.importedTemplates, 1);
+const repeatedCollisionMerge = mergeAppData(collisionMerge.data, mergeCollisionIncoming);
+assert.equal(repeatedCollisionMerge.data.customExercises.length, 2, "Repeating the same merge must not clone the renamed custom exercise again");
+assert.equal(repeatedCollisionMerge.data.templates?.length, 2, "Repeating the same merge must not clone the renamed template again");
+assert.equal(repeatedCollisionMerge.summary.importedCustomExercises, 0);
+assert.equal(repeatedCollisionMerge.summary.importedTemplates, 0);
+
 const draftCurrent: AppData = {
   ...emptyData(),
   days: {

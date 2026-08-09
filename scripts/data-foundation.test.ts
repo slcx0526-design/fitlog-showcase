@@ -14,7 +14,7 @@ import {
   summarizeWorkoutWork,
   workingSets,
 } from "../lib/trainingMetrics";
-import type { Exercise, ExercisePreset, SetRecord, Template } from "../lib/types";
+import type { Exercise, ExercisePreset, Schedule, SetRecord, Template } from "../lib/types";
 import { defaultTrainingPolicy, exportTrainingPolicyBackup } from "../lib/trainingPolicy";
 import { localizeSystemText } from "../lib/systemText";
 
@@ -422,6 +422,148 @@ assert.ok(inspectDataHealth({
   ...collisionData,
   customExercises: [{ ...collisionData.customExercises[0], id: "px_barbell_bench" }],
 }).issues.some((issue) => issue.code === "customExerciseIdCollisions"));
+
+const strengthTemplateItem = {
+  exerciseId: "px_barbell_bench",
+  name: "平板杠铃卧推",
+  sets: 4,
+  repsLow: 4,
+  repsHigh: 6,
+  progressionTrackId: "bench-strength",
+};
+const hypertrophyTemplateItem = {
+  exerciseId: "px_incline_barbell",
+  name: "上斜杠铃卧推",
+  sets: 3,
+  repsLow: 8,
+  repsHigh: 12,
+  progressionTrackId: "incline-hypertrophy",
+};
+const duplicateTemplateSchedule = {
+  split: ["push", "pull", "legs", "rest", "push", "pull", "rest"],
+  microcycle: [
+    { id: "duplicate_step", type: "push", label: "胸力量", templateId: "tpl_duplicate" },
+    { id: "duplicate_step", type: "push", label: "胸次数", templateId: "tpl_duplicate" },
+  ],
+} satisfies Schedule;
+const templateIdentityBackup = parseBackupWithMeta(JSON.stringify({
+  app: "fitlog",
+  version: 18,
+  days: {
+    "2026-07-03": {
+      date: "2026-07-03",
+      workout: {
+        type: "push",
+        templateId: "tpl_duplicate",
+        templateSnapshot: { id: "tpl_duplicate", name: "胸力量", type: "push", items: [strengthTemplateItem] },
+        microcycleId: "mc_template_identity",
+        microcycleStepId: "duplicate_step",
+        done: true,
+        exercises: [{ id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true, sets: [{ weight: 90, reps: 5 }] }],
+      },
+    },
+    "2026-07-04": {
+      date: "2026-07-04",
+      workout: {
+        type: "push",
+        templateId: "tpl_duplicate",
+        templateSnapshot: { id: "tpl_duplicate", name: "胸次数", type: "push", items: [hypertrophyTemplateItem] },
+        microcycleId: "mc_template_identity",
+        microcycleStepId: "duplicate_step",
+        done: true,
+        exercises: [{ id: "px_incline_barbell", name: "上斜杠铃卧推", isMain: true, sets: [{ weight: 70, reps: 10 }] }],
+      },
+    },
+  },
+  bodyWeights: [],
+  waistEntries: [],
+  customExercises: [],
+  templates: [
+    { id: "tpl_duplicate", name: "胸力量", type: "push", items: [strengthTemplateItem] },
+    { id: "tpl_duplicate", name: "胸次数", type: "push", items: [hypertrophyTemplateItem] },
+  ],
+  schedule: duplicateTemplateSchedule,
+  cutPlan: { trainingTemplateIds: { push: "tpl_duplicate" } },
+  microcycle: {
+    currentId: "mc_template_identity",
+    startedAt: "2026-07-03",
+    index: 1,
+    steps: [
+      {
+        id: "duplicate_step",
+        type: "push",
+        label: "胸力量",
+        templateId: "tpl_duplicate",
+        templateSnapshot: { id: "tpl_duplicate", name: "胸力量", type: "push", items: [strengthTemplateItem] },
+      },
+      {
+        id: "duplicate_step",
+        type: "push",
+        label: "胸次数",
+        templateId: "tpl_duplicate",
+        templateSnapshot: { id: "tpl_duplicate", name: "胸次数", type: "push", items: [hypertrophyTemplateItem] },
+      },
+    ],
+  },
+  lastCycleReview: {
+    id: "review_template_identity",
+    sourceMicrocycleId: "mc_previous",
+    appliedAt: "2026-07-03T00:00:00.000Z",
+    nextPhase: "build",
+    changes: [{ templateId: "tpl_duplicate", exerciseId: "px_barbell_bench", fromSets: 3, toSets: 4 }],
+  },
+  adaptiveTraining: exportTrainingPolicyBackup({
+    ...defaultTrainingPolicy("2026-07-03T00:00:00.000Z"),
+    decisionEvents: [{
+      id: "decision_template_identity",
+      at: "2026-07-03T00:00:00.000Z",
+      proposalId: "proposal_template_identity",
+      outcome: "accepted",
+      summary: "测试模板身份迁移",
+      templateIds: ["tpl_duplicate"],
+    }],
+    rollbackSnapshot: {
+      id: "rollback_template_identity",
+      createdAt: "2026-07-03T00:00:00.000Z",
+      proposalId: "proposal_template_identity",
+      reason: "测试模板身份迁移",
+      templates: [{ templateId: "tpl_duplicate", items: [hypertrophyTemplateItem] }],
+      schedule: duplicateTemplateSchedule,
+    },
+  }),
+}));
+const templateCollisionData = templateIdentityBackup.data;
+assert.deepEqual(templateCollisionData.templates?.map((template) => template.id), ["tpl_duplicate", "tpl_duplicate_2"]);
+assert.deepEqual(templateCollisionData.schedule.microcycle?.map((step) => step.templateId), ["tpl_duplicate", "tpl_duplicate_2"]);
+assert.deepEqual(templateCollisionData.schedule.microcycle?.map((step) => step.id), ["duplicate_step", "duplicate_step_2"]);
+assert.deepEqual(templateCollisionData.microcycle?.steps?.map((step) => step.templateId), ["tpl_duplicate", "tpl_duplicate_2"]);
+assert.deepEqual(templateCollisionData.microcycle?.steps?.map((step) => step.id), ["duplicate_step", "duplicate_step_2"]);
+assert.equal(templateCollisionData.microcycle?.steps?.[1].templateSnapshot?.id, "tpl_duplicate_2");
+assert.equal(templateCollisionData.days["2026-07-03"].workout?.templateId, "tpl_duplicate");
+assert.equal(templateCollisionData.days["2026-07-03"].workout?.microcycleStepId, "duplicate_step");
+assert.equal(templateCollisionData.days["2026-07-04"].workout?.templateId, "tpl_duplicate_2");
+assert.equal(templateCollisionData.days["2026-07-04"].workout?.templateSnapshot?.id, "tpl_duplicate_2");
+assert.equal(templateCollisionData.days["2026-07-04"].workout?.microcycleStepId, "duplicate_step_2");
+assert.equal(templateCollisionData.cutPlan?.trainingTemplateIds?.push, "tpl_duplicate", "A nameless single-value binding keeps the deterministic first candidate");
+assert.deepEqual(templateCollisionData.lastCycleReview?.changes.map((change) => change.templateId), ["tpl_duplicate", "tpl_duplicate_2"]);
+assert.deepEqual(templateIdentityBackup.adaptiveTraining?.decisionEvents[0].templateIds, ["tpl_duplicate", "tpl_duplicate_2"]);
+assert.equal(templateIdentityBackup.adaptiveTraining?.rollbackSnapshot?.templates[0].templateId, "tpl_duplicate_2");
+assert.deepEqual(
+  templateIdentityBackup.adaptiveTraining?.rollbackSnapshot?.schedule?.microcycle?.map((step) => step.templateId),
+  ["tpl_duplicate", "tpl_duplicate_2"],
+);
+assert.deepEqual(
+  templateIdentityBackup.adaptiveTraining?.rollbackSnapshot?.schedule?.microcycle?.map((step) => step.id),
+  ["duplicate_step", "duplicate_step_2"],
+);
+assert.ok(inspectDataHealth({
+  ...templateCollisionData,
+  schedule: {
+    ...templateCollisionData.schedule,
+    microcycle: templateCollisionData.schedule.microcycle?.map((step) => ({ ...step, id: "duplicate_step" })),
+  },
+}).issues.some((issue) => issue.code === "duplicateMicrocycleStepIds"));
+assert.deepEqual(normalizeData(templateCollisionData), templateCollisionData, "Template identity migration must be idempotent");
 
 const isolatedCorruption = normalizeData({
   days: {

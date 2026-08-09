@@ -45,6 +45,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
+  const activeDateRef = useRef(date);
   const finishConfirmationRef = useRef<HTMLDivElement>(null);
   const execution = useMemo(() => summarizeSessionExecution(workout), [workout]);
   const effectiveSets = execution.workingSets;
@@ -62,9 +63,22 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const suggestedActiveExerciseId = execution.next?.exercise.id
     ?? exercises.find((exercise) => !hasEntry(exercise.sets))?.id
     ?? exercises[0]?.id;
+  const exerciseIdentity = exercises.map((exercise) => exercise.id).join("\u0000");
   const resolvedActiveExerciseId = activeExerciseId && exercises.some((exercise) => exercise.id === activeExerciseId)
     ? activeExerciseId
     : suggestedActiveExerciseId ?? null;
+
+  useEffect(() => {
+    const exerciseIds = new Set(exerciseIdentity ? exerciseIdentity.split("\u0000") : []);
+    setActiveExerciseId((current) => {
+      if (activeDateRef.current !== date) {
+        activeDateRef.current = date;
+        return suggestedActiveExerciseId ?? null;
+      }
+      if (current && exerciseIds.has(current)) return current;
+      return suggestedActiveExerciseId ?? null;
+    });
+  }, [date, exerciseIdentity, suggestedActiveExerciseId]);
 
   useEffect(() => {
     if (!confirmFinish) return;

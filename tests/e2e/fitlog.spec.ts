@@ -387,7 +387,12 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
   await expect(page.getByRole("heading", { name: "Adaptive training plan" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Training planning views" })).toBeVisible();
   await page.getByText("Quick preference input", { exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Training preference description" })).toBeVisible();
+  const preferenceInput = page.getByRole("textbox", { name: "Training preference description" });
+  await expect(preferenceInput).toBeVisible();
+  await preferenceInput.fill("Focus on chest and grow side delts");
+  await page.getByRole("button", { name: "Parse preferences" }).click();
+  await expect(page.getByText("胸: specialize", { exact: true })).toBeVisible();
+  await expect(page.getByText("中束: grow", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Strength/ }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
@@ -630,6 +635,10 @@ test("typing a two-digit final set never advances before explicit confirmation",
   }, { dateKey: date });
 
   await page.goto("/train");
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport).toMatch(/width=device-width/);
+  await expect(page.locator("html")).toHaveCSS("touch-action", "pan-x pan-y");
+  await expect(page.locator("body")).toHaveCSS("touch-action", "pan-x pan-y");
   const bench = page.locator("#exercise-px_barbell_bench");
   const lateralRaise = page.locator("#exercise-px_machine_lateral");
   const reps = bench.getByRole("textbox", { name: "第1组次数" });
@@ -1065,6 +1074,85 @@ test("backup preview offers non-destructive merge", async ({ page }) => {
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}"));
   expect(stored.days[currentDate].nutrition.calories).toBe(2000);
   expect(stored.days[incomingDate].recovery.energy).toBe(4);
+});
+
+test("backup merge preserves distinct custom and template identities that share imported ids", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One mobile browser flow covers identity-safe backup merging.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { "2026-01-01": { date: "2026-01-01", recovery: { energy: 4 } } },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [{ id: "cx_merge_collision", name: "当前自定义推胸", isMain: false, type: "custom", primaryMuscle: "chest" }],
+      templates: [{
+        id: "tpl_merge_collision",
+        name: "当前胸训练",
+        type: "push",
+        items: [{ exerciseId: "cx_merge_collision", name: "当前自定义推胸", sets: 3, repsLow: 8, repsHigh: 12 }],
+      }],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+  await page.goto("/settings");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "fitlog-identity-merge.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      app: "fitlog",
+      version: 18,
+      exportedAt: "2026-01-03T00:00:00.000Z",
+      days: {
+        "2026-01-02": {
+          date: "2026-01-02",
+          workout: {
+            type: "push",
+            templateId: "tpl_merge_collision",
+            templateSnapshot: {
+              id: "tpl_merge_collision",
+              name: "导入肩训练",
+              type: "push",
+              items: [{ exerciseId: "cx_merge_collision", name: "导入自定义侧平举", sets: 4, repsLow: 12, repsHigh: 15 }],
+            },
+            done: true,
+            exercises: [{
+              id: "cx_merge_collision",
+              name: "导入自定义侧平举",
+              isMain: false,
+              primaryMuscle: "sideDelt",
+              volumeContributions: [{ muscle: "sideDelt", weight: 1, direct: true }],
+              sets: [{ weight: 12, reps: 15, type: "working" }],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [{ id: "cx_merge_collision", name: "导入自定义侧平举", isMain: false, type: "custom", primaryMuscle: "sideDelt" }],
+      templates: [{
+        id: "tpl_merge_collision",
+        name: "导入肩训练",
+        type: "push",
+        items: [{ exerciseId: "cx_merge_collision", name: "导入自定义侧平举", sets: 4, repsLow: 12, repsHigh: 15 }],
+      }],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    })),
+  });
+  await page.getByRole("button", { name: "安全合并缺少数据" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      customIds: data.customExercises?.map((exercise: { id: string }) => exercise.id),
+      templateIds: data.templates?.map((template: { id: string }) => template.id),
+      workoutExerciseId: data.days?.["2026-01-02"]?.workout?.exercises?.[0]?.id,
+      workoutTemplateId: data.days?.["2026-01-02"]?.workout?.templateId,
+    };
+  })).toEqual({
+    customIds: ["cx_merge_collision", "cx_merge_collision_2"],
+    templateIds: ["tpl_merge_collision", "tpl_merge_collision_2"],
+    workoutExerciseId: "cx_merge_collision_2",
+    workoutTemplateId: "tpl_merge_collision_2",
+  });
 });
 
 test("failed backup merge keeps the current workspace unchanged", async ({ page }) => {

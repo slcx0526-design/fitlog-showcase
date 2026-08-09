@@ -211,6 +211,9 @@ export default function ExerciseCard({
     id={`exercise-${exercise.id}`}
     className="control-card exercise-card scroll-mt-3"
     data-active={active}
+    onPointerDownCapture={(event) => {
+      if (!(event.target as HTMLElement).closest("[data-exercise-toggle]")) onActivate?.(exercise.id);
+    }}
     onFocusCapture={(event) => {
       if (!(event.target as HTMLElement).closest("[data-exercise-toggle]")) onActivate?.(exercise.id);
     }}

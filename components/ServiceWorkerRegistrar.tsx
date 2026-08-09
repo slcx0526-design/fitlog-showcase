@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n";
 export default function ServiceWorkerRegistrar() {
   const { tr } = useI18n();
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
+  const [reloadPending, setReloadPending] = useState(false);
 
   // A production worker can remain attached after the same origin is later
   // opened with `next dev`, where un-hashed chunk names would otherwise look stale.
@@ -70,12 +71,21 @@ export default function ServiceWorkerRegistrar() {
 
     let reloaded = false;
     const hadController = Boolean(navigator.serviceWorker.controller);
+    const reload = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    };
     const onControllerChange = () => {
       // The first worker claims an uncontrolled page after installation. Reloading
       // that first visit would discard open dialogs and in-progress form input.
       if (!hadController || reloaded) return;
-      reloaded = true;
-      window.location.reload();
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || (active instanceof HTMLElement && active.isContentEditable)) {
+        setReloadPending(true);
+        return;
+      }
+      reload();
     };
     navigator.serviceWorker.addEventListener(
       "controllerchange",
@@ -118,22 +128,48 @@ export default function ServiceWorkerRegistrar() {
   }, []);
 
   useEffect(() => {
+    if (!reloadPending) return;
+    let frame = 0;
+    const reloadWhenIdle = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const active = document.activeElement;
+        const editing = active instanceof HTMLInputElement
+          || active instanceof HTMLTextAreaElement
+          || active instanceof HTMLSelectElement
+          || (active instanceof HTMLElement && active.isContentEditable);
+        if (document.visibilityState === "hidden" || !editing) window.location.reload();
+      });
+    };
+    document.addEventListener("focusout", reloadWhenIdle);
+    document.addEventListener("visibilitychange", reloadWhenIdle);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("focusout", reloadWhenIdle);
+      document.removeEventListener("visibilitychange", reloadWhenIdle);
+    };
+  }, [reloadPending]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
-    if (waiting) document.documentElement.dataset.updateWaiting = "true";
+    if (waiting || reloadPending) document.documentElement.dataset.updateWaiting = "true";
     else delete document.documentElement.dataset.updateWaiting;
     return () => {
       delete document.documentElement.dataset.updateWaiting;
     };
-  }, [waiting]);
+  }, [reloadPending, waiting]);
 
-  if (!waiting) return null;
+  if (!waiting && !reloadPending) return null;
 
   return (
     <div className="app-update-layer pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4" data-app-update-layer>
       <div role="status" aria-live="polite" className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
         <span>{tr("有新版本")}</span>
         <button type="button"
-          onClick={() => waiting.postMessage("SKIP_WAITING")}
+          onClick={() => {
+            if (reloadPending || waiting?.state === "activated") window.location.reload();
+            else waiting?.postMessage("SKIP_WAITING");
+          }}
           className="press min-h-10 rounded-full bg-bg px-3 text-[12px] font-semibold text-fg"
         >
           {tr("刷新")}

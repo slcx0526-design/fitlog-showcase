@@ -148,6 +148,11 @@ const PATTERNS: Array<{
     ja: (exercise, minutes, sets) => `${minutes}分・${sets}セット以内にするため、優先度の低い${exercise}を削除`,
   },
   {
+    pattern: /^(.+)：(\d+) 天微周期 (\d+) 次刺激，单次上限按 ([\d.]+) 组分配$/,
+    en: (muscles, days, exposures, cap) => `${muscles}: distribute ${exposures} exposures across the ${days}-day cycle with a ${cap}-set session cap`,
+    ja: (muscles, days, exposures, cap) => `${muscles}：${days}日周期の${exposures}回に分散し、1回${cap}セットを上限にします`,
+  },
+  {
     pattern: /^(.+)：单次直接组上限 ([\d.]+)，(.+) -([\d.]+) 组$/,
     en: (muscles, cap, exercise, sets) => `${muscles}: ${exercise} -${sets} sets to stay within the ${cap}-set direct-work cap`,
     ja: (muscles, cap, exercise, sets) => `${muscles}：直接セット上限${cap}に収めるため、${exercise}を-${sets}セット`,

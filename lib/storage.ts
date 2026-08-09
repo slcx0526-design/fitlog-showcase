@@ -495,6 +495,189 @@ function createExerciseIdentityContext(input: unknown): ExerciseIdentityContext 
   return { customExercises, resolveReference, expandReferenceIds };
 }
 
+interface TemplateIdentityCandidate {
+  assignedId: string;
+  nameKey: string;
+  type: "push" | "pull" | "legs";
+  itemsKey: string;
+}
+
+interface TemplateIdentityContext {
+  assignedIdForRaw: (input: unknown) => string | undefined;
+  resolveReference: (id: unknown, name?: unknown, type?: unknown, items?: unknown) => string | undefined;
+  expandReferenceIds: (ids: string[] | undefined) => string[] | undefined;
+}
+
+function templateItemsIdentityKey(input: unknown) {
+  if (!Array.isArray(input)) return "";
+  const items = input.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const value = entry as Record<string, unknown>;
+    const prescription = value.prescription && typeof value.prescription === "object"
+      ? value.prescription as Record<string, unknown>
+      : undefined;
+    return [{
+      exerciseId: typeof value.exerciseId === "string" ? value.exerciseId.trim() : "",
+      name: exerciseNameKey(value.name),
+      sets: typeof value.sets === "number" && Number.isFinite(value.sets) ? Math.round(value.sets) : null,
+      repsLow: typeof value.repsLow === "number" && Number.isFinite(value.repsLow) ? Math.round(value.repsLow) : null,
+      repsHigh: typeof value.repsHigh === "number" && Number.isFinite(value.repsHigh) ? Math.round(value.repsHigh) : null,
+      reps: typeof value.reps === "string" ? value.reps.trim() : "",
+      trackId: typeof prescription?.progressionTrackId === "string"
+        ? prescription.progressionTrackId.trim()
+        : typeof value.progressionTrackId === "string"
+          ? value.progressionTrackId.trim()
+          : "",
+    }];
+  });
+  return items.length ? JSON.stringify(items) : "";
+}
+
+function createTemplateIdentityContext(input: unknown): TemplateIdentityContext {
+  const assignedByRaw = new WeakMap<object, string>();
+  const candidatesByOriginalId = new Map<string, TemplateIdentityCandidate[]>();
+  const usedTemplateIds = new Set<string>();
+  let validIndex = 0;
+  if (Array.isArray(input)) {
+    for (const rawTemplate of input) {
+      if (!rawTemplate || typeof rawTemplate !== "object") continue;
+      const value = rawTemplate as Record<string, unknown>;
+      if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
+      validIndex += 1;
+      const originalId = typeof value.id === "string" && value.id.trim()
+        ? value.id.trim()
+        : `tpl_imported_${validIndex}`;
+      const assignedId = uniqueId(originalId, "tpl_imported", usedTemplateIds);
+      assignedByRaw.set(rawTemplate, assignedId);
+      const candidates = candidatesByOriginalId.get(originalId) ?? [];
+      candidates.push({
+        assignedId,
+        nameKey: exerciseNameKey(value.name),
+        type: value.type,
+        itemsKey: templateItemsIdentityKey(value.items),
+      });
+      candidatesByOriginalId.set(originalId, candidates);
+    }
+  }
+
+  const resolveReference = (id: unknown, name?: unknown, type?: unknown, items?: unknown) => {
+    if (typeof id !== "string" || !id.trim()) return undefined;
+    const originalId = id.trim();
+    const candidates = candidatesByOriginalId.get(originalId);
+    if (!candidates?.length) return originalId;
+    const typed = type === "push" || type === "pull" || type === "legs"
+      ? candidates.filter((candidate) => candidate.type === type)
+      : candidates;
+    const eligible = typed.length ? typed : candidates;
+    const nameKey = exerciseNameKey(name);
+    if (nameKey) {
+      const matches = eligible.filter((candidate) => candidate.nameKey === nameKey);
+      if (matches.length === 1) return matches[0].assignedId;
+    }
+    const itemsKey = templateItemsIdentityKey(items);
+    if (itemsKey) {
+      const matches = eligible.filter((candidate) => candidate.itemsKey === itemsKey);
+      if (matches.length === 1) return matches[0].assignedId;
+    }
+    return eligible[0].assignedId;
+  };
+
+  const expandReferenceIds = (ids: string[] | undefined) => {
+    if (!ids?.length) return undefined;
+    const expanded: string[] = [];
+    for (const rawId of ids) {
+      const id = rawId.trim();
+      const candidates = candidatesByOriginalId.get(id);
+      const values = candidates?.map((candidate) => candidate.assignedId) ?? [id];
+      for (const value of values) if (!expanded.includes(value)) expanded.push(value);
+    }
+    return expanded.length ? expanded : undefined;
+  };
+
+  return {
+    assignedIdForRaw: (raw) => raw && typeof raw === "object" ? assignedByRaw.get(raw) : undefined,
+    resolveReference,
+    expandReferenceIds,
+  };
+}
+
+interface MicrocycleStepIdentityCandidate {
+  assignedId: string;
+  type: Exclude<TrainingType, "custom">;
+  templateId?: string;
+  labelKey: string;
+}
+
+interface MicrocycleStepIdentityContext {
+  assignedIdForRaw: (input: unknown) => string | undefined;
+  candidatesForReference: (id: unknown, type?: unknown, templateId?: unknown, label?: unknown) => string[];
+}
+
+function createMicrocycleStepIdentityContext(
+  input: unknown,
+  templateIdentity: TemplateIdentityContext,
+): MicrocycleStepIdentityContext {
+  const assignedByRaw = new WeakMap<object, string>();
+  const candidatesByOriginalId = new Map<string, MicrocycleStepIdentityCandidate[]>();
+  const usedIds = new Set<string>();
+  if (Array.isArray(input)) {
+    input.forEach((rawStep, index) => {
+      if (!rawStep || typeof rawStep !== "object") return;
+      const value = rawStep as Record<string, unknown>;
+      if (!VALID_TYPES.includes(value.type as TrainingType) || value.type === "custom") return;
+      const type = value.type as Exclude<TrainingType, "custom">;
+      const originalId = typeof value.id === "string" && value.id.trim()
+        ? value.id.trim()
+        : `cycle_step_${index + 1}`;
+      const assignedId = uniqueId(originalId, "cycle_step", usedIds);
+      const rawSnapshot = value.templateSnapshot && typeof value.templateSnapshot === "object"
+        ? value.templateSnapshot as Record<string, unknown>
+        : undefined;
+      const rawTemplateId = typeof value.templateId === "string" && value.templateId
+        ? value.templateId
+        : rawSnapshot?.id;
+      const templateId = type !== "rest"
+        ? templateIdentity.resolveReference(rawTemplateId, rawSnapshot?.name ?? value.label, type, rawSnapshot?.items)
+        : undefined;
+      assignedByRaw.set(rawStep, assignedId);
+      const candidates = candidatesByOriginalId.get(originalId) ?? [];
+      candidates.push({
+        assignedId,
+        type,
+        ...(templateId ? { templateId } : {}),
+        labelKey: exerciseNameKey(value.label),
+      });
+      candidatesByOriginalId.set(originalId, candidates);
+    });
+  }
+
+  const candidatesForReference = (id: unknown, type?: unknown, templateId?: unknown, label?: unknown) => {
+    if (typeof id !== "string" || !id.trim()) return [];
+    const originalId = id.trim();
+    const candidates = candidatesByOriginalId.get(originalId);
+    if (!candidates?.length) return [originalId];
+    const byType = type === "push" || type === "pull" || type === "legs" || type === "rest"
+      ? candidates.filter((candidate) => candidate.type === type)
+      : candidates;
+    let eligible = byType.length ? byType : candidates;
+    if (typeof templateId === "string" && templateId) {
+      const byTemplate = eligible.filter((candidate) => candidate.templateId === templateId);
+      if (byTemplate.length) eligible = byTemplate;
+    }
+    const labelKey = exerciseNameKey(label);
+    if (labelKey) {
+      const byLabel = eligible.filter((candidate) => candidate.labelKey === labelKey);
+      if (byLabel.length) eligible = byLabel;
+    }
+    return eligible.map((candidate) => candidate.assignedId);
+  };
+
+  return {
+    assignedIdForRaw: (raw) => raw && typeof raw === "object" ? assignedByRaw.get(raw) : undefined,
+    candidatesForReference,
+  };
+}
+
 export function defaultSchedule(): Schedule { return { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] }; }
 export function emptyData(): AppData { return { days: {}, bodyWeights: [], waistEntries: [], customExercises: [], schedule: defaultSchedule() }; }
 
@@ -618,6 +801,15 @@ export function normalizeData(input: unknown): AppData {
   if (!input || typeof input !== "object") return out;
   const obj = input as Record<string, unknown>;
   const exerciseIdentity = createExerciseIdentityContext(obj.customExercises);
+  const templateIdentity = createTemplateIdentityContext(obj.templates);
+  const rawScheduleForIdentity = obj.schedule && typeof obj.schedule === "object"
+    ? obj.schedule as Record<string, unknown>
+    : undefined;
+  const rawMicrocycleForIdentity = obj.microcycle && typeof obj.microcycle === "object"
+    ? obj.microcycle as Record<string, unknown>
+    : undefined;
+  const scheduleStepIdentity = createMicrocycleStepIdentityContext(rawScheduleForIdentity?.microcycle, templateIdentity);
+  const activeStepIdentity = createMicrocycleStepIdentityContext(rawMicrocycleForIdentity?.steps, templateIdentity);
   out.customExercises = exerciseIdentity.customExercises;
   const knownPresetById = new Map(
     [...DEFAULT_EXERCISES, ...out.customExercises].map((preset) => [preset.id, preset]),
@@ -727,9 +919,18 @@ export function normalizeData(input: unknown): AppData {
           ? "custom"
           : parsedType;
         const adaptiveSnapshot = parseWorkoutAdaptiveSnapshot(workout.adaptiveSnapshot);
+        const rawTemplateSnapshot = workout.templateSnapshot && typeof workout.templateSnapshot === "object"
+          ? workout.templateSnapshot as unknown as Record<string, unknown>
+          : undefined;
+        const templateId = templateIdentity.resolveReference(
+          workout.templateId,
+          rawTemplateSnapshot?.name,
+          type,
+          rawTemplateSnapshot?.items,
+        );
         next.workout = {
           type,
-          ...(typeof workout.templateId === "string" ? { templateId: workout.templateId } : {}),
+          ...(templateId ? { templateId } : {}),
           ...(typeof workout.microcycleId === "string" ? { microcycleId: workout.microcycleId } : {}),
           ...(typeof workout.microcycleStepId === "string" ? { microcycleStepId: workout.microcycleStepId } : {}),
           ...(type === "rest"
@@ -795,7 +996,10 @@ export function normalizeData(input: unknown): AppData {
     if (value.trainingTemplateIds && typeof value.trainingTemplateIds === "object") {
       const rawIds = value.trainingTemplateIds as Record<string, unknown>;
       const ids: NonNullable<CutPlan["trainingTemplateIds"]> = {};
-      for (const type of ["push", "pull", "legs"] as const) if (typeof rawIds[type] === "string" && rawIds[type]) ids[type] = rawIds[type];
+      for (const type of ["push", "pull", "legs"] as const) {
+        const templateId = templateIdentity.resolveReference(rawIds[type], undefined, type);
+        if (templateId) ids[type] = templateId;
+      }
       if (Object.keys(ids).length) plan.trainingTemplateIds = ids;
     }
     if (typeof value.targetWeightKg === "number" && Number.isFinite(value.targetWeightKg) && value.targetWeightKg >= 30 && value.targetWeightKg <= 300) plan.targetWeightKg = Math.round(value.targetWeightKg * 10) / 10;
@@ -808,7 +1012,12 @@ export function normalizeData(input: unknown): AppData {
     const microcycle = Array.isArray(rawSchedule.microcycle)
       ? rawSchedule.microcycle.flatMap((step, index) => {
           if (!step || !VALID_TYPES.includes(step.type) || step.type === "custom") return [];
-          return [{ id: typeof step.id === "string" && step.id ? step.id : `cycle_step_${index + 1}`, type: step.type, label: typeof step.label === "string" && step.label.trim() ? step.label.trim().slice(0, 24) : step.type, ...(step.type !== "rest" && typeof step.templateId === "string" && step.templateId ? { templateId: step.templateId } : {}) }];
+          const label = typeof step.label === "string" && step.label.trim() ? step.label.trim().slice(0, 24) : step.type;
+          const templateId = step.type !== "rest"
+            ? templateIdentity.resolveReference(step.templateId, label, step.type)
+            : undefined;
+          const stepId = scheduleStepIdentity.assignedIdForRaw(step) ?? `cycle_step_${index + 1}`;
+          return [{ id: stepId, type: step.type, label, ...(templateId ? { templateId } : {}) }];
         }).slice(0, 14)
       : [];
     out.schedule = { split, ...(microcycle.length ? { microcycle } : {}) };
@@ -915,9 +1124,10 @@ export function normalizeData(input: unknown): AppData {
     if (!input || typeof input !== "object") return undefined;
     const value = input as Record<string, unknown>;
     if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") return undefined;
-    if (typeof value.id !== "string" || !value.id.trim()) return undefined;
+    const templateId = templateIdentity.resolveReference(value.id, value.name, value.type, value.items);
+    if (!templateId) return undefined;
     return {
-      id: value.id.trim(),
+      id: templateId,
       name: typeof value.name === "string" ? value.name.trim() : "",
       type: value.type,
       items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => Boolean(item)) : [],
@@ -926,15 +1136,13 @@ export function normalizeData(input: unknown): AppData {
 
   if (Array.isArray(obj.templates)) {
     const templates: Template[] = [];
-    const usedTemplateIds = new Set<string>();
     for (const rawTemplate of obj.templates) {
       if (!rawTemplate || typeof rawTemplate !== "object") continue;
       const value = rawTemplate as Record<string, unknown>;
       if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
-      const candidate = typeof value.id === "string" && value.id.trim()
-        ? value.id.trim()
-        : `tpl_imported_${templates.length + 1}`;
-      templates.push({ id: uniqueId(candidate, "tpl_imported", usedTemplateIds), name: typeof value.name === "string" ? value.name.trim() : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
+      const templateId = templateIdentity.assignedIdForRaw(rawTemplate);
+      if (!templateId) continue;
+      templates.push({ id: templateId, name: typeof value.name === "string" ? value.name.trim() : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
     }
     if (templates.length) out.templates = templates;
   } else if (obj.templates && typeof obj.templates === "object") {
@@ -981,10 +1189,23 @@ export function normalizeData(input: unknown): AppData {
             if (!step || typeof step !== "object") return [];
             const item = step as Record<string, unknown>;
             if (!VALID_TYPES.includes(item.type as TrainingType) || item.type === "custom") return [];
-            const templateId = item.type !== "rest" && typeof item.templateId === "string" && item.templateId ? item.templateId : undefined;
+            const rawTemplateSnapshot = item.templateSnapshot && typeof item.templateSnapshot === "object"
+              ? item.templateSnapshot as Record<string, unknown>
+              : undefined;
+            const rawTemplateId = typeof item.templateId === "string" && item.templateId
+              ? item.templateId
+              : rawTemplateSnapshot?.id;
+            const templateId = item.type !== "rest"
+              ? templateIdentity.resolveReference(
+                  rawTemplateId,
+                  rawTemplateSnapshot?.name ?? item.label,
+                  item.type,
+                  rawTemplateSnapshot?.items,
+                )
+              : undefined;
             const templateSnapshot = parseTemplateSnapshot(item.templateSnapshot);
             return [{
-              id: typeof item.id === "string" && item.id ? item.id : `cycle_step_${index + 1}`,
+              id: activeStepIdentity.assignedIdForRaw(step) ?? `cycle_step_${index + 1}`,
               type: item.type as TrainingType,
               label: typeof item.label === "string" && item.label.trim() ? item.label.trim().slice(0, 24) : String(item.type),
               ...(templateId ? { templateId } : {}),
@@ -1034,12 +1255,14 @@ export function normalizeData(input: unknown): AppData {
           const templateId = change.templateId;
           const fromSets = Math.max(1, Math.round(change.fromSets));
           const toSets = Math.max(1, Math.round(change.toSets));
-          return (exerciseIdentity.expandReferenceIds([change.exerciseId]) ?? []).map((exerciseId) => ({
-            templateId,
+          const templateIds = templateIdentity.expandReferenceIds([templateId]) ?? [templateId];
+          const exerciseIds = exerciseIdentity.expandReferenceIds([change.exerciseId]) ?? [change.exerciseId];
+          return templateIds.flatMap((resolvedTemplateId) => exerciseIds.map((exerciseId) => ({
+            templateId: resolvedTemplateId,
             exerciseId,
             fromSets,
             toSets,
-          }));
+          })));
         })
       : [];
     if (
@@ -1164,6 +1387,24 @@ export function normalizeData(input: unknown): AppData {
       };
     }
   }
+  const usedActiveStepIds = new Set<string>();
+  for (const [date, day] of Object.entries(out.days).sort(([a], [b]) => a.localeCompare(b))) {
+    const workout = day.workout;
+    if (
+      !workout?.microcycleStepId
+      || workout.microcycleId !== out.microcycle.currentId
+      || date < out.microcycle.startedAt
+    ) continue;
+    const candidates = activeStepIdentity.candidatesForReference(
+      workout.microcycleStepId,
+      workout.type,
+      workout.templateId,
+    );
+    const microcycleStepId = candidates.find((candidate) => !usedActiveStepIds.has(candidate)) ?? candidates[0];
+    if (!microcycleStepId) continue;
+    usedActiveStepIds.add(microcycleStepId);
+    if (microcycleStepId !== workout.microcycleStepId) day.workout = { ...workout, microcycleStepId };
+  }
   return out;
 }
 
@@ -1212,6 +1453,7 @@ export function downloadBackup(data: AppData): void {
 function remapTrainingPolicyExerciseReferences(
   policy: TrainingPolicy,
   identity: ExerciseIdentityContext,
+  templateIdentity: TemplateIdentityContext,
 ): TrainingPolicy {
   const preferenceReferences = Object.entries(policy.exercisePreferences)
     .map(([exerciseId, preference]) => ({
@@ -1244,11 +1486,28 @@ function remapTrainingPolicyExerciseReferences(
       : {}),
   }));
 
+  const decisionEvents = policy.decisionEvents.map((event) => ({
+    ...event,
+    ...(event.templateIds?.length
+      ? { templateIds: templateIdentity.expandReferenceIds(event.templateIds) }
+      : {}),
+  }));
+  const rollbackStepIdentity = createMicrocycleStepIdentityContext(
+    policy.rollbackSnapshot?.schedule?.microcycle,
+    templateIdentity,
+  );
+
   const rollbackSnapshot = policy.rollbackSnapshot
     ? {
         ...policy.rollbackSnapshot,
         templates: policy.rollbackSnapshot.templates.map((template) => ({
           ...template,
+          templateId: templateIdentity.resolveReference(
+            template.templateId,
+            undefined,
+            undefined,
+            template.items,
+          ) ?? template.templateId,
           items: template.items.map((item) => {
             const exerciseId = identity.resolveReference(item.exerciseId, item.name) ?? item.exerciseId;
             const alternatives = identity.expandReferenceIds(item.alternatives);
@@ -1259,6 +1518,21 @@ function remapTrainingPolicyExerciseReferences(
             };
           }),
         })),
+        ...(policy.rollbackSnapshot.schedule?.microcycle
+          ? {
+              schedule: {
+                ...policy.rollbackSnapshot.schedule,
+                microcycle: policy.rollbackSnapshot.schedule.microcycle.map((step) => {
+                  const stepId = rollbackStepIdentity.assignedIdForRaw(step) ?? step.id;
+                  const templateId = step.type !== "rest"
+                    ? templateIdentity.resolveReference(step.templateId, step.label, step.type)
+                    : undefined;
+                  const { templateId: _templateId, ...rest } = step;
+                  return { ...rest, id: stepId, ...(templateId ? { templateId } : {}) };
+                }),
+              },
+            }
+          : {}),
       }
     : undefined;
 
@@ -1267,6 +1541,7 @@ function remapTrainingPolicyExerciseReferences(
     exercisePreferences,
     restrictions,
     overrides,
+    decisionEvents,
     ...(rollbackSnapshot ? { rollbackSnapshot } : {}),
   };
 }
@@ -1274,7 +1549,8 @@ function remapTrainingPolicyExerciseReferences(
 function adaptiveTrainingFromBackup(parsed: Record<string, unknown>): TrainingPolicy | undefined {
   if (!parsed.adaptiveTraining) return undefined;
   const identity = createExerciseIdentityContext(parsed.customExercises);
-  return remapTrainingPolicyExerciseReferences(importTrainingPolicyBackup(parsed.adaptiveTraining), identity);
+  const templateIdentity = createTemplateIdentityContext(parsed.templates);
+  return remapTrainingPolicyExerciseReferences(importTrainingPolicyBackup(parsed.adaptiveTraining), identity, templateIdentity);
 }
 
 export function parseBackup(text: string): AppData {

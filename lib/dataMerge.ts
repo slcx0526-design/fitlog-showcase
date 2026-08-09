@@ -1,4 +1,14 @@
-import type { AppData, DayLog, HealthDailySummary, RecoveryCheckIn } from "./types";
+import type {
+  AppData,
+  DayLog,
+  Exercise,
+  ExercisePreset,
+  HealthDailySummary,
+  MicrocycleStep,
+  RecoveryCheckIn,
+  Template,
+  TemplateItem,
+} from "./types";
 import { defaultSchedule, normalizeData, toBackup } from "./storage";
 import { dayHasLogContent } from "./trainingHistory";
 import { encodeStorageValue } from "./storageCodec";
@@ -257,10 +267,189 @@ function mergeObject<T extends object>(
   return result as T;
 }
 
+function identityText(value: string | undefined) {
+  return value?.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+function customIdentityKey(exercise: ExercisePreset) {
+  return JSON.stringify({
+    name: identityText(exercise.name),
+    englishName: identityText(exercise.englishName),
+    primaryMuscle: exercise.primaryMuscle,
+    equipment: exercise.equipment,
+    movementPattern: exercise.movementPattern,
+  });
+}
+
+function templateIdentityKey(template: Template) {
+  return `${template.type}:${identityText(template.name)}`;
+}
+
+function uniqueMergedId(base: string, used: Set<string>) {
+  let index = 2;
+  while (used.has(`${base}_${index}`)) index += 1;
+  const id = `${base}_${index}`;
+  used.add(id);
+  return id;
+}
+
+function remappedId(id: string | undefined, renames: Map<string, string>) {
+  return id ? renames.get(id) ?? id : undefined;
+}
+
+function remapTemplateItem(item: TemplateItem, exerciseRenames: Map<string, string>): TemplateItem {
+  return {
+    ...item,
+    exerciseId: remappedId(item.exerciseId, exerciseRenames) ?? item.exerciseId,
+    ...(item.alternatives
+      ? { alternatives: item.alternatives.map((id) => remappedId(id, exerciseRenames) ?? id) }
+      : {}),
+  };
+}
+
+function remapTemplate(
+  template: Template,
+  exerciseRenames: Map<string, string>,
+  templateRenames: Map<string, string>,
+): Template {
+  return {
+    ...template,
+    id: remappedId(template.id, templateRenames) ?? template.id,
+    items: template.items.map((item) => remapTemplateItem(item, exerciseRenames)),
+  };
+}
+
+function remapExercise(exercise: Exercise, exerciseRenames: Map<string, string>): Exercise {
+  return {
+    ...exercise,
+    id: remappedId(exercise.id, exerciseRenames) ?? exercise.id,
+    ...(exercise.alternatives
+      ? { alternatives: exercise.alternatives.map((id) => remappedId(id, exerciseRenames) ?? id) }
+      : {}),
+  };
+}
+
+function remapMicrocycleStep(
+  step: MicrocycleStep,
+  exerciseRenames: Map<string, string>,
+  templateRenames: Map<string, string>,
+): MicrocycleStep {
+  return {
+    ...step,
+    ...(step.templateId
+      ? { templateId: remappedId(step.templateId, templateRenames) ?? step.templateId }
+      : {}),
+    ...(step.templateSnapshot
+      ? { templateSnapshot: remapTemplate(step.templateSnapshot, exerciseRenames, templateRenames) }
+      : {}),
+  };
+}
+
+function remapIncomingIdentityCollisions(current: AppData, incoming: AppData) {
+  const exerciseRenames = new Map<string, string>();
+  const usedExerciseIds = new Set([
+    ...current.customExercises.map((exercise) => exercise.id),
+    ...incoming.customExercises.map((exercise) => exercise.id),
+  ]);
+  const currentCustomById = new Map(current.customExercises.map((exercise) => [exercise.id, exercise]));
+  for (const exercise of incoming.customExercises) {
+    const sameId = currentCustomById.get(exercise.id);
+    if (!sameId || customIdentityKey(sameId) === customIdentityKey(exercise)) continue;
+    const semanticMatches = current.customExercises.filter((candidate) => customIdentityKey(candidate) === customIdentityKey(exercise));
+    exerciseRenames.set(
+      exercise.id,
+      semanticMatches.length === 1 ? semanticMatches[0].id : uniqueMergedId(exercise.id, usedExerciseIds),
+    );
+  }
+
+  const templateRenames = new Map<string, string>();
+  const currentTemplates = current.templates ?? [];
+  const incomingTemplates = incoming.templates ?? [];
+  const usedTemplateIds = new Set([
+    ...currentTemplates.map((template) => template.id),
+    ...incomingTemplates.map((template) => template.id),
+  ]);
+  const currentTemplateById = new Map(currentTemplates.map((template) => [template.id, template]));
+  for (const template of incomingTemplates) {
+    const sameId = currentTemplateById.get(template.id);
+    if (!sameId || templateIdentityKey(sameId) === templateIdentityKey(template)) continue;
+    const semanticMatches = currentTemplates.filter((candidate) => templateIdentityKey(candidate) === templateIdentityKey(template));
+    templateRenames.set(
+      template.id,
+      semanticMatches.length === 1 ? semanticMatches[0].id : uniqueMergedId(template.id, usedTemplateIds),
+    );
+  }
+
+  if (!exerciseRenames.size && !templateRenames.size) return incoming;
+  const templates = incomingTemplates.map((template) => remapTemplate(template, exerciseRenames, templateRenames));
+  const customExercises = incoming.customExercises.map((exercise) => ({
+    ...exercise,
+    id: remappedId(exercise.id, exerciseRenames) ?? exercise.id,
+    ...(exercise.alternatives
+      ? { alternatives: exercise.alternatives.map((id) => remappedId(id, exerciseRenames) ?? id) }
+      : {}),
+  }));
+  const days = Object.fromEntries(Object.entries(incoming.days).map(([date, day]) => {
+    if (!day.workout) return [date, day];
+    const workout = day.workout;
+    return [date, {
+      ...day,
+      workout: {
+        ...workout,
+        ...(workout.templateId
+          ? { templateId: remappedId(workout.templateId, templateRenames) ?? workout.templateId }
+          : {}),
+        ...(workout.templateSnapshot
+          ? { templateSnapshot: remapTemplate(workout.templateSnapshot, exerciseRenames, templateRenames) }
+          : {}),
+        exercises: workout.exercises.map((exercise) => remapExercise(exercise, exerciseRenames)),
+      },
+    }];
+  }));
+  const trainingTemplateIds = incoming.cutPlan?.trainingTemplateIds
+    ? Object.fromEntries(Object.entries(incoming.cutPlan.trainingTemplateIds).map(([type, id]) => [
+        type,
+        remappedId(id, templateRenames) ?? id,
+      ])) as NonNullable<NonNullable<AppData["cutPlan"]>["trainingTemplateIds"]>
+    : undefined;
+  return normalizeData({
+    ...incoming,
+    days,
+    customExercises,
+    favoriteExerciseIds: incoming.favoriteExerciseIds?.map((id) => remappedId(id, exerciseRenames) ?? id),
+    templates: templates.length ? templates : undefined,
+    schedule: incoming.schedule.microcycle
+      ? {
+          ...incoming.schedule,
+          microcycle: incoming.schedule.microcycle.map((step) => remapMicrocycleStep(step, exerciseRenames, templateRenames)),
+        }
+      : incoming.schedule,
+    cutPlan: incoming.cutPlan
+      ? { ...incoming.cutPlan, ...(trainingTemplateIds ? { trainingTemplateIds } : {}) }
+      : undefined,
+    microcycle: incoming.microcycle?.steps
+      ? {
+          ...incoming.microcycle,
+          steps: incoming.microcycle.steps.map((step) => remapMicrocycleStep(step, exerciseRenames, templateRenames)),
+        }
+      : incoming.microcycle,
+    lastCycleReview: incoming.lastCycleReview
+      ? {
+          ...incoming.lastCycleReview,
+          changes: incoming.lastCycleReview.changes.map((change) => ({
+            ...change,
+            templateId: remappedId(change.templateId, templateRenames) ?? change.templateId,
+            exerciseId: remappedId(change.exerciseId, exerciseRenames) ?? change.exerciseId,
+          })),
+        }
+      : undefined,
+  });
+}
+
 export function mergeAppData(currentInput: AppData, incomingInput: AppData) {
   const currentWasEmpty = isEmptyWorkspace(currentInput);
   const current = normalizeData(currentInput);
-  const incoming = normalizeData(incomingInput);
+  const incoming = remapIncomingIdentityCollisions(current, normalizeData(incomingInput));
   const summary = emptySummary();
 
   if (currentWasEmpty) {

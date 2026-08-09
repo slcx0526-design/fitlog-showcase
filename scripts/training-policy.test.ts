@@ -238,7 +238,7 @@ function data(): AppData {
   const change = proposal.changes.find((item) => item.templateId === priorityPush.id);
   assert.ok(change, "Both stated priorities should produce a bounded push-day proposal");
   const nextById = new Map(change.nextItems.map((item) => [item.exerciseId, item]));
-  assert.equal(nextById.get("px_barbell_bench")?.sets, 5);
+  assert.equal(nextById.get("px_barbell_bench")?.sets, 4, "A four-day PPL loop is already frequent enough that chest focus must not add another same-session set");
   assert.equal(nextById.get("px_incline_press")?.sets, 3);
   assert.equal(nextById.get("px_machine_lateral")?.sets, 5);
   assert.equal(nextById.get("px_triceps_pushdown")?.sets, 3, "Unrequested triceps work must not be stripped to fund chest volume");
@@ -246,7 +246,7 @@ function data(): AppData {
   const chestFamilySets = change.nextItems.reduce((total, item) => total + (item.volumeContributions ?? [])
     .filter((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest"))
     .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
-  assert.ok(chestFamilySets <= 8, `Chest-family work must respect the per-session recovery cap, received ${chestFamilySets}`);
+  assert.ok(chestFamilySets <= 7, `Chest-family work must respect the frequency-adjusted session cap, received ${chestFamilySets}`);
   assert.ok(proposal.warnings.some((warning) => warning.includes("不把剩余缺口集中堆到一天")));
 }
 
@@ -254,6 +254,57 @@ function data(): AppData {
   const result = parseTrainingPolicyText("上胸增长", data(), defaultTrainingPolicy());
   assert.equal(result.policy.musclePriorities.upperChest, "grow");
   assert.equal(result.policy.musclePriorities.chest, undefined, "A longer muscle alias must not leak into its parent muscle");
+}
+
+{
+  const current = data();
+  const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
+  const ids = ["px_barbell_bench", "px_incline_press", "px_machine_lateral", "px_triceps_pushdown"];
+  const sets = [4, 4, 4, 3];
+  const repeatedPush: Template = {
+    id: "tpl_repeated_push",
+    name: "六日三分化推日",
+    type: "push",
+    items: ids.map((id, index) => {
+      const exercise = presets.get(id)!;
+      return {
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: sets[index],
+        repsLow: 8,
+        repsHigh: 12,
+        isMain: exercise.isMain,
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+      };
+    }),
+  };
+  current.templates = [repeatedPush, pullTemplate, legTemplate];
+  current.schedule.microcycle = [
+    { id: "ppl_1", type: "push", label: "推 1", templateId: repeatedPush.id },
+    { id: "ppl_2", type: "pull", label: "拉 1", templateId: pullTemplate.id },
+    { id: "ppl_3", type: "legs", label: "腿 1", templateId: legTemplate.id },
+    { id: "ppl_4", type: "push", label: "推 2", templateId: repeatedPush.id },
+    { id: "ppl_5", type: "pull", label: "拉 2", templateId: pullTemplate.id },
+    { id: "ppl_6", type: "legs", label: "腿 2", templateId: legTemplate.id },
+    { id: "ppl_7", type: "rest", label: "休息" },
+  ];
+
+  const parsed = parseTrainingPolicyText("胸部为主，中束增长", current, defaultTrainingPolicy());
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === repeatedPush.id);
+  assert.ok(change);
+  const nextById = new Map(change.nextItems.map((item) => [item.exerciseId, item.sets]));
+  const chestFamilySets = change.nextItems.reduce((total, item) => total + (item.volumeContributions ?? [])
+    .filter((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest"))
+    .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
+  assert.ok(chestFamilySets <= 7, `A twice-per-cycle PPL split must distribute chest work, received ${chestFamilySets} direct sets in one session`);
+  assert.equal(nextById.get("px_machine_lateral"), 5, "The second stated priority must still receive a bounded increase");
+  assert.equal(nextById.get("px_triceps_pushdown"), 3, "Frequency distribution must not strip unrelated arm work");
+  assert.ok(change.reasons.some((reason) => reason.includes("7 天微周期 2 次刺激")), "The proposal must explain why the per-session cap was lowered");
 }
 
 {
@@ -296,7 +347,10 @@ function data(): AppData {
     { id: "shared_1", type: "push", label: "推", templateId: sharedTemplate.id },
     { id: "shared_2", type: "pull", label: "拉", templateId: pullTemplate.id },
     { id: "shared_3", type: "legs", label: "腿", templateId: legTemplate.id },
-    { id: "shared_4", type: "rest", label: "休息" },
+    { id: "shared_4", type: "rest", label: "休息 1" },
+    { id: "shared_5", type: "rest", label: "休息 2" },
+    { id: "shared_6", type: "rest", label: "休息 3" },
+    { id: "shared_7", type: "rest", label: "休息 4" },
   ];
   current.muscleTargets = {
     chest: { low: 20, high: 24 },
