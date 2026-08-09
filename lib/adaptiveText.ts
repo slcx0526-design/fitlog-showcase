@@ -83,6 +83,11 @@ const PATTERNS: Array<{
     ja: (minutes) => `1回の上限：${minutes}分`,
   },
   {
+    pattern: /^每 7 天训练目标：(\d+) 次$/,
+    en: (days) => `Target: ${days} training sessions per 7 days`,
+    ja: (days) => `目標：7日あたり${days}回トレーニング`,
+  },
+  {
     pattern: /^每周训练目标：(\d+) 天$/,
     en: (days) => `Weekly target: ${days} training days`,
     ja: (days) => `週間目標：トレーニング${days}日`,
@@ -166,6 +171,31 @@ const PATTERNS: Array<{
     pattern: /^(.+) 的(.+)直接组仍为 ([\d.]+)，高于单次恢复上限 ([\d.]+)；请人工确认动作结构。$/,
     en: (template, muscles, sets, cap) => `${template} still has ${sets} direct ${muscles} sets, above the ${cap}-set recovery cap; review the exercise structure.`,
     ja: (template, muscles, sets, cap) => `${template}の${muscles}直接セットは${sets}で、回復上限${cap}を超えています。種目構成を確認してください。`,
+  },
+  {
+    pattern: /^每 7 天目标 ([\d.]+) 次，折算到 (\d+) 天微周期为 (\d+) 个训练日$/,
+    en: (weekly, cycleDays, trainingDays) => `${weekly} sessions per 7 days scales to ${trainingDays} training days in this ${cycleDays}-day microcycle`,
+    ja: (weekly, cycleDays, trainingDays) => `7日あたり${weekly}回を、${cycleDays}日マイクロサイクルの${trainingDays}トレーニング日に換算`,
+  },
+  {
+    pattern: /^恢复与训练证据将每 7 天目标 ([\d.]+) → ([\d.]+)，折算到 (\d+) 天微周期为 (\d+) 个训练日$/,
+    en: (before, after, cycleDays, trainingDays) => `Recovery evidence adjusts the target from ${before} to ${after} sessions per 7 days, or ${trainingDays} days in this ${cycleDays}-day microcycle`,
+    ja: (before, after, cycleDays, trainingDays) => `回復データにより7日あたり${before}回から${after}回へ調整し、${cycleDays}日周期では${trainingDays}日に換算`,
+  },
+  {
+    pattern: /^(\d+) 天微周期训练日 (\d+) → (\d+)（约每 7 天 ([\d.]+) → ([\d.]+) 次）$/,
+    en: (cycleDays, before, after, weeklyBefore, weeklyAfter) => `${cycleDays}-day microcycle: ${before} → ${after} training days, about ${weeklyBefore} → ${weeklyAfter} sessions per 7 days`,
+    ja: (cycleDays, before, after, weeklyBefore, weeklyAfter) => `${cycleDays}日マイクロサイクル：トレーニング日${before}→${after}、7日換算${weeklyBefore}→${weeklyAfter}回`,
+  },
+  {
+    pattern: /^(\d+) 天微周期没有休息日；请确认恢复能力与实际时间允许$/,
+    en: (cycleDays) => `This ${cycleDays}-day microcycle has no rest day; confirm recovery and time allow it`,
+    ja: (cycleDays) => `この${cycleDays}日マイクロサイクルには休息日がありません。回復と時間を確認してください`,
+  },
+  {
+    pattern: /^当前 (\d+) 天微周期含 (\d+) 个训练日（约每 7 天 ([\d.]+) 次），与设定的每 7 天 (\d+)–(\d+) 次不一致；分化只在日程提案中调整。$/,
+    en: (cycleDays, trainingDays, equivalent, minimum, maximum) => `The ${cycleDays}-day microcycle has ${trainingDays} training days (${equivalent} per 7 days), outside the selected ${minimum}-${maximum}; only the schedule proposal can change the split.`,
+    ja: (cycleDays, trainingDays, equivalent, minimum, maximum) => `${cycleDays}日周期は${trainingDays}トレーニング日（7日換算${equivalent}回）で、設定${minimum}-${maximum}回の範囲外です。分割の変更は日程提案でのみ行います。`,
   },
   {
     pattern: /^每周训练天数 (\d+) → (\d+)$/,

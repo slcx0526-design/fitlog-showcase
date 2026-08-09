@@ -177,18 +177,36 @@ function replacementCandidates(
 }
 
 function planningSteps(data: AppData) {
-  if (data.microcycle?.steps?.length) return data.microcycle.steps;
   if (data.schedule.microcycle?.length) return data.schedule.microcycle;
+  if (data.microcycle?.steps?.length) return data.microcycle.steps;
   return undefined;
 }
 
 function templateUsage(data: AppData) {
   const counts = new Map<string, number>();
   const steps = planningSteps(data);
-  for (const step of steps ?? []) {
-    if (step.templateId) counts.set(step.templateId, (counts.get(step.templateId) ?? 0) + 1);
+  const templates = data.templates ?? [];
+  const byId = new Map(templates.map((template) => [template.id, template]));
+  const byType = new Map<string, Template[]>();
+  for (const template of templates) {
+    const bucket = byType.get(template.type) ?? [];
+    bucket.push(template);
+    byType.set(template.type, bucket);
   }
-  if (!counts.size) for (const template of data.templates ?? []) counts.set(template.id, 1);
+  const cursors = new Map<string, number>();
+  for (const step of steps ?? []) {
+    if (step.type === "rest") continue;
+    const bound = step.templateId ? byId.get(step.templateId) : undefined;
+    const matchingBound = bound?.type === step.type ? bound : undefined;
+    const candidates = byType.get(step.type) ?? [];
+    const cursor = cursors.get(step.type) ?? 0;
+    const template = matchingBound
+      ? matchingBound
+      : candidates[cursor % Math.max(1, candidates.length)];
+    if (!matchingBound && candidates.length) cursors.set(step.type, cursor + 1);
+    if (template) counts.set(template.id, (counts.get(template.id) ?? 0) + 1);
+  }
+  if (!steps?.length) for (const template of templates) counts.set(template.id, 1);
   return counts;
 }
 
@@ -417,13 +435,16 @@ function adjustMusclePriorities(
   const touchedItems = new Set<string>();
   const maxRounds = increases.some((state) => state.priority === "specialize") ? 2 : 1;
 
-  // Give every requested muscle one conservative pass before a specialization
-  // receives a second set. This prevents the first phrase from consuming the
-  // whole session budget and erasing the user's other stated priorities.
+  // Give every requested recovery family one conservative pass before a
+  // specialization receives a second set. Broad goals such as chest or
+  // shoulders must not consume the whole session before another goal is seen.
   for (let round = 0; round < maxRounds; round += 1) {
+    const recoveryGroupsTouchedThisRound = new Set<string>();
     for (const state of increases) {
       if (round > 0 && state.priority !== "specialize") continue;
       if (state.current >= state.desired) continue;
+      const recoveryKey = recoveryGroupFor(state.muscle).key;
+      if (recoveryGroupsTouchedThisRound.has(recoveryKey)) continue;
       const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
         .filter(({ item }) => itemMuscleWeight(item, state.muscle, presets) > 0)
         .filter(({ item }) => !constraints.avoidedExerciseIds.has(item.exerciseId))
@@ -447,6 +468,7 @@ function adjustMusclePriorities(
       candidate.template.reasons.add(`${MUSCLE_LABELS[state.muscle]}：${state.priority === "specialize" ? "专项" : "增长"}，按 ${cycleDays} 天微周期增加 1 组`);
       touchedItems.add(`${candidate.template.source.id}:${candidate.item.exerciseId}`);
       templateAdditions.set(candidate.template.source.id, (templateAdditions.get(candidate.template.source.id) ?? 0) + 1);
+      recoveryGroupsTouchedThisRound.add(recoveryKey);
       state.current += itemMuscleWeight(candidate.item, state.muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
     }
   }
@@ -648,9 +670,13 @@ export function buildPlanAdaptation(
   ), 0);
   const replacedExercises = templates.reduce((sum, template) => sum + template.replaced, 0);
   const removedExercises = templates.reduce((sum, template) => sum + template.removed, 0);
-  const currentTrainingDays = data.schedule.split.filter((type) => type && type !== "rest").length;
-  if (currentTrainingDays < policy.weeklyTrainingDays.minimum || currentTrainingDays > policy.weeklyTrainingDays.maximum) {
-    warnings.push(`当前周排程为 ${currentTrainingDays} 个训练日，与设定的 ${policy.weeklyTrainingDays.minimum}–${policy.weeklyTrainingDays.maximum} 天不一致；第一版只提示，不自动重写分化。`);
+  const cycleDays = planningCycleDays(data);
+  const scheduledTrainingDays = planningSteps(data)
+    ?.filter((step) => step.type !== "rest").length
+    ?? data.schedule.split.filter((type) => type && type !== "rest").length;
+  const weeklyEquivalent = Math.round(scheduledTrainingDays * 7 / Math.max(1, cycleDays) * 10) / 10;
+  if (weeklyEquivalent < policy.weeklyTrainingDays.minimum || weeklyEquivalent > policy.weeklyTrainingDays.maximum) {
+    warnings.push(`当前 ${cycleDays} 天微周期含 ${scheduledTrainingDays} 个训练日（约每 7 天 ${weeklyEquivalent} 次），与设定的每 7 天 ${policy.weeklyTrainingDays.minimum}–${policy.weeklyTrainingDays.maximum} 次不一致；分化只在日程提案中调整。`);
   }
   if (!changes.length) warnings.push("当前模板已经满足已识别的动作、器械、肌群容量和单次时长约束。频率与分化结构仍需在计划页手动确认。");
 

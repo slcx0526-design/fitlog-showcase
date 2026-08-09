@@ -576,12 +576,22 @@ function parseExercisePreferences(data: AppData, text: string) {
 }
 
 type MuscleIntentCandidate = {
-  muscle: MuscleGroup;
+  muscles: MuscleGroup[];
+  label: string;
   priority: MusclePriority;
   start: number;
   end: number;
   aliasLength: number;
+  region: boolean;
 };
+
+const MUSCLE_REGIONS: Array<{ aliases: string[]; muscles: MuscleGroup[] }> = [
+  { aliases: ["胸部", "胸肌", "胸", "chest", "胸筋"], muscles: ["chest", "upperChest"] },
+  { aliases: ["背部", "背", "back", "背中"], muscles: ["lats", "upperBack"] },
+  { aliases: ["肩部", "肩膀", "肩", "shoulder", "shoulders", "三角肌", "三角筋"], muscles: ["frontDelt", "sideDelt", "rearDelt"] },
+  { aliases: ["手臂", "胳膊", "arm", "arms", "腕"], muscles: ["biceps", "triceps"] },
+  { aliases: ["腿部", "腿", "下肢", "leg", "legs", "脚"], muscles: ["quads", "hamstrings", "glutes"] },
+];
 
 function phraseMatches(normalized: string, phrase: string) {
   const matches: Array<{ start: number; end: number }> = [];
@@ -626,7 +636,35 @@ function muscleIntentCandidates(normalized: string) {
       for (const [priority, phrases] of patterns(key)) {
         for (const phrase of new Set(phrases)) {
           for (const match of phraseMatches(normalized, phrase)) {
-            candidates.push({ muscle, priority, ...match, aliasLength: key.length });
+            candidates.push({
+              muscles: [muscle],
+              label: MUSCLE_LABELS[muscle],
+              priority,
+              ...match,
+              aliasLength: key.length,
+              region: false,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  for (const region of MUSCLE_REGIONS) {
+    for (const alias of region.aliases) {
+      const key = compact(alias);
+      if (!key) continue;
+      for (const [priority, phrases] of patterns(key)) {
+        for (const phrase of new Set(phrases)) {
+          for (const match of phraseMatches(normalized, phrase)) {
+            candidates.push({
+              muscles: region.muscles,
+              label: region.muscles.map((muscle) => MUSCLE_LABELS[muscle]).join("/"),
+              priority,
+              ...match,
+              aliasLength: key.length,
+              region: true,
+            });
           }
         }
       }
@@ -637,6 +675,7 @@ function muscleIntentCandidates(normalized: string) {
   for (const candidate of candidates.sort((left, right) => (
     (right.end - right.start) - (left.end - left.start)
     || right.aliasLength - left.aliasLength
+    || Number(right.region) - Number(left.region)
     || left.start - right.start
   ))) {
     const overlaps = accepted.some((current) => candidate.start < current.end && candidate.end > current.start);
@@ -679,7 +718,8 @@ export function parseTrainingPolicyText(
     patch.maxSessionMinutes = minutes;
     recognized.push(`单次训练上限：${minutes} 分钟`);
   }
-  const dayMatch = normalized.match(/(?:每周|一周|weekly|perweek|週)(\d)(?:天|练|days?|times?|日|回)/);
+  const dayMatch = normalized.match(/(?:每周|一周|每7天|每七天|weekly|perweek|週)(?:训练|练|安排)?(\d)(?:天|练|次|days?|times?|sessions?|日|回)/)
+    ?? normalized.match(/(?:train|training|workout|workouts)?(\d)(?:days?|times?|sessions?)(?:perweek|weekly)/);
   if (dayMatch) {
     const days = Math.min(7, Math.max(1, Number(dayMatch[1])));
     patch.weeklyTrainingDays = {
@@ -687,12 +727,12 @@ export function parseTrainingPolicyText(
       target: days,
       maximum: Math.min(7, days + 1),
     };
-    recognized.push(`每周训练目标：${days} 天`);
+    recognized.push(`每 7 天训练目标：${days} 次`);
   }
 
   const musclePriorities: Partial<Record<MuscleGroup, MusclePriority>> = {};
   for (const match of muscleIntentCandidates(normalized)) {
-    musclePriorities[match.muscle] = match.priority;
+    for (const muscle of match.muscles) musclePriorities[muscle] = match.priority;
     const priority = match.priority === "specialize"
       ? "专项强化"
       : match.priority === "grow"
@@ -700,7 +740,7 @@ export function parseTrainingPolicyText(
         : match.priority === "maintain"
           ? "维持"
           : "降低优先级";
-    recognized.push(`${MUSCLE_LABELS[match.muscle]}：${priority}`);
+    recognized.push(`${match.label}：${priority}`);
   }
   if (Object.keys(musclePriorities).length) patch.musclePriorities = musclePriorities;
 

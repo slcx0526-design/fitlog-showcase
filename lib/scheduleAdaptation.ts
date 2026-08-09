@@ -25,8 +25,12 @@ export interface ScheduleAdaptationProposal {
   warnings: string[];
   trainingDaysBefore: number;
   trainingDaysAfter: number;
+  cycleDays: number;
+  weeklyEquivalentBefore: number;
+  weeklyEquivalentAfter: number;
   frequencyChanges: ScheduleFrequencyChange[];
   targetTrainingDays: number;
+  targetWeeklyTrainingDays: number;
   evidenceAdjusted: boolean;
   evidenceState: AdaptiveEvidenceProfile["state"];
   evidenceConfidence: AdaptiveEvidenceProfile["confidence"];
@@ -204,13 +208,13 @@ function orderedTrainingTypes(
   return sequence;
 }
 
-function trainingPositions(trainingDays: number) {
-  if (trainingDays >= 7) return [0, 1, 2, 3, 4, 5, 6];
+function trainingPositions(trainingDays: number, cycleDays: number) {
+  if (trainingDays >= cycleDays) return Array.from({ length: cycleDays }, (_, index) => index);
   if (trainingDays <= 1) return [0];
   const positions: number[] = [];
   for (let index = 0; index < trainingDays; index += 1) {
-    let position = Math.round(index * 6 / (trainingDays - 1));
-    while (positions.includes(position) && position < 6) position += 1;
+    let position = Math.round(index * (cycleDays - 1) / (trainingDays - 1));
+    while (positions.includes(position) && position < cycleDays - 1) position += 1;
     while (positions.includes(position) && position > 0) position -= 1;
     positions.push(position);
   }
@@ -220,11 +224,12 @@ function trainingPositions(trainingDays: number) {
 function buildSchedule(
   sequence: PlannedTrainingType[],
   byType: Map<PlannedTrainingType, Template[]>,
+  cycleDays: number,
 ): Schedule {
-  const positions = new Set(trainingPositions(sequence.length));
+  const positions = new Set(trainingPositions(sequence.length, cycleDays));
   const templateCursor = new Map<PlannedTrainingType, number>();
   let trainingIndex = 0;
-  const steps: MicrocycleStep[] = Array.from({ length: 7 }, (_, index) => {
+  const steps: MicrocycleStep[] = Array.from({ length: cycleDays }, (_, index) => {
     if (!positions.has(index)) {
       return { id: `adaptive_step_${index + 1}_rest`, type: "rest", label: "Rest" };
     }
@@ -245,6 +250,19 @@ function buildSchedule(
     split: steps.map((step) => step.type),
     microcycle: steps,
   };
+}
+
+function cycleLength(schedule: Schedule) {
+  const length = schedule.microcycle?.length ?? schedule.split.length;
+  return Math.max(1, length || 7);
+}
+
+function weeklyDaysToCycleDays(weeklyDays: number, cycleDays: number) {
+  return Math.min(cycleDays, Math.max(1, Math.round(weeklyDays * cycleDays / 7)));
+}
+
+function cycleDaysToWeeklyEquivalent(trainingDays: number, cycleDays: number) {
+  return Math.round(trainingDays * 7 / Math.max(1, cycleDays) * 10) / 10;
 }
 
 function frequency(schedule: Schedule, type: PlannedTrainingType) {
@@ -284,7 +302,9 @@ export function buildScheduleAdaptation(
   const { byType, presets } = templatePool(data, policy, constraints);
   const available = TRAINING_TYPES.filter((type) => (byType.get(type)?.length ?? 0) > 0);
   const previousSchedule = cloneSchedule(data.schedule);
+  const cycleDays = cycleLength(previousSchedule);
   const trainingDaysBefore = TRAINING_TYPES.reduce((sum, type) => sum + frequency(previousSchedule, type), 0);
+  const weeklyEquivalentBefore = cycleDaysToWeeklyEquivalent(trainingDaysBefore, cycleDays);
   const warnings: string[] = [];
   const reasons: string[] = [];
 
@@ -299,8 +319,12 @@ export function buildScheduleAdaptation(
       warnings: ["没有可用于重排的非空训练模板"],
       trainingDaysBefore,
       trainingDaysAfter: trainingDaysBefore,
+      cycleDays,
+      weeklyEquivalentBefore,
+      weeklyEquivalentAfter: weeklyEquivalentBefore,
       frequencyChanges: TRAINING_TYPES.map((type) => ({ type, before: frequency(previousSchedule, type), after: frequency(previousSchedule, type) })),
       targetTrainingDays: trainingDaysBefore,
+      targetWeeklyTrainingDays: weeklyEquivalentBefore,
       evidenceAdjusted: false,
       evidenceState: evidence.state,
       evidenceConfidence: evidence.confidence,
@@ -311,10 +335,15 @@ export function buildScheduleAdaptation(
     && evidenceConfidenceMeets(evidence.confidence, policy.evidenceMinimumConfidence);
   const evidenceAdjusted = evidenceQualified
     && evidence.recommendedTrainingDays !== policy.weeklyTrainingDays.target;
-  const targetDays = Math.min(7, Math.max(1, evidenceAdjusted
+  const targetWeeklyTrainingDays = Math.min(7, Math.max(1, evidenceAdjusted
     ? evidence.recommendedTrainingDays
     : policy.weeklyTrainingDays.target));
-  if (evidenceAdjusted) reasons.push(`恢复与训练证据建议本周期训练天数 ${policy.weeklyTrainingDays.target} → ${targetDays}`);
+  const targetDays = weeklyDaysToCycleDays(targetWeeklyTrainingDays, cycleDays);
+  if (evidenceAdjusted) {
+    reasons.push(`恢复与训练证据将每 7 天目标 ${policy.weeklyTrainingDays.target} → ${targetWeeklyTrainingDays}，折算到 ${cycleDays} 天微周期为 ${targetDays} 个训练日`);
+  } else if (cycleDays !== 7) {
+    reasons.push(`每 7 天目标 ${targetWeeklyTrainingDays} 次，折算到 ${cycleDays} 天微周期为 ${targetDays} 个训练日`);
+  }
   if (policy.evidenceMode !== "off" && !evidenceQualified && evidence.state !== "normal") {
     warnings.push(`动态证据置信度为 ${evidence.confidence}，未达到 ${policy.evidenceMinimumConfidence} 门槛`);
   }
@@ -324,10 +353,18 @@ export function buildScheduleAdaptation(
   ]));
   const allocation = allocateTrainingTypes(targetDays, available, scores);
   const sequence = orderedTrainingTypes(allocation, scores);
-  const nextSchedule = buildSchedule(sequence, byType);
+  const allocationMatchesCurrent = TRAINING_TYPES.every((type) => (
+    frequency(previousSchedule, type) === (allocation.get(type) ?? 0)
+  ));
+  const nextSchedule = allocationMatchesCurrent
+    ? previousSchedule
+    : buildSchedule(sequence, byType, cycleDays);
   const trainingDaysAfter = sequence.length;
+  const weeklyEquivalentAfter = cycleDaysToWeeklyEquivalent(trainingDaysAfter, cycleDays);
 
-  if (trainingDaysBefore !== trainingDaysAfter) reasons.push(`每周训练天数 ${trainingDaysBefore} → ${trainingDaysAfter}`);
+  if (trainingDaysBefore !== trainingDaysAfter) {
+    reasons.push(`${cycleDays} 天微周期训练日 ${trainingDaysBefore} → ${trainingDaysAfter}（约每 7 天 ${weeklyEquivalentBefore} → ${weeklyEquivalentAfter} 次）`);
+  }
   for (const type of TRAINING_TYPES) {
     const before = frequency(previousSchedule, type);
     const after = frequency(nextSchedule, type);
@@ -336,7 +373,7 @@ export function buildScheduleAdaptation(
   if (available.length < TRAINING_TYPES.length) {
     warnings.push(`缺少 ${TRAINING_TYPES.filter((type) => !available.includes(type)).join(" / ")} 类型的非空模板，无法分配该类型`);
   }
-  if (targetDays === 7) warnings.push("当前设置为连续 7 个训练日；请确认恢复能力与实际时间允许");
+  if (targetDays === cycleDays) warnings.push(`${cycleDays} 天微周期没有休息日；请确认恢复能力与实际时间允许`);
 
   const sourceRevision = scheduleAdaptationRevision(data, policy, date, evidence);
   return {
@@ -349,12 +386,16 @@ export function buildScheduleAdaptation(
     warnings,
     trainingDaysBefore,
     trainingDaysAfter,
+    cycleDays,
+    weeklyEquivalentBefore,
+    weeklyEquivalentAfter,
     frequencyChanges: TRAINING_TYPES.map((type) => ({
       type,
       before: frequency(previousSchedule, type),
       after: frequency(nextSchedule, type),
     })),
     targetTrainingDays: targetDays,
+    targetWeeklyTrainingDays,
     evidenceAdjusted,
     evidenceState: evidence.state,
     evidenceConfidence: evidence.confidence,

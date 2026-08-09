@@ -1,4 +1,3 @@
-import "./audit-regression.test";
 import assert from "node:assert/strict";
 import { analyzeTrackTrend, estimatedOneRepMax, findTrackHistories, findTrackHistory, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";

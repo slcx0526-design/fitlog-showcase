@@ -76,6 +76,52 @@ test("primary routes stay visible and inside the viewport", async ({ page }) => 
   expect(consoleErrors).toEqual([]);
 });
 
+test("home and training entry follow the next microcycle step instead of the weekday fallback", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The sequential-cycle entry flow needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const steps = [
+      { id: "cycle_push", type: "push", label: "胸部力量日" },
+      { id: "cycle_pull", type: "pull", label: "背部力量日" },
+      { id: "cycle_legs", type: "legs", label: "腿部训练日" },
+      { id: "cycle_rest", type: "rest", label: "恢复日" },
+    ];
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: Array.from({ length: 7 }, () => "legs"), microcycle: steps },
+      microcycle: {
+        currentId: "mc_sequential_entry",
+        startedAt: dateKey,
+        index: 1,
+        phase: "build",
+        steps,
+      },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/");
+  await expect(page.locator(".primary-workout-panel h2")).toHaveText("胸部力量日");
+  const start = page.locator(".primary-workout-panel .primary-command");
+  await expect(start).toHaveAttribute("href", /start=push/);
+  await expect(start).toHaveAttribute("href", /cycleStep=cycle_push/);
+
+  await page.goto("/train");
+  await expect(page.getByRole("heading", { name: "胸部力量日" })).toBeVisible();
+  await expect(page.getByText("本轮下一步：胸部力量日。开始后才会写入训练日志。", { exact: true })).toBeVisible();
+
+  await page.goto("/");
+  await start.click();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return [workout?.type, workout?.microcycleStepId];
+  }, date)).toEqual(["push", "cycle_push"]);
+});
+
 for (const visualMode of ["lite", "pulse", "midnight", "survival"]) {
 test(`active product routes meet the WCAG AA baseline in ${visualMode}`, async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Accessibility is audited once at the primary mobile viewport.");
@@ -391,11 +437,15 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
   await expect(preferenceInput).toBeVisible();
   await preferenceInput.fill("Focus on chest and grow side delts");
   await page.getByRole("button", { name: "Parse preferences" }).click();
-  await expect(page.getByText("胸: specialize", { exact: true })).toBeVisible();
+  await expect(page.getByText("胸/上胸: specialize", { exact: true })).toBeVisible();
   await expect(page.getByText("中束: grow", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Strength/ }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
+  await expect.poll(() => page.evaluate(() => {
+    const priorities = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").musclePriorities ?? {};
+    return [priorities.chest, priorities.upperChest, priorities.sideDelt];
+  })).toEqual(["specialize", "specialize", "grow"]);
 
   const policyWidth = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }));
   expect(policyWidth.width).toBeLessThanOrEqual(policyWidth.viewport + 1);

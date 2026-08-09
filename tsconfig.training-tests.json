@@ -53,6 +53,7 @@
     "scripts/training-history.test.ts",
     "scripts/training-system.test.ts",
     "scripts/training-regression.test.ts",
+    "scripts/audit-regression.test.ts",
     "scripts/training-decision.test.ts",
     "scripts/training-analysis.test.ts",
     "scripts/health-insights.test.ts",

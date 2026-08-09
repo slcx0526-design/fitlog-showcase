@@ -192,12 +192,37 @@ function data(): AppData {
   assert.equal(result.policy.maxSessionMinutes, 70);
   assert.equal(result.policy.weeklyTrainingDays.target, 5);
   assert.equal(result.policy.musclePriorities.sideDelt, "specialize");
+  assert.equal(result.policy.musclePriorities.quads, "maintain");
+  assert.equal(result.policy.musclePriorities.hamstrings, "maintain");
+  assert.equal(result.policy.musclePriorities.glutes, "maintain");
   assert.equal(result.policy.exercisePreferences[squat.id], "exclude");
   assert.ok(result.recognized.length >= 4);
 }
 
 {
+  const result = parseTrainingPolicyText(
+    "胸为主，肩增长，背维持，腿少练，手臂增长",
+    data(),
+    defaultTrainingPolicy(),
+  );
+  assert.equal(result.policy.musclePriorities.chest, "specialize");
+  assert.equal(result.policy.musclePriorities.upperChest, "specialize");
+  assert.equal(result.policy.musclePriorities.frontDelt, "grow");
+  assert.equal(result.policy.musclePriorities.sideDelt, "grow");
+  assert.equal(result.policy.musclePriorities.rearDelt, "grow");
+  assert.equal(result.policy.musclePriorities.lats, "maintain");
+  assert.equal(result.policy.musclePriorities.upperBack, "maintain");
+  assert.equal(result.policy.musclePriorities.quads, "deprioritize");
+  assert.equal(result.policy.musclePriorities.hamstrings, "deprioritize");
+  assert.equal(result.policy.musclePriorities.glutes, "deprioritize");
+  assert.equal(result.policy.musclePriorities.biceps, "grow");
+  assert.equal(result.policy.musclePriorities.triceps, "grow");
+  assert.equal(result.unresolved.length, 0);
+}
+
+{
   const current = data();
+  current.microcycle = defaultMicrocycle(TODAY, current.schedule, current.templates);
   const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
   const ids = ["px_barbell_bench", "px_incline_press", "px_machine_lateral", "px_triceps_pushdown"];
   const sets = [4, 3, 4, 3];
@@ -260,6 +285,51 @@ function data(): AppData {
   const current = data();
   const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
   const ids = ["px_barbell_bench", "px_incline_press", "px_machine_lateral", "px_triceps_pushdown"];
+  const sets = [3, 2, 3, 3];
+  const balancedPriorityPush: Template = {
+    id: "tpl_balanced_priority",
+    name: "胸肩均衡优先",
+    type: "push",
+    items: ids.map((id, index) => {
+      const exercise = presets.get(id)!;
+      return {
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: sets[index],
+        repsLow: 8,
+        repsHigh: 12,
+        isMain: exercise.isMain,
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+      };
+    }),
+  };
+  current.templates = [balancedPriorityPush, pullTemplate, legTemplate];
+  current.schedule.microcycle = [
+    { id: "balanced_1", type: "push", label: "推", templateId: balancedPriorityPush.id },
+    { id: "balanced_2", type: "pull", label: "拉", templateId: pullTemplate.id },
+    { id: "balanced_3", type: "legs", label: "腿", templateId: legTemplate.id },
+    { id: "balanced_4", type: "rest", label: "休息" },
+  ];
+  const parsed = parseTrainingPolicyText("胸为主，中束增长", current, defaultTrainingPolicy());
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === balancedPriorityPush.id);
+  assert.ok(change);
+  const nextById = new Map(change.nextItems.map((item) => [item.exerciseId, item.sets]));
+  assert.equal(nextById.get("px_barbell_bench"), 4);
+  assert.equal(nextById.get("px_incline_press"), 2, "One broad chest intent must receive only one recovery-family addition per pass");
+  assert.equal(nextById.get("px_machine_lateral"), 4, "A second requested muscle family must not be starved by a broad chest goal");
+  assert.equal(nextById.get("px_triceps_pushdown"), 3);
+}
+
+{
+  const current = data();
+  current.microcycle = defaultMicrocycle(TODAY, current.schedule, current.templates);
+  const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
+  const ids = ["px_barbell_bench", "px_incline_press", "px_machine_lateral", "px_triceps_pushdown"];
   const sets = [4, 4, 4, 3];
   const repeatedPush: Template = {
     id: "tpl_repeated_push",
@@ -284,10 +354,10 @@ function data(): AppData {
   };
   current.templates = [repeatedPush, pullTemplate, legTemplate];
   current.schedule.microcycle = [
-    { id: "ppl_1", type: "push", label: "推 1", templateId: repeatedPush.id },
+    { id: "ppl_1", type: "push", label: "推 1" },
     { id: "ppl_2", type: "pull", label: "拉 1", templateId: pullTemplate.id },
     { id: "ppl_3", type: "legs", label: "腿 1", templateId: legTemplate.id },
-    { id: "ppl_4", type: "push", label: "推 2", templateId: repeatedPush.id },
+    { id: "ppl_4", type: "push", label: "推 2" },
     { id: "ppl_5", type: "pull", label: "拉 2", templateId: pullTemplate.id },
     { id: "ppl_6", type: "legs", label: "腿 2", templateId: legTemplate.id },
     { id: "ppl_7", type: "rest", label: "休息" },
@@ -489,15 +559,25 @@ function data(): AppData {
 }
 
 {
+  const base = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    weeklyTrainingDays: { minimum: 2, target: 3, maximum: 4 },
+  });
   const result = parseTrainingPolicyText(
     "Prioritize side delts, train 5 days per week, max 70 minutes, exclude squat",
     data(),
-    defaultTrainingPolicy(),
+    base,
   );
   assert.equal(result.policy.maxSessionMinutes, 70);
   assert.equal(result.policy.weeklyTrainingDays.target, 5);
   assert.equal(result.policy.musclePriorities.sideDelt, "specialize");
   assert.equal(result.policy.exercisePreferences.lg_squat, "exclude");
+}
+
+{
+  const result = parseTrainingPolicyText("每 7 天 4 练", data(), defaultTrainingPolicy());
+  assert.equal(result.policy.weeklyTrainingDays.target, 4);
+  assert.ok(result.recognized.includes("每 7 天训练目标：4 次"));
+  assert.equal(adaptiveText("en", "每 7 天训练目标：4 次"), "Target: 4 training sessions per 7 days");
 }
 
 {
@@ -518,11 +598,39 @@ function data(): AppData {
     musclePriorities: { sideDelt: "specialize", quads: "maintain" },
   });
   const proposal = buildScheduleAdaptation(data(), policy, TODAY);
-  assert.equal(proposal.trainingDaysAfter, 5);
-  assert.equal(proposal.nextSchedule.split.filter((type) => type && type !== "rest").length, 5);
+  assert.equal(proposal.cycleDays, 4);
+  assert.equal(proposal.targetWeeklyTrainingDays, 5);
+  assert.equal(proposal.targetTrainingDays, 3);
+  assert.equal(proposal.trainingDaysAfter, 3);
+  assert.equal(proposal.nextSchedule.microcycle?.length, 4);
+  assert.equal(proposal.nextSchedule.split.filter((type) => type && type !== "rest").length, 3);
+  assert.equal(proposal.weeklyEquivalentAfter, 5.3);
+  assert.equal(proposal.changed, false, "A compliant microcycle must not be reordered just to match a generated layout");
+  assert.deepEqual(proposal.nextSchedule, data().schedule);
+  assert.ok(proposal.reasons.some((reason) => reason.includes("折算到 4 天微周期为 3 个训练日")));
   const pushFrequency = proposal.frequencyChanges.find((change) => change.type === "push")?.after ?? 0;
   const legFrequency = proposal.frequencyChanges.find((change) => change.type === "legs")?.after ?? 0;
   assert.ok(pushFrequency >= legFrequency);
+}
+
+{
+  const current = data();
+  const base = current.schedule.microcycle!;
+  current.schedule = {
+    split: [...base, ...base].map((step) => step.type),
+    microcycle: [...base, ...base.map((step, index) => ({ ...step, id: `${step.id}_repeat_${index}` }))],
+  };
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    weeklyTrainingDays: { minimum: 3, target: 4, maximum: 5 },
+  });
+  const proposal = buildScheduleAdaptation(current, policy, TODAY);
+  assert.equal(proposal.cycleDays, 8);
+  assert.equal(proposal.targetTrainingDays, 5);
+  assert.equal(proposal.trainingDaysAfter, 5);
+  assert.equal(proposal.changed, true);
+  assert.equal(proposal.nextSchedule.microcycle?.length, 8, "Schedule adaptation must preserve a non-seven-day microcycle");
+  assert.equal(proposal.nextSchedule.split.length, 8);
+  assert.equal(proposal.weeklyEquivalentAfter, 4.4);
 }
 
 {

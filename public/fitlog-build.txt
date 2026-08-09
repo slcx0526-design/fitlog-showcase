@@ -1,1 +1,1 @@
-FitLog 13.0.4 stable input, adaptive distribution, and merge integrity
+FitLog 13.1.0 microcycle-native planning and balanced regional priorities

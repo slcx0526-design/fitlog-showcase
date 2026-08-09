@@ -338,7 +338,7 @@ export default function TrainingPolicyPage() {
               <Fact label={t("模板", "Templates", "テンプレート")} value={String(proposal.impact.changedTemplates)} />
               <Fact label={t("组差", "Set delta", "セット差")} value={`${proposal.impact.setDelta > 0 ? "+" : ""}${proposal.impact.setDelta}`} />
               <Fact label={t("替换", "Replaced", "置換")} value={String(proposal.impact.replacedExercises)} />
-              <Fact label={t("训练日", "Days", "日数")} value={`${scheduleProposal.trainingDaysBefore}→${scheduleProposal.trainingDaysAfter}`} />
+              <Fact label={t("周期训练日", "Cycle days", "周期トレ日")} value={`${scheduleProposal.trainingDaysBefore}→${scheduleProposal.trainingDaysAfter} / ${scheduleProposal.cycleDays}`} />
             </div>
           </div>
 
@@ -371,7 +371,7 @@ export default function TrainingPolicyPage() {
             <LimitField label={t("动作", "Exercises", "種目")} value={policy.maxExercisesPerSession} min={3} max={15} onChange={(value) => setPolicy((current) => updateNumber(current, "maxExercisesPerSession", value))} />
             <LimitField label={t("工作组", "Work sets", "ワークセット")} value={policy.maxWorkingSetsPerSession} min={6} max={50} onChange={(value) => setPolicy((current) => updateNumber(current, "maxWorkingSetsPerSession", value))} />
           </div>
-          <FieldLabel className="mt-3">{t("每周目标训练天数", "Target training days", "週間目標日数")}</FieldLabel>
+          <FieldLabel className="mt-3">{t("每 7 天目标训练次数", "Training sessions per 7 days", "7日あたりの目標回数")}</FieldLabel>
           <div className="adaptive-day-picker">
             {[1, 2, 3, 4, 5, 6, 7].map((days) => <button key={days} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { weeklyTrainingDays: { minimum: Math.max(1, days - 1), target: days, maximum: Math.min(7, days + 1) } }))} aria-pressed={policy.weeklyTrainingDays.target === days} className="press">{days}</button>)}
           </div>
@@ -402,7 +402,7 @@ export default function TrainingPolicyPage() {
         <details className="adaptive-disclosure control-card">
           <summary><span><strong>{t("快速描述倾向", "Quick preference input", "設定をすばやく入力")}</strong><small>{t("解析训练目标、时间、频率和排除动作", "Parse goals, time, frequency, and exclusions", "目標・時間・頻度・除外種目を解析")}</small></span><Chevron /></summary>
           <div className="soft-divider border-t p-4">
-            <textarea aria-label={t("训练倾向描述", "Training preference description", "トレーニング設定の説明")} value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t("例如：肩中束优先，每周 5 练，每次最多 70 分钟。", "Example: prioritize side delts, train 5 days, max 70 minutes.", "例：中部三角筋を優先、週5日、1回70分まで。") } className="number-cell min-h-24 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-fg outline-none placeholder:text-faint focus:border-accent" />
+            <textarea aria-label={t("训练倾向描述", "Training preference description", "トレーニング設定の説明")} value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t("例如：胸为主，中束增长，每 7 天 5 练，每次最多 70 分钟。", "Example: focus on chest, grow side delts, 5 sessions per 7 days, max 70 minutes.", "例：胸を優先、中部三角筋を伸ばす、7日5回、1回70分まで。") } className="number-cell min-h-24 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-fg outline-none placeholder:text-faint focus:border-accent" />
             <button type="button" onClick={parseCommand} disabled={!command.trim()} className="press mt-2 h-10 w-full rounded-md bg-fg text-[13px] font-semibold text-bg disabled:opacity-30">{t("解析倾向", "Parse preferences", "設定を解析")}</button>
             {recognized.length > 0 && <div className="mt-3 space-y-1 border-t border-border pt-3">{recognized.map((item) => <p key={item} className="text-[12px] leading-relaxed text-muted">{adaptiveText(locale, item)}</p>)}</div>}
           </div>
