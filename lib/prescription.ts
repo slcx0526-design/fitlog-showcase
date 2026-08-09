@@ -107,6 +107,21 @@ export function defaultTrackId(
   return `${cleanId(exerciseId)}-${suffix}`;
 }
 
+export function isGeneratedSharedTrackId(
+  trackId: string,
+  exerciseId: string,
+  intent: TrainingIntent,
+  repsLow: number,
+  repsHigh: number,
+  performanceMode: PerformanceMode = "reps",
+) {
+  const modePrefix = performanceMode === "reps" ? "" : `${performanceMode}-`;
+  const prefix = `${cleanId(exerciseId)}-${modePrefix}${intent}-`;
+  if (!trackId.startsWith(prefix) || !trackId.endsWith(`x${repsLow}-${repsHigh}`)) return false;
+  const setCount = trackId.slice(prefix.length, -`x${repsLow}-${repsHigh}`.length);
+  return /^\d+$/.test(setCount);
+}
+
 export function performanceModeFor(recordModes: ExercisePreset["recordModes"] | Exercise["recordModes"]): PerformanceMode {
   if (recordModes?.includes("duration") && !recordModes.includes("reps")) return "duration";
   if (recordModes?.includes("distance") && !recordModes.includes("reps")) return "distance";
@@ -561,6 +576,8 @@ export function progressionSuggestion(
   const values = counted.map((set) => performanceValue(set, mode));
   const allAtTop = counted.length > 0 && values.every((value) => value >= prescription.targetRepMax);
   const belowBottom = values.some((value) => value < prescription.targetRepMin);
+  const rirBelowTarget = typeof prescription.targetRirMin === "number"
+    && counted.some((set) => typeof set.rir === "number" && set.rir < prescription.targetRirMin!);
   const roundedWeights = counted.map((set) => Math.round(set.weight * 100) / 100);
   const positiveWeights = roundedWeights.filter((weight) => weight > 0);
   const consistentWeight = positiveWeights.length === counted.length && new Set(positiveWeights).size === 1
@@ -616,12 +633,14 @@ export function progressionSuggestion(
     };
   }
   const baseWeight = consistentWeight;
-  if (allAtTop && history.sessionDifficulty === "hard") {
+  if (allAtTop && (history.sessionDifficulty === "hard" || rirBelowTarget)) {
     return {
       nextWeight: baseWeight,
       status: "effortCheck",
-      message: "次数已达标，但上次整体偏吃力",
-      condition: "先用相同重量稳定完成，再决定加重",
+      message: rirBelowTarget ? "次数已达标，但保留次数低于目标" : "次数已达标，但上次整体偏吃力",
+      condition: typeof prescription.targetRirMin === "number"
+        ? `先用相同重量完成，并保留至少 ${prescription.targetRirMin} RIR`
+        : "先用相同重量稳定完成，再决定加重",
     };
   }
   if (allAtTop && prescription.loadIncrementKg > 0) {
@@ -629,7 +648,7 @@ export function progressionSuggestion(
       nextWeight: +(baseWeight + prescription.loadIncrementKg).toFixed(2),
       status: "addWeight",
       message: `下次建议加 ${prescription.loadIncrementKg}kg`,
-      condition: `工作组达到 ${prescription.targetRepMax} 次`,
+      condition: `工作组达到 ${prescription.targetRepMax} 次${typeof prescription.targetRirMin === "number" ? `，并保留至少 ${prescription.targetRirMin} RIR` : ""}`,
     };
   }
   if (belowBottom) {

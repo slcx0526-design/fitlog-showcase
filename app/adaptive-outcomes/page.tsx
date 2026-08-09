@@ -86,7 +86,7 @@ export default function AdaptiveOutcomesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-[13px] font-semibold text-fg">{formatCycleDate(cycle.startedAt, locale)} – {formatCycleDate(cycle.endedAt, locale)}</p>
-                        <p className="mt-0.5 text-[11px] text-faint">{cycle.phase === "build" ? t("构建周期", "Build cycle", "構築周期") : t("减载周期", "Deload cycle", "デロード周期")} · {t(`${cycle.sessions} 次训练`, `${cycle.sessions} sessions`, `${cycle.sessions} セッション`)}</p>
+                        <p className="mt-0.5 text-[11px] text-faint">{cycle.phase === "build" ? t("构建周期", "Build cycle", "構築周期") : t("减载周期", "Deload cycle", "デロード周期")} · {t(`${cycle.cycleSteps} 步 / ${cycle.sessions} 次训练`, `${cycle.cycleSteps} steps / ${cycle.sessions} sessions`, `${cycle.cycleSteps} ステップ / ${cycle.sessions} セッション`)}</p>
                       </div>
                       <span className="adaptive-scale tnum">{Math.round(cycle.averageAdaptiveScale * 100)}%</span>
                     </div>
@@ -95,6 +95,8 @@ export default function AdaptiveOutcomesPage() {
                       <MiniFact label={t("困难占比", "Hard sessions", "高難度比率")} value={cycle.hardRatio == null ? t("未知", "Unknown", "不明") : `${Math.round(cycle.hardRatio * 100)}%`} />
                       <MiniFact label={t("进阶兑现", "Progression", "進行達成")} value={cycle.progressionPct == null ? t("样本不足", "Insufficient", "データ不足") : `${cycle.progressionPct}%`} />
                       <MiniFact label={t("恢复均值", "Recovery", "平均回復")} value={cycle.recoveryAverage == null ? t("样本不足", "Insufficient", "データ不足") : String(cycle.recoveryAverage)} />
+                      <MiniFact label={t("7 日处方", "7-day dose", "7日処方量")} value={t(`${cycle.prescribedSetsPer7Days} 组`, `${cycle.prescribedSetsPer7Days} sets`, `${cycle.prescribedSetsPer7Days} セット`)} />
+                      <MiniFact label={t("7 日完成", "7-day completed", "7日完了量")} value={t(`${cycle.completedSetsPer7Days} 组`, `${cycle.completedSetsPer7Days} sets`, `${cycle.completedSetsPer7Days} セット`)} />
                     </div>
                   </div>
                 ))}

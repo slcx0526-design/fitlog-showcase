@@ -64,7 +64,8 @@ export type ProgressionOutcomeReason =
   | "workoutOpen"
   | "trackChanged"
   | "unsupportedMode"
-  | "noComparableSets";
+  | "noComparableSets"
+  | "effortExceeded";
 
 export interface ProgressionOutcome {
   status: ProgressionOutcomeStatus;
@@ -255,7 +256,11 @@ export function evaluateProgressionOutcome(
   const counted = atLoad.slice(0, requiredSets);
   const values = counted.map((set) => performanceValue(set, "reps"));
   const setsAtTargetFloor = values.filter((value) => value >= prescription.targetRepMin).length;
-  const achieved = counted.length >= requiredSets && setsAtTargetFloor >= requiredSets;
+  const performanceAchieved = counted.length >= requiredSets && setsAtTargetFloor >= requiredSets;
+  const rirBelowTarget = typeof prescription.targetRirMin === "number"
+    && counted.some((set) => typeof set.rir === "number" && set.rir < prescription.targetRirMin!);
+  const effortExceeded = workout?.difficulty === "hard" || rirBelowTarget;
+  const achieved = performanceAchieved && !effortExceeded;
   const allAtTargetTop = achieved && values.every((value) => value >= prescription.targetRepMax);
   const status: ProgressionOutcomeStatus = achieved
     ? "achieved"
@@ -264,7 +269,7 @@ export function evaluateProgressionOutcome(
       : "missed";
   return {
     status,
-    reason: status,
+    reason: performanceAchieved && effortExceeded ? "effortExceeded" : status,
     requiredSets,
     completedSets: completed.length,
     setsAtPlannedLoad: atLoad.length,

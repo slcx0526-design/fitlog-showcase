@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "@/lib/exercises";
-import { defaultTrackId, inferIntent, intentLabel, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem } from "@/lib/prescription";
+import { defaultTrackId, inferIntent, intentLabel, isGeneratedSharedTrackId, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem } from "@/lib/prescription";
 import {
   TEMPLATE_TYPES,
   TYPE_LABEL,
@@ -308,18 +308,28 @@ function TemplateCard({
   const [confirmDel, setConfirmDel] = useState(false);
 
   function update(idx: number, patch: Partial<TemplateItem>) {
-    const changesTrack = patch.sets != null || patch.repsLow != null || patch.repsHigh != null || patch.trainingIntent != null;
+    const changesTrack = patch.repsLow != null || patch.repsHigh != null || patch.trainingIntent != null;
+    const changesWorkingSets = patch.sets != null;
     const changesEffort = Object.prototype.hasOwnProperty.call(patch, "rpe");
     setTemplateItems(tpl.id, items.map((item, index) => {
       if (index !== idx) return item;
       const preset = [...DEFAULT_EXERCISES, ...data.customExercises].find((candidate) => candidate.id === item.exerciseId);
       const currentPrescription = prescriptionFromTemplateItem(item, preset);
-      const currentSharedId = defaultTrackId(item.exerciseId, currentPrescription.trainingIntent, item.repsLow, item.repsHigh, item.sets, currentPrescription.performanceMode);
-      const wasIndependent = currentPrescription.progressionTrackId !== currentSharedId;
+      const wasIndependent = !isGeneratedSharedTrackId(
+        currentPrescription.progressionTrackId,
+        item.exerciseId,
+        currentPrescription.trainingIntent,
+        item.repsLow,
+        item.repsHigh,
+        currentPrescription.performanceMode,
+      );
       const next: TemplateItem = {
         ...item,
         ...patch,
         ...(changesTrack ? { prescription: undefined, progressionTrackId: undefined, progressionTrackLabel: undefined } : {}),
+        ...(changesWorkingSets && !changesTrack && item.prescription
+          ? { prescription: { ...item.prescription, workingSets: patch.sets! } }
+          : {}),
         ...(changesEffort ? { prescription: undefined, targetRirMin: undefined, targetRirMax: undefined } : {}),
       };
       if ((changesTrack || changesEffort) && wasIndependent) {

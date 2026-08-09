@@ -386,7 +386,9 @@ function outcomeCopy(outcome: ProgressionOutcome, locale: Locale) {
   };
   if (outcome.status === "partial") return {
     label: tx(locale, "部分完成", "Partially achieved", "一部達成"),
-    detail: tx(locale, `计划负重完成 ${outcome.setsAtTargetFloor}/${outcome.requiredSets} 个达标组；下次先补齐，不追加变量。`, `${outcome.setsAtTargetFloor}/${outcome.requiredSets} target sets were completed at the planned load; finish the target before changing another variable.`, `予定重量で ${outcome.setsAtTargetFloor}/${outcome.requiredSets} セット達成。次回はまず不足分を補います。`),
+    detail: outcome.reason === "effortExceeded"
+      ? tx(locale, "次数已经完成，但本次吃力程度超过处方目标；下次先维持重量，不继续加重。", "The reps were completed, but effort exceeded the prescription target. Hold the load next time instead of progressing it.", "回数は達成しましたが、負荷感が処方目標を超えています。次回は増量せず重量を維持します。")
+      : tx(locale, `计划负重完成 ${outcome.setsAtTargetFloor}/${outcome.requiredSets} 个达标组；下次先补齐，不追加变量。`, `${outcome.setsAtTargetFloor}/${outcome.requiredSets} target sets were completed at the planned load; finish the target before changing another variable.`, `予定重量で ${outcome.setsAtTargetFloor}/${outcome.requiredSets} セット達成。次回はまず不足分を補います。`),
     tone: "text-warn",
   };
   if (outcome.status === "missed") return {

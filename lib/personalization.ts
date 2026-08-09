@@ -1,4 +1,5 @@
 import type { AppData, DayLog, VolumeContribution } from "./types";
+import { collectFinalizedMicrocycleSamples } from "./cycleSamples";
 import { MUSCLE_LABELS, MUSCLE_ORDER, type MuscleGroup } from "./muscles";
 import { buildExerciseTrackArchive } from "./trainingHistory";
 import { workingSets } from "./trainingMetrics";
@@ -49,75 +50,18 @@ function directlyTrains(day: DayLog, muscle: MuscleGroup) {
 
 function completedHistoricalCycles(data: AppData, today: string) {
   const start = shiftDate(today, -83);
-  const groups = new Map<string, DayLog[]>();
-  for (const [date, day] of Object.entries(data.days)) {
-    const workout = day.workout;
-    if (
-      date < start
-      || date > today
-      || !workout
-      || workout.type === "rest"
-      || workout.done !== true
-      || workout.cyclePhase === "deload"
-      || !workout.microcycleId
-      || workout.microcycleId === data.microcycle?.currentId
-      || workout.microcycleId.startsWith("legacy_mc_")
-    ) continue;
-    const rows = groups.get(workout.microcycleId) ?? [];
-    rows.push(day);
-    groups.set(workout.microcycleId, rows);
-  }
-  const cycles = [...groups.entries()].map(([id, days]) => {
-    const sortedDays = [...days].sort((a, b) => a.date.localeCompare(b.date));
-    const workout = sortedDays[0]?.workout;
-    return {
-      id,
-      days: sortedDays,
-      startedAt: sortedDays[0]?.date ?? "",
-      endedAt: sortedDays.at(-1)?.date ?? "",
-      mesocycleId: workout?.mesocycleId,
-      mesocycleCycleNumber: workout?.mesocycleCycleNumber,
-    };
-  });
-  const latestPosition = new Map<string, (typeof cycles)[number]>();
-  for (const cycle of cycles) {
-    if (!cycle.mesocycleId || !cycle.mesocycleCycleNumber) continue;
-    const key = `${cycle.mesocycleId}::${cycle.mesocycleCycleNumber}`;
-    const current = latestPosition.get(key);
-    if (!current || cycle.endedAt > current.endedAt) latestPosition.set(key, cycle);
-  }
-  const currentCycle = data.microcycle;
-
-  return cycles
-    .filter((cycle) => {
-      if (cycle.days.length < 2) return false;
-      if (!cycle.mesocycleId || !cycle.mesocycleCycleNumber) return true;
-      const positionKey = `${cycle.mesocycleId}::${cycle.mesocycleCycleNumber}`;
-      if (latestPosition.get(positionKey)?.id !== cycle.id) return false;
-      if (data.lastCycleReview?.sourceMicrocycleId === cycle.id) return true;
-      if (currentCycle && currentCycle.startedAt > cycle.endedAt) {
-        if (currentCycle.mesocycleId && currentCycle.mesocycleId !== cycle.mesocycleId) return true;
-        if (
-          currentCycle.mesocycleId === cycle.mesocycleId
-          && (currentCycle.mesocycleCycleNumber ?? 0) > cycle.mesocycleCycleNumber
-        ) return true;
-      }
-      return cycles.some((later) =>
-        later.startedAt > cycle.endedAt
-        && Boolean(later.mesocycleId)
-        && (
-          later.mesocycleId !== cycle.mesocycleId
-          || (later.mesocycleCycleNumber ?? 0) > cycle.mesocycleCycleNumber!
-        ),
-      );
-    })
+  return collectFinalizedMicrocycleSamples(data, today)
+    .filter((cycle) => cycle.phase === "build" && cycle.endedAt >= start && cycle.trainingSessions >= 2)
     .sort((a, b) => b.endedAt.localeCompare(a.endedAt))
     .slice(0, 6);
 }
 
 export function buildPersonalCalibration(data: AppData, today: string): MuscleCalibration[] {
   const cycles = completedHistoricalCycles(data, today);
-  const cycleVolumes = cycles.map((cycle) => computeVolumeSummary(cycle.days));
+  const cycleVolumes = cycles.map((cycle) => ({
+    summary: computeVolumeSummary(cycle.days),
+    scaleToSevenDays: 7 / Math.max(1, cycle.completedSteps),
+  }));
   const start = shiftDate(today, -83);
   const archive = buildExerciseTrackArchive(data.days, shiftDate(today, 1), today)
     .filter((row) => !row.legacy && row.latestDate >= start);
@@ -125,7 +69,9 @@ export function buildPersonalCalibration(data: AppData, today: string): MuscleCa
   return MUSCLE_ORDER.map((muscle) => {
     const currentTarget = targetForMuscle(muscle, data.profile?.trainingLevel, data.muscleTargets);
     const cycleSets = cycleVolumes
-      .map((summary) => summary.rows.find((row) => row.muscle === muscle)?.directEffectiveSets ?? 0)
+      .map(({ summary, scaleToSevenDays }) => round(
+        (summary.rows.find((row) => row.muscle === muscle)?.directEffectiveSets ?? 0) * scaleToSevenDays,
+      ))
       .filter((sets) => sets > 0);
     const typicalDirectSets = median(cycleSets);
     const relevantDays = Object.entries(data.days)
@@ -158,7 +104,7 @@ export function buildPersonalCalibration(data: AppData, today: string): MuscleCa
         suggestedTarget = { low, high };
         action = high < currentTarget.high ? "reduce" : "maintain";
         reasonKind = "recoveryPressure";
-        reason = `典型容量 ${typicalDirectSets} 组，同时出现 ${regressingTracks} 条回落轨道和 ${hardSessions}/${difficulty.length} 次吃力记录；先收窄上限，不追加容量。`;
+        reason = `7 日等效典型容量 ${typicalDirectSets} 组，同时出现 ${regressingTracks} 条回落轨道和 ${hardSessions}/${difficulty.length} 次吃力记录；先收窄上限，不追加容量。`;
       } else if (typicalDirectSets >= minimumUsefulExposure && improvingTracks > regressingTracks) {
         const lowFloor = Math.max(1, Math.floor(currentTarget.low * 0.75));
         const highCeiling = Math.max(currentTarget.high, Math.ceil(currentTarget.high * 1.2));
@@ -167,11 +113,11 @@ export function buildPersonalCalibration(data: AppData, today: string): MuscleCa
         suggestedTarget = { low, high };
         action = low === currentTarget.low && high === currentTarget.high ? "maintain" : "personalize";
         reasonKind = "positiveEvidence";
-        reason = `${cycleSets.length} 个周期的典型直接容量为 ${typicalDirectSets} 组，${improvingTracks} 条轨道提升、${regressingTracks} 条回落；建议把目标贴近已验证的可恢复区间。`;
+        reason = `${cycleSets.length} 个周期的 7 日等效典型直接容量为 ${typicalDirectSets} 组，${improvingTracks} 条轨道提升、${regressingTracks} 条回落；建议把目标贴近已验证的可恢复区间。`;
       } else {
         action = "maintain";
         reasonKind = "holdEvidence";
-        reason = `典型容量 ${typicalDirectSets} 组，但当前没有足够的正向表现证据支持改目标；保持 ${currentTarget.low}–${currentTarget.high}，继续观察。`;
+        reason = `7 日等效典型容量 ${typicalDirectSets} 组，但当前没有足够的正向表现证据支持改目标；保持 ${currentTarget.low}–${currentTarget.high}，继续观察。`;
       }
     }
 

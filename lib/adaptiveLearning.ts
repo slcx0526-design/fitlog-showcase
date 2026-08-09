@@ -69,9 +69,9 @@ function sameMovement(left: TemplateItem, right: Exercise) {
 function gatherEvidence(data: AppData) {
   const exposures = new Map<string, ExerciseExposure>();
   const templates = new Map<string, TemplateAdherence>();
-  const hardSessions: CompletedSession[] = [];
+  const sessions = completedSessions(data);
 
-  for (const session of completedSessions(data)) {
+  for (const session of sessions) {
     const snapshot = session.workout.templateSnapshot;
     if (!snapshot) continue;
     const performed = session.workout.exercises.filter(performedExercise);
@@ -90,8 +90,6 @@ function gatherEvidence(data: AppData) {
     template.completionRatios.push(ratio);
     template.completedExerciseCounts.push(completedCount);
     templates.set(snapshot.id, template);
-
-    if (session.workout.difficulty === "hard") hardSessions.push(session);
 
     for (const item of snapshot.items) {
       const current = exposures.get(item.exerciseId) ?? {
@@ -116,7 +114,7 @@ function gatherEvidence(data: AppData) {
     }
   }
 
-  return { exposures, templates, hardSessions, totalSessions: completedSessions(data).length };
+  return { exposures, templates, sessions };
 }
 
 function average(values: number[]) {
@@ -214,8 +212,9 @@ export function deriveAdaptiveLearningSignals(
     });
   }
 
-  const recentHard = evidence.hardSessions.slice(0, 5).length;
-  if (evidence.totalSessions >= 5 && recentHard >= 3) {
+  const recentSessions = evidence.sessions.slice(0, 5);
+  const recentHard = recentSessions.filter((session) => session.workout.difficulty === "hard").length;
+  if (recentSessions.length >= 5 && recentHard >= 3) {
     const id = "load:repeated-hard-sessions";
     if (!hidden.has(id)) {
       signals.push({

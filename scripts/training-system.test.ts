@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { analyzeTrackTrend, estimatedOneRepMax, findTrackHistories, findTrackHistory, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
+import { analyzeTrackTrend, defaultTrackId, estimatedOneRepMax, findTrackHistories, findTrackHistory, isGeneratedSharedTrackId, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";
 import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, defaultMicrocycle, microcycleAssignmentForNewWorkout, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle, templateForWorkout } from "../lib/microcycle";
 import { normalizeData, parseBackup, toBackup, type AppData } from "../lib/storage";
@@ -29,8 +29,12 @@ assert.deepEqual(trackHistory.same.map((item) => item.date), ["2026-07-02", "202
 assert.equal(estimatedOneRepMax({ weight: 80, reps: 6 }), 96);
 assert.equal(analyzeTrackTrend(trackHistory.same).status, "improving");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working" }] }).status, "addWeight");
-assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 0 }, { weight: 80, reps: 6, type: "working", rir: 1 }] }).status, "addWeight");
+assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 0 }, { weight: 80, reps: 6, type: "working", rir: 1 }] }).status, "effortCheck", "A failure-level set must not trigger another load increase");
+assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 1 }, { weight: 80, reps: 6, type: "working", rir: 2 }] }).status, "addWeight");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working" }], sessionDifficulty: "hard" }).status, "effortCheck");
+const threeSetSharedTrack = defaultTrackId("incline", "hypertrophy", 8, 12, 3, "reps");
+assert.equal(isGeneratedSharedTrackId(threeSetSharedTrack, "incline", "hypertrophy", 8, 12, "reps"), true);
+assert.equal(isGeneratedSharedTrackId(`${threeSetSharedTrack}-ind-template`, "incline", "hypertrophy", 8, 12, "reps"), false);
 assert.equal(workingSets([{ weight: 40, reps: 10, type: "warmup" }, { weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working", completion: "skipped" }]).length, 1);
 assert.equal(workingSets([{ weight: 82.5, reps: 0, type: "working" }]).length, 0);
 assert.equal(workingSets([{ weight: 0, reps: 0, durationSeconds: 45, type: "working" }]).length, 1);
@@ -106,6 +110,26 @@ const configuredSchedule = {
 };
 assert.deepEqual(microcyclePatternFor(configuredSchedule).map((item) => item.label), ["Push Strength", "Pull Strength", "Legs", "Push Hypertrophy", "Rest"]);
 assert.equal(volumeTargetScale("microcycle", { ...microData, schedule: configuredSchedule }), 0.71);
+assert.equal(volumeTargetScale("microcycle", {
+  ...microData,
+  schedule: {
+    ...microData.schedule,
+    microcycle: [
+      { id: "short_1", type: "push", label: "Push" },
+      { id: "short_2", type: "pull", label: "Pull" },
+      { id: "short_3", type: "rest", label: "Rest" },
+    ],
+  },
+  microcycle: undefined,
+}), 0.43, "Short cycles must not inherit the former half-week target floor");
+assert.equal(volumeTargetScale("microcycle", {
+  ...microData,
+  schedule: {
+    ...microData.schedule,
+    microcycle: Array.from({ length: 14 }, (_, index) => ({ id: `long_${index + 1}`, type: "rest" as const, label: `Step ${index + 1}` })),
+  },
+  microcycle: undefined,
+}), 2, "Long cycles scale weekly targets to their full duration");
 const partialCycle: AppData = {
   ...microData,
   schedule: configuredSchedule,

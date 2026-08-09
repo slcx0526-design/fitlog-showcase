@@ -1,4 +1,5 @@
 import { scoreRecoveryCheckIn } from "./recovery";
+import { collectFinalizedMicrocycleSamples } from "./cycleSamples";
 import { evaluateProgressionOutcome } from "./trainingExecution";
 import { summarizeWorkoutWork } from "./trainingMetrics";
 import type { AppData, TrainingCyclePhase } from "./types";
@@ -22,6 +23,10 @@ export interface AdaptiveCycleResponse {
   averageAdaptiveScale: number;
   prescribedSetsPerSession: number;
   normalSetsPerSession: number;
+  cycleSteps: number;
+  prescribedSetsPer7Days: number;
+  completedSetsPer7Days: number;
+  normalSetsPer7Days: number;
 }
 
 export interface AdaptiveCycleTransition {
@@ -34,7 +39,7 @@ export interface AdaptiveCycleTransition {
 }
 
 export interface AdaptiveResponseModel {
-  version: 1;
+  version: 2;
   generatedAt: string;
   confidence: AdaptiveResponseConfidence;
   tolerance: AdaptiveVolumeTolerance;
@@ -48,22 +53,6 @@ export interface AdaptiveResponseModel {
   transitions: AdaptiveCycleTransition[];
 }
 
-interface MutableCycle {
-  microcycleId: string;
-  dates: string[];
-  phases: TrainingCyclePhase[];
-  sessions: number;
-  plannedSets: number;
-  completedSets: number;
-  difficultySamples: number;
-  hardSessions: number;
-  progressionTotal: number;
-  progressionCredits: number;
-  recoveryScores: number[];
-  adaptiveScales: number[];
-  normalSets: number;
-}
-
 const round = (value: number, digits = 1) => {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -73,77 +62,66 @@ function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
-function cycleGroups(data: AppData, today: string) {
-  const groups = new Map<string, MutableCycle>();
-  for (const [date, day] of Object.entries(data.days)) {
-    const workout = day.workout;
-    if (date > today || !workout?.microcycleId || workout.type === "rest" || workout.done !== true) continue;
-    const work = summarizeWorkoutWork(workout);
-    if (work.plannedSets <= 0) continue;
-    const current = groups.get(workout.microcycleId) ?? {
-      microcycleId: workout.microcycleId,
-      dates: [],
-      phases: [],
-      sessions: 0,
-      plannedSets: 0,
-      completedSets: 0,
-      difficultySamples: 0,
-      hardSessions: 0,
-      progressionTotal: 0,
-      progressionCredits: 0,
-      recoveryScores: [],
-      adaptiveScales: [],
-      normalSets: 0,
-    };
-    current.dates.push(date);
-    current.phases.push(workout.cyclePhase ?? "build");
-    current.sessions += 1;
-    current.plannedSets += work.plannedSets;
-    current.completedSets += work.completionCredits;
-    if (workout.difficulty) {
-      current.difficultySamples += 1;
-      if (workout.difficulty === "hard") current.hardSessions += 1;
-    }
-    for (const exercise of workout.exercises) {
-      const outcome = evaluateProgressionOutcome(exercise, workout);
-      if (outcome.status === "unassessable") continue;
-      current.progressionTotal += 1;
-      current.progressionCredits += outcome.status === "achieved" ? 1 : outcome.status === "partial" ? 0.5 : 0;
-    }
-    const recovery = scoreRecoveryCheckIn(day.recovery, date);
-    if (recovery && recovery.signalCount >= 2) current.recoveryScores.push(recovery.score);
-    current.adaptiveScales.push(workout.adaptiveSnapshot?.volumeScale ?? 1);
-    current.normalSets += workout.adaptiveSnapshot?.normalWorkingSets ?? work.plannedSets;
-    groups.set(workout.microcycleId, current);
-  }
-  return groups;
-}
-
 function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] {
-  return [...cycleGroups(data, today).values()]
-    .filter((cycle) => cycle.sessions >= 2 && cycle.plannedSets > 0)
-    .map((cycle) => {
-      const dates = [...cycle.dates].sort();
-      const phase: TrainingCyclePhase = cycle.phases.filter((value) => value === "deload").length > cycle.phases.length / 2
-        ? "deload"
-        : "build";
+  return collectFinalizedMicrocycleSamples(data, today)
+    .map((sample) => {
+      let sessions = 0;
+      let plannedSets = 0;
+      let completedSets = 0;
+      let difficultySamples = 0;
+      let hardSessions = 0;
+      let progressionTotal = 0;
+      let progressionCredits = 0;
+      let normalSets = 0;
+      const recoveryScores: number[] = [];
+      const adaptiveScales: number[] = [];
+      for (const day of sample.days) {
+        const workout = day.workout;
+        if (!workout || workout.type === "rest") continue;
+        const work = summarizeWorkoutWork(workout);
+        if (work.plannedSets <= 0) continue;
+        sessions += 1;
+        plannedSets += work.plannedSets;
+        completedSets += work.completionCredits;
+        if (workout.difficulty) {
+          difficultySamples += 1;
+          if (workout.difficulty === "hard") hardSessions += 1;
+        }
+        for (const exercise of workout.exercises) {
+          const outcome = evaluateProgressionOutcome(exercise, workout);
+          if (outcome.status === "unassessable") continue;
+          progressionTotal += 1;
+          progressionCredits += outcome.status === "achieved" ? 1 : outcome.status === "partial" ? 0.5 : 0;
+        }
+        const recovery = scoreRecoveryCheckIn(day.recovery, day.date);
+        if (recovery && recovery.signalCount >= 2) recoveryScores.push(recovery.score);
+        adaptiveScales.push(workout.adaptiveSnapshot?.volumeScale ?? 1);
+        normalSets += workout.adaptiveSnapshot?.normalWorkingSets ?? work.plannedSets;
+      }
+      const cycleSteps = Math.max(sample.completedSteps, sessions, 1);
+      const sessionDivisor = Math.max(1, sessions);
       return {
-        microcycleId: cycle.microcycleId,
-        startedAt: dates[0],
-        endedAt: dates[dates.length - 1],
-        phase,
-        sessions: cycle.sessions,
-        plannedSets: Math.round(cycle.plannedSets),
-        completedSets: round(cycle.completedSets),
-        completionPct: Math.round(Math.min(100, cycle.completedSets / cycle.plannedSets * 100)),
-        hardRatio: cycle.difficultySamples ? round(cycle.hardSessions / cycle.difficultySamples, 2) : null,
-        progressionPct: cycle.progressionTotal ? Math.round(cycle.progressionCredits / cycle.progressionTotal * 100) : null,
-        recoveryAverage: average(cycle.recoveryScores) == null ? null : Math.round(average(cycle.recoveryScores)!),
-        averageAdaptiveScale: round(average(cycle.adaptiveScales) ?? 1, 2),
-        prescribedSetsPerSession: round(cycle.plannedSets / cycle.sessions),
-        normalSetsPerSession: round(cycle.normalSets / cycle.sessions),
+        microcycleId: sample.id,
+        startedAt: sample.startedAt,
+        endedAt: sample.endedAt,
+        phase: sample.phase,
+        sessions,
+        plannedSets: Math.round(plannedSets),
+        completedSets: round(completedSets),
+        completionPct: plannedSets ? Math.round(Math.min(100, completedSets / plannedSets * 100)) : 0,
+        hardRatio: difficultySamples ? round(hardSessions / difficultySamples, 2) : null,
+        progressionPct: progressionTotal ? Math.round(progressionCredits / progressionTotal * 100) : null,
+        recoveryAverage: average(recoveryScores) == null ? null : Math.round(average(recoveryScores)!),
+        averageAdaptiveScale: round(average(adaptiveScales) ?? 1, 2),
+        prescribedSetsPerSession: round(plannedSets / sessionDivisor),
+        normalSetsPerSession: round(normalSets / sessionDivisor),
+        cycleSteps,
+        prescribedSetsPer7Days: round(plannedSets * 7 / cycleSteps),
+        completedSetsPer7Days: round(completedSets * 7 / cycleSteps),
+        normalSetsPer7Days: round(normalSets * 7 / cycleSteps),
       };
     })
+    .filter((cycle) => cycle.sessions >= 2 && cycle.plannedSets > 0)
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
@@ -188,8 +166,8 @@ function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleRespo
       reasons.push("恢复评分下降");
     }
   }
-  const loadRatio = previous.prescribedSetsPerSession > 0
-    ? round(next.prescribedSetsPerSession / previous.prescribedSetsPerSession, 2)
+  const loadRatio = previous.prescribedSetsPer7Days > 0
+    ? round(next.prescribedSetsPer7Days / previous.prescribedSetsPer7Days, 2)
     : 1;
   return {
     fromMicrocycleId: previous.microcycleId,
@@ -241,7 +219,7 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
   ];
 
   return {
-    version: 1,
+    version: 2,
     generatedAt,
     confidence,
     tolerance,

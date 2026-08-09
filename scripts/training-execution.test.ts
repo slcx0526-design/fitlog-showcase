@@ -92,6 +92,18 @@ const achievedOutcome = evaluateProgressionOutcome({
 assert.equal(achievedOutcome.status, "achieved");
 assert.equal(achievedOutcome.setsAtTargetFloor, 3);
 
+const effortExceededOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  prescription: { ...acceptedSuggestion.prescription!, targetRirMin: 1, targetRirMax: 2 },
+  sets: [
+    { weight: 82.5, reps: 8, rir: 1 },
+    { weight: 82.5, reps: 9, rir: 0 },
+    { weight: 82.5, reps: 8, rir: 1 },
+  ],
+}, { done: true, difficulty: "onTarget", cyclePhase: "build" });
+assert.equal(effortExceededOutcome.status, "partial");
+assert.equal(effortExceededOutcome.reason, "effortExceeded", "Accepted progressions at excessive effort must not train the model as achieved");
+
 const partialOutcome = evaluateProgressionOutcome({
   ...acceptedSuggestion,
   sets: [

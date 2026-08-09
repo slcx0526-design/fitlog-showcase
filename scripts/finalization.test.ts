@@ -31,7 +31,7 @@ assert.equal(nonCanonicalPlates.exact, true);
 assert.deepEqual(nonCanonicalPlates.platesPerSide, [10, 10]);
 
 const trackId = defaultTrackId("px_barbell_bench", "hypertrophy", 8, 12, 8, "reps");
-function bench(weight: number): Exercise {
+function bench(weight: number, setCount = 8): Exercise {
   return {
     id: "px_barbell_bench",
     name: "平板杠铃卧推",
@@ -48,12 +48,12 @@ function bench(weight: number): Exercise {
       targetRepMax: 12,
       targetRirMin: 1,
       targetRirMax: 2,
-      workingSets: 8,
+      workingSets: setCount,
       loadIncrementKg: 2.5,
       progressionRule: "doubleProgression",
       performanceMode: "reps",
     },
-    sets: Array.from({ length: 8 }, (_, index) => ({
+    sets: Array.from({ length: setCount }, (_, index) => ({
       weight,
       reps: 10,
       type: "working" as const,
@@ -62,7 +62,7 @@ function bench(weight: number): Exercise {
   };
 }
 
-function cycleDay(date: string, microcycleId: string, weight: number, includeBench: boolean): DayLog {
+function cycleDay(date: string, microcycleId: string, weight: number, includeBench: boolean, setCount = 8): DayLog {
   return {
     date,
     workout: {
@@ -72,7 +72,7 @@ function cycleDay(date: string, microcycleId: string, weight: number, includeBen
       cyclePhase: "build",
       difficulty: "onTarget",
       exercises: includeBench
-        ? [bench(weight)]
+        ? [bench(weight, setCount)]
         : [{
             id: "pl_lat_pulldown",
             name: "宽握下拉",
@@ -85,24 +85,74 @@ function cycleDay(date: string, microcycleId: string, weight: number, includeBen
   };
 }
 
+function restDay(date: string, microcycleId: string): DayLog {
+  return {
+    date,
+    workout: {
+      type: "rest",
+      microcycleId,
+      done: true,
+      cyclePhase: "build",
+      exercises: [],
+    },
+  };
+}
+
 const calibrationData: AppData = {
   ...emptyData(),
   profile: { trainingLevel: "beginner" },
   days: {
-    "2026-07-01": cycleDay("2026-07-01", "mc_1", 60, true),
-    "2026-07-02": cycleDay("2026-07-02", "mc_1", 60, false),
-    "2026-07-08": cycleDay("2026-07-08", "mc_2", 62.5, true),
-    "2026-07-09": cycleDay("2026-07-09", "mc_2", 62.5, false),
-    "2026-07-15": cycleDay("2026-07-15", "mc_3", 65, true),
-    "2026-07-16": cycleDay("2026-07-16", "mc_3", 65, false),
+    "2026-07-01": withCycleContext(cycleDay("2026-07-01", "mc_1", 60, true), "meso_calibration", 1),
+    "2026-07-02": withCycleContext(cycleDay("2026-07-02", "mc_1", 60, false), "meso_calibration", 1),
+    "2026-07-03": withCycleContext(restDay("2026-07-03", "mc_1"), "meso_calibration", 1),
+    "2026-07-04": withCycleContext(restDay("2026-07-04", "mc_1"), "meso_calibration", 1),
+    "2026-07-05": withCycleContext(restDay("2026-07-05", "mc_1"), "meso_calibration", 1),
+    "2026-07-06": withCycleContext(restDay("2026-07-06", "mc_1"), "meso_calibration", 1),
+    "2026-07-07": withCycleContext(restDay("2026-07-07", "mc_1"), "meso_calibration", 1),
+    "2026-07-08": withCycleContext(cycleDay("2026-07-08", "mc_2", 62.5, true), "meso_calibration", 2),
+    "2026-07-09": withCycleContext(cycleDay("2026-07-09", "mc_2", 62.5, false), "meso_calibration", 2),
+    "2026-07-10": withCycleContext(restDay("2026-07-10", "mc_2"), "meso_calibration", 2),
+    "2026-07-11": withCycleContext(restDay("2026-07-11", "mc_2"), "meso_calibration", 2),
+    "2026-07-12": withCycleContext(restDay("2026-07-12", "mc_2"), "meso_calibration", 2),
+    "2026-07-13": withCycleContext(restDay("2026-07-13", "mc_2"), "meso_calibration", 2),
+    "2026-07-14": withCycleContext(restDay("2026-07-14", "mc_2"), "meso_calibration", 2),
+    "2026-07-15": withCycleContext(cycleDay("2026-07-15", "mc_3", 65, true), "meso_calibration", 3),
+    "2026-07-16": withCycleContext(cycleDay("2026-07-16", "mc_3", 65, false), "meso_calibration", 3),
+    "2026-07-17": withCycleContext(restDay("2026-07-17", "mc_3"), "meso_calibration", 3),
+    "2026-07-18": withCycleContext(restDay("2026-07-18", "mc_3"), "meso_calibration", 3),
+    "2026-07-19": withCycleContext(restDay("2026-07-19", "mc_3"), "meso_calibration", 3),
+    "2026-07-20": withCycleContext(restDay("2026-07-20", "mc_3"), "meso_calibration", 3),
+    "2026-07-21": withCycleContext(restDay("2026-07-21", "mc_3"), "meso_calibration", 3),
   },
-  microcycle: { currentId: "mc_current", startedAt: "2026-07-20", index: 4 },
+  microcycle: { currentId: "mc_current", startedAt: "2026-07-22", index: 4, mesocycleId: "meso_calibration", mesocycleCycleNumber: 4 },
 };
 const chestCalibration = buildPersonalCalibration(calibrationData, "2026-07-26").find((row) => row.muscle === "chest");
 assert.equal(chestCalibration?.sampledCycles, 3);
 assert.equal(chestCalibration?.typicalDirectSets, 8);
 assert.equal(chestCalibration?.improvingTracks, 1);
 assert.equal(chestCalibration?.action, "personalize");
+
+const variableCycleCalibrationData: AppData = {
+  ...emptyData(),
+  profile: { trainingLevel: "beginner" },
+  days: {
+    "2026-07-01": withCycleContext(cycleDay("2026-07-01", "mc_short", 60, true, 4), "meso_variable", 1),
+    "2026-07-02": withCycleContext(cycleDay("2026-07-02", "mc_short", 60, false), "meso_variable", 1),
+    "2026-07-03": withCycleContext(restDay("2026-07-03", "mc_short"), "meso_variable", 1),
+    "2026-07-04": withCycleContext(restDay("2026-07-04", "mc_short"), "meso_variable", 1),
+    "2026-07-08": withCycleContext(cycleDay("2026-07-08", "mc_standard", 62.5, true, 7), "meso_variable", 2),
+    "2026-07-09": withCycleContext(cycleDay("2026-07-09", "mc_standard", 62.5, false), "meso_variable", 2),
+    "2026-07-10": withCycleContext(restDay("2026-07-10", "mc_standard"), "meso_variable", 2),
+    "2026-07-11": withCycleContext(restDay("2026-07-11", "mc_standard"), "meso_variable", 2),
+    "2026-07-12": withCycleContext(restDay("2026-07-12", "mc_standard"), "meso_variable", 2),
+    "2026-07-13": withCycleContext(restDay("2026-07-13", "mc_standard"), "meso_variable", 2),
+    "2026-07-14": withCycleContext(restDay("2026-07-14", "mc_standard"), "meso_variable", 2),
+  },
+  microcycle: { currentId: "mc_current", startedAt: "2026-07-15", index: 3, mesocycleId: "meso_variable", mesocycleCycleNumber: 3 },
+};
+const variableCycleChest = buildPersonalCalibration(variableCycleCalibrationData, "2026-07-21").find((row) => row.muscle === "chest");
+assert.equal(variableCycleChest?.sampledCycles, 2);
+assert.equal(variableCycleChest?.typicalDirectSets, 7, "Equivalent weekly dose must match across four-step and seven-step cycles");
 
 function withCycleContext(day: DayLog, mesocycleId: string, cycleNumber: number): DayLog {
   return {

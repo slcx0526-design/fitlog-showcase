@@ -2,7 +2,7 @@ import { DEFAULT_EXERCISES } from "./exercises";
 import type { TemplatePlanChange, PlanAdaptationProposal } from "./planAdaptation";
 import type { ScheduleAdaptationProposal } from "./scheduleAdaptation";
 import { compileTrainingConstraints, exerciseConstraintViolations } from "./trainingConstraints";
-import { policyRevision, type TrainingPolicy } from "./trainingPolicy";
+import { activePolicyOverrides, policyRevision, type TrainingPolicy } from "./trainingPolicy";
 import type { AppData, ExercisePreset, TemplateItem } from "./types";
 
 export interface SafeAutomaticSelection {
@@ -107,11 +107,29 @@ function safeTemplateChange(
 }
 
 function automaticRevision(
+  data: AppData,
   policy: TrainingPolicy,
-  templateProposal: PlanAdaptationProposal,
-  scheduleProposal: ScheduleAdaptationProposal,
+  date: string,
 ) {
-  const source = `${policyRevision(policy)}:${templateProposal.sourceRevision}:${scheduleProposal.sourceRevision}`;
+  // One policy intent may change a future plan at most once per microcycle.
+  // Template fingerprints are deliberately excluded: an automatic edit changes
+  // that fingerprint and previously caused the controller to immediately apply
+  // the next +1/-1 proposal again until a cap was reached.
+  const activeOverrides = activePolicyOverrides(policy, date)
+    .map((override) => override.id)
+    .sort()
+    .join(",");
+  const cycleContext = data.microcycle?.currentId
+    ?? data.lastCycleReview?.sourceMicrocycleId
+    ?? "no-cycle";
+  // Shape changes are user-visible planning events (starter plan creation,
+  // adding/removing a movement, or adding a template). Set edits, automatic
+  // replacements, and same-length schedule reorders do not alter this key.
+  const planShape = (data.templates ?? [])
+    .map((template) => `${template.id}:${template.type}:${template.items.length}`)
+    .sort()
+    .join("|");
+  const source = `${policyRevision(policy)}:${cycleContext}:${data.microcycle?.phase ?? "build"}:${activeOverrides}:${planShape}`;
   let hash = 5381;
   for (let index = 0; index < source.length; index += 1) {
     hash = ((hash << 5) + hash) ^ source.charCodeAt(index);
@@ -154,7 +172,7 @@ export function selectSafeAutomaticChanges(
   }
 
   return {
-    revision: automaticRevision(policy, templateProposal, scheduleProposal),
+    revision: automaticRevision(data, policy, date),
     templateChanges,
     applySchedule,
     skippedReasons: [...new Set(skippedReasons)],

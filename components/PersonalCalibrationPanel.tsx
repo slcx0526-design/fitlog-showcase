@@ -59,7 +59,7 @@ export default function PersonalCalibrationPanel() {
                 <div key={row.muscle} className="rounded-xl bg-surface-2 px-2.5 py-2">
                   <button type="button" onClick={() => setExpanded(open ? null : row.muscle)} aria-expanded={open} className="press flex w-full items-center gap-2 text-left">
                     <span className="min-w-0 flex-1 text-[12px] font-semibold text-fg">{muscleLabel}</span>
-                    <span className="tnum text-[10px] text-faint">{tx(locale, `${row.sampledCycles} 周期 · 典型 ${row.typicalDirectSets ?? "—"} 组`, `${row.sampledCycles} cycles · typical ${row.typicalDirectSets ?? "—"} sets`, `${row.sampledCycles}周期・標準 ${row.typicalDirectSets ?? "—"}セット`)}</span>
+                    <span className="tnum shrink-0 text-[10px] text-faint">{tx(locale, `${row.sampledCycles} 周期 · 7 日 ${row.typicalDirectSets ?? "—"} 组`, `${row.sampledCycles} cycles · 7d eq. ${row.typicalDirectSets ?? "—"} sets`, `${row.sampledCycles}周期・7日換算 ${row.typicalDirectSets ?? "—"}`)}</span>
                     <span className={"rounded-md px-1.5 py-0.5 text-[9px] font-semibold " + (row.action === "reduce" ? "bg-warn-soft text-warn" : row.action === "personalize" ? "bg-accent-soft text-accent" : "bg-surface text-muted")}>
                       {row.action === "reduce"
                         ? tx(locale, "先降上限", "Lower ceiling", "上限を下げる")
@@ -124,24 +124,24 @@ function calibrationReason(row: MuscleCalibration, locale: Locale, muscleLabel: 
   if (row.reasonKind === "recoveryPressure") {
     return tx(
       locale,
-      `典型容量 ${row.typicalDirectSets} 组，同时出现 ${row.regressingTracks} 条回落轨道和 ${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples} 次吃力记录；先收窄上限，不追加容量。`,
-      `Typical volume is ${row.typicalDirectSets} sets, with ${row.regressingTracks} regressing tracks and ${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples} hard sessions. Narrow the ceiling before adding volume.`,
-      `標準ボリュームは${row.typicalDirectSets}セットで、低下トラック${row.regressingTracks}件、高難度${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples}回です。追加せず上限を下げます。`,
+      `7 日等效典型容量 ${row.typicalDirectSets} 组，同时出现 ${row.regressingTracks} 条回落轨道和 ${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples} 次吃力记录；先收窄上限，不追加容量。`,
+      `Typical 7-day-equivalent volume is ${row.typicalDirectSets} sets, with ${row.regressingTracks} regressing tracks and ${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples} hard sessions. Narrow the ceiling before adding volume.`,
+      `7日換算の標準ボリュームは${row.typicalDirectSets}セットで、低下トラック${row.regressingTracks}件、高難度${Math.round((row.hardRate ?? 0) * row.difficultySamples)}/${row.difficultySamples}回です。追加せず上限を下げます。`,
     );
   }
   if (row.reasonKind === "positiveEvidence") {
     return tx(
       locale,
-      `${row.sampledCycles} 个周期的典型直接容量为 ${row.typicalDirectSets} 组，${row.improvingTracks} 条轨道提升、${row.regressingTracks} 条回落；建议把目标贴近已验证的可恢复区间。`,
-      `Across ${row.sampledCycles} cycles, typical direct volume is ${row.typicalDirectSets} sets with ${row.improvingTracks} improving and ${row.regressingTracks} regressing tracks. Move the target toward this demonstrated recoverable range.`,
-      `${row.sampledCycles}周期の標準直接ボリュームは${row.typicalDirectSets}セットで、向上${row.improvingTracks}件、低下${row.regressingTracks}件です。実証された回復可能範囲に目標を近づけます。`,
+      `${row.sampledCycles} 个周期的 7 日等效典型直接容量为 ${row.typicalDirectSets} 组，${row.improvingTracks} 条轨道提升、${row.regressingTracks} 条回落；建议把目标贴近已验证的可恢复区间。`,
+      `Across ${row.sampledCycles} cycles, typical 7-day-equivalent direct volume is ${row.typicalDirectSets} sets with ${row.improvingTracks} improving and ${row.regressingTracks} regressing tracks. Move the target toward this demonstrated recoverable range.`,
+      `${row.sampledCycles}周期の7日換算標準直接ボリュームは${row.typicalDirectSets}セットで、向上${row.improvingTracks}件、低下${row.regressingTracks}件です。実証された回復可能範囲に目標を近づけます。`,
     );
   }
   return tx(
     locale,
-    `典型容量 ${row.typicalDirectSets} 组，但当前没有足够的正向表现证据支持改目标；保持 ${row.currentTarget.low}–${row.currentTarget.high}，继续观察。`,
-    `Typical volume is ${row.typicalDirectSets} sets, but positive performance evidence is not strong enough to change the target. Keep ${row.currentTarget.low}–${row.currentTarget.high} and continue observing.`,
-    `標準ボリュームは${row.typicalDirectSets}セットですが、目標変更を支える向上証拠が不足しています。${row.currentTarget.low}–${row.currentTarget.high}を維持して観察します。`,
+    `7 日等效典型容量 ${row.typicalDirectSets} 组，但当前没有足够的正向表现证据支持改目标；保持 ${row.currentTarget.low}–${row.currentTarget.high}，继续观察。`,
+    `Typical 7-day-equivalent volume is ${row.typicalDirectSets} sets, but positive performance evidence is not strong enough to change the target. Keep ${row.currentTarget.low}–${row.currentTarget.high} and continue observing.`,
+    `7日換算の標準ボリュームは${row.typicalDirectSets}セットですが、目標変更を支える向上証拠が不足しています。${row.currentTarget.low}–${row.currentTarget.high}を維持して観察します。`,
   );
 }
 

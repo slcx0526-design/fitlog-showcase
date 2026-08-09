@@ -665,6 +665,41 @@ function data(): AppData {
 }
 
 {
+  const staleDifficulty = data();
+  for (let index = 1; index <= 10; index += 1) {
+    const date = `2026-07-${String(index).padStart(2, "0")}`;
+    staleDifficulty.days[date] = {
+      date,
+      workout: {
+        type: "legs",
+        done: true,
+        difficulty: index <= 5 ? "hard" : "onTarget",
+        templateId: legTemplate.id,
+        templateSnapshot: legTemplate,
+        exercises: [{
+          id: squat.id,
+          name: squat.name,
+          isMain: true,
+          sets: [{ weight: 100, reps: 8, type: "working" }],
+        }],
+      },
+    };
+  }
+  assert.equal(
+    deriveAdaptiveLearningSignals(staleDifficulty, defaultTrainingPolicy()).some((signal) => signal.kind === "reduceSessionLoad"),
+    false,
+    "Older hard sessions must not be mistaken for three hard sessions in the latest five",
+  );
+  for (const date of ["2026-07-08", "2026-07-09", "2026-07-10"]) {
+    staleDifficulty.days[date].workout!.difficulty = "hard";
+  }
+  assert.equal(
+    deriveAdaptiveLearningSignals(staleDifficulty, defaultTrainingPolicy()).some((signal) => signal.kind === "reduceSessionLoad"),
+    true,
+  );
+}
+
+{
   const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
     adaptationMode: "safeAuto",
     exercisePreferences: { [squat.id]: "exclude" },
@@ -681,6 +716,64 @@ function data(): AppData {
   const automatic = selectSafeAutomaticChanges(data(), policy, TODAY, templateProposal, scheduleProposal);
   assert.ok(automatic.templateChanges.some((change) => change.templateId === legTemplate.id));
   assert.equal(automatic.applySchedule, false);
+}
+
+{
+  const current = data();
+  current.microcycle = defaultMicrocycle(TODAY, current.schedule, current.templates);
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    adaptationMode: "safeAuto",
+    musclePriorities: { sideDelt: "specialize" },
+    autoApply: {
+      loadChanges: false,
+      repChanges: false,
+      setChanges: true,
+      exerciseReplacement: false,
+      scheduleChanges: false,
+    },
+  });
+  const firstPlan = buildPlanAdaptation(current, policy, TODAY);
+  const firstSchedule = buildScheduleAdaptation(current, policy, TODAY);
+  const firstAutomatic = selectSafeAutomaticChanges(current, policy, TODAY, firstPlan, firstSchedule);
+  assert.ok(firstAutomatic.templateChanges.length > 0);
+  const afterAutomatic = applyAdaptivePlanPatch(
+    current,
+    firstAutomatic.templateChanges.map((change) => ({ templateId: change.templateId, nextItems: change.nextItems })),
+  );
+  const secondPlan = buildPlanAdaptation(afterAutomatic, policy, TODAY);
+  const secondSchedule = buildScheduleAdaptation(afterAutomatic, policy, TODAY);
+  const secondAutomatic = selectSafeAutomaticChanges(afterAutomatic, policy, TODAY, secondPlan, secondSchedule);
+  assert.equal(
+    secondAutomatic.revision,
+    firstAutomatic.revision,
+    "An automatic set change must not create a new revision and repeatedly apply itself in the same cycle",
+  );
+  const changedShape = {
+    ...afterAutomatic,
+    templates: afterAutomatic.templates?.map((template, index) => index === 0
+      ? { ...template, items: [...template.items, { ...template.items[0], exerciseId: "shape_change", name: "新增动作" }] }
+      : template),
+  };
+  const shapeAutomatic = selectSafeAutomaticChanges(
+    changedShape,
+    policy,
+    TODAY,
+    buildPlanAdaptation(changedShape, policy, TODAY),
+    buildScheduleAdaptation(changedShape, policy, TODAY),
+  );
+  assert.notEqual(shapeAutomatic.revision, firstAutomatic.revision, "A user-visible plan shape change must be evaluated once");
+  const nextCycle = {
+    ...afterAutomatic,
+    microcycle: { ...afterAutomatic.microcycle!, currentId: "mc_next_policy_cycle", index: afterAutomatic.microcycle!.index + 1 },
+  };
+  const nextCycleAutomatic = selectSafeAutomaticChanges(
+    nextCycle,
+    policy,
+    TODAY,
+    buildPlanAdaptation(nextCycle, policy, TODAY),
+    buildScheduleAdaptation(nextCycle, policy, TODAY),
+  );
+  assert.notEqual(nextCycleAutomatic.revision, firstAutomatic.revision, "A genuinely new microcycle may evaluate the same policy once again");
 }
 
 {
