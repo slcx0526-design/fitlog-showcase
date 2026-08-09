@@ -317,11 +317,111 @@ assert.equal(normalized.templates?.[0].items[0].isMain, true);
 assert.ok(normalized.templates?.[0].items[0].volumeContributions?.some((item) => item.muscle === "upperChest" && item.direct));
 assert.equal(normalized.bodyWeights.length, 1);
 assert.deepEqual(normalized.days["2026-07-01"].recovery, { sleepHours: 7.5, sleepQuality: 4, energy: 4, soreness: 2, stress: 2, at: "2026-07-01T08:00:00.000Z" });
-assert.deepEqual(normalized.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
+assert.deepEqual(normalized.favoriteExerciseIds, ["px_incline_barbell", "cx_same", "cx_same_2"]);
 assert.equal(new Set(normalized.customExercises.map((item) => item.id)).size, 2);
 assert.equal(new Set((normalized.templates ?? []).map((item) => item.id)).size, 2);
 assert.equal(normalized.schedule.microcycle?.[0].templateId, undefined);
 assert.equal(inspectDataHealth(normalized).status, "healthy");
+
+const identityCollisionBackup = parseBackupWithMeta(JSON.stringify({
+  app: "fitlog",
+  version: 18,
+  days: {
+    "2026-07-02": {
+      date: "2026-07-02",
+      workout: {
+        type: "push",
+        done: true,
+        exercises: [
+          { id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true, sets: [{ weight: 80, reps: 8 }] },
+          { id: "px_barbell_bench", name: "自定义腿推", isMain: false, sets: [{ weight: 120, reps: 10 }] },
+          { id: "cx_duplicate", name: "自定义动作 B", isMain: false, sets: [{ weight: 20, reps: 12 }] },
+        ],
+      },
+    },
+  },
+  bodyWeights: [],
+  waistEntries: [],
+  customExercises: [
+    {
+      id: "px_barbell_bench",
+      name: "自定义腿推",
+      aliases: ["Custom Leg Press"],
+      isMain: false,
+      type: "custom",
+      primaryMuscle: "quads",
+      alternatives: ["px_barbell_bench"],
+    },
+    { id: "cx_duplicate", name: "自定义动作 A", isMain: false, type: "custom", primaryMuscle: "chest" },
+    { id: "cx_duplicate", name: "自定义动作 B", isMain: false, type: "custom", primaryMuscle: "sideDelt" },
+  ],
+  favoriteExerciseIds: ["px_barbell_bench", "cx_duplicate"],
+  templates: [{
+    id: "tpl_identity_collision",
+    name: "身份迁移",
+    type: "push",
+    items: [
+      { exerciseId: "px_barbell_bench", name: "自定义腿推", sets: 3, repsLow: 8, repsHigh: 12 },
+      { exerciseId: "cx_duplicate", name: "自定义动作 B", sets: 3, repsLow: 10, repsHigh: 15 },
+    ],
+  }],
+  schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+  adaptiveTraining: exportTrainingPolicyBackup({
+    ...defaultTrainingPolicy("2026-07-02T00:00:00.000Z"),
+    exercisePreferences: { px_barbell_bench: "exclude", cx_duplicate: "prefer" },
+    restrictions: [{ id: "restriction_collision", exerciseId: "px_barbell_bench", level: "exclude" }],
+    overrides: [{
+      id: "override_collision",
+      scope: "microcycle",
+      effectiveFrom: "2026-07-02",
+      excludedExerciseIds: ["px_barbell_bench", "cx_duplicate"],
+    }],
+    rollbackSnapshot: {
+      id: "rollback_collision",
+      createdAt: "2026-07-02T00:00:00.000Z",
+      proposalId: "proposal_collision",
+      reason: "测试身份迁移",
+      templates: [{
+        templateId: "tpl_identity_collision",
+        items: [{ exerciseId: "px_barbell_bench", name: "自定义腿推", sets: 3, repsLow: 8, repsHigh: 12 }],
+      }],
+    },
+  }),
+}));
+const collisionData = identityCollisionBackup.data;
+assert.deepEqual(collisionData.customExercises.map((item) => item.id), ["px_barbell_bench_2", "cx_duplicate", "cx_duplicate_2"]);
+assert.deepEqual(collisionData.favoriteExerciseIds, ["px_barbell_bench", "px_barbell_bench_2", "cx_duplicate", "cx_duplicate_2"]);
+assert.deepEqual(
+  collisionData.days["2026-07-02"].workout?.exercises.map((item) => item.id),
+  ["px_barbell_bench", "px_barbell_bench_2", "cx_duplicate_2"],
+  "Snapshot names must keep built-in, colliding custom, and duplicate custom histories isolated",
+);
+assert.deepEqual(collisionData.templates?.[0].items.map((item) => item.exerciseId), ["px_barbell_bench_2", "cx_duplicate_2"]);
+assert.deepEqual(
+  collisionData.customExercises[0].alternatives,
+  ["px_barbell_bench", "px_barbell_bench_2"],
+  "Nameless alternative references retain every valid collision candidate",
+);
+assert.deepEqual(normalizeData(collisionData), collisionData, "Exercise identity migration must be idempotent");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.px_barbell_bench, "exclude");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.px_barbell_bench_2, "exclude");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.cx_duplicate_2, "prefer");
+assert.deepEqual(
+  identityCollisionBackup.adaptiveTraining?.restrictions.map((item) => item.exerciseId),
+  ["px_barbell_bench", "px_barbell_bench_2"],
+);
+assert.deepEqual(
+  identityCollisionBackup.adaptiveTraining?.overrides[0].excludedExerciseIds,
+  ["px_barbell_bench", "px_barbell_bench_2", "cx_duplicate", "cx_duplicate_2"],
+);
+assert.equal(
+  identityCollisionBackup.adaptiveTraining?.rollbackSnapshot?.templates[0].items[0].exerciseId,
+  "px_barbell_bench_2",
+);
+assert.ok(inspectDataHealth({
+  ...collisionData,
+  customExercises: [{ ...collisionData.customExercises[0], id: "px_barbell_bench" }],
+}).issues.some((issue) => issue.code === "customExerciseIdCollisions"));
 
 const isolatedCorruption = normalizeData({
   days: {
@@ -425,7 +525,7 @@ const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
 assert.equal(backup.version, 18);
 assert.equal(backup.adaptiveTraining?.version, 3);
-assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same"]);
+assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same", "cx_same_2"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
 assert.ok(backup.mesocycle, "Schema 14 backups include mesocycle state");

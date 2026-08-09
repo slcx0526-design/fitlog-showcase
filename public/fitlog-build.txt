@@ -1,1 +1,1 @@
-FitLog 13.0.2 adaptive planning and import correctness
+FitLog 13.0.3 exercise identity and reference integrity

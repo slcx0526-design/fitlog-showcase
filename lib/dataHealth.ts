@@ -1,9 +1,11 @@
 import type { AppData, Exercise, TemplateItem } from "./types";
+import { DEFAULT_EXERCISES } from "./exercises";
 import { exerciseTrackId } from "./prescription";
 import { hasRecordedTrainingWork, hasSetPerformance, summarizeWorkoutWork } from "./trainingMetrics";
 
 export type DataHealthIssueCode =
   | "duplicateCustomExerciseIds"
+  | "customExerciseIdCollisions"
   | "duplicateTemplateIds"
   | "danglingTemplateBindings"
   | "nonCanonicalExercisePrescriptions"
@@ -82,6 +84,8 @@ function invalidSetCount(data: AppData) {
 export function inspectDataHealth(data: AppData): DataHealthReport {
   const issues: DataHealthIssue[] = [];
   const customDuplicates = duplicateCount(data.customExercises.map((exercise) => exercise.id));
+  const builtInExerciseIds = new Set(DEFAULT_EXERCISES.map((exercise) => exercise.id));
+  const customCollisions = data.customExercises.filter((exercise) => builtInExerciseIds.has(exercise.id)).length;
   const templateDuplicates = duplicateCount((data.templates ?? []).map((template) => template.id));
   const templateIds = new Set((data.templates ?? []).map((template) => template.id));
   const bindings = [
@@ -139,6 +143,7 @@ export function inspectDataHealth(data: AppData): DataHealthReport {
     if (count > 0) issues.push({ code, count, label });
   };
   add("duplicateCustomExerciseIds", customDuplicates, "重复的自定义动作标识");
+  add("customExerciseIdCollisions", customCollisions, "与内置动作冲突的自定义动作标识");
   add("duplicateTemplateIds", templateDuplicates, "重复的模板标识");
   add("danglingTemplateBindings", danglingBindings, "失效的周期模板绑定");
   add("nonCanonicalExercisePrescriptions", nonCanonicalExercises, "待统一的训练处方快照");

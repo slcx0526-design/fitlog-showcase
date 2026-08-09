@@ -410,6 +410,91 @@ function parseCustomExercise(input: unknown): ExercisePreset | null {
   };
 }
 
+interface ExerciseIdentityCandidate {
+  assignedId: string;
+  nameKeys: Set<string>;
+}
+
+interface ExerciseIdentityContext {
+  customExercises: ExercisePreset[];
+  resolveReference: (id: unknown, name?: unknown) => string | undefined;
+  expandReferenceIds: (ids: string[] | undefined) => string[] | undefined;
+}
+
+function exerciseNameKey(input: unknown) {
+  return typeof input === "string"
+    ? input.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()
+    : "";
+}
+
+function exerciseNameKeys(exercise: Pick<ExercisePreset, "name" | "englishName" | "aliases">) {
+  return new Set(
+    [exercise.name, exercise.englishName, ...(exercise.aliases ?? [])]
+      .map(exerciseNameKey)
+      .filter(Boolean),
+  );
+}
+
+function createExerciseIdentityContext(input: unknown): ExerciseIdentityContext {
+  const parsed = Array.isArray(input)
+    ? input.map(parseCustomExercise).filter((entry): entry is ExercisePreset => Boolean(entry))
+    : [];
+  const usedExerciseIds = new Set(DEFAULT_EXERCISES.map((exercise) => exercise.id));
+  const candidatesByOriginalId = new Map<string, ExerciseIdentityCandidate[]>();
+  const assigned = parsed.map((entry) => {
+    const originalId = entry.id;
+    const assignedId = uniqueId(originalId, "cx_imported", usedExerciseIds);
+    const candidates = candidatesByOriginalId.get(originalId) ?? [];
+    candidates.push({ assignedId, nameKeys: exerciseNameKeys(entry) });
+    candidatesByOriginalId.set(originalId, candidates);
+    return { ...entry, id: assignedId };
+  });
+
+  const resolveReference = (id: unknown, name?: unknown) => {
+    if (typeof id !== "string" || !id.trim()) return undefined;
+    const originalId = id.trim();
+    const candidates = candidatesByOriginalId.get(originalId);
+    if (!candidates?.length) return originalId;
+
+    const builtIn = DEFAULT_EXERCISE_BY_ID.get(originalId);
+    const nameKey = exerciseNameKey(name);
+    if (nameKey) {
+      const builtInMatches = Boolean(builtIn && exerciseNameKeys(builtIn).has(nameKey));
+      const customMatches = candidates.filter((candidate) => candidate.nameKeys.has(nameKey));
+      if (builtInMatches) return originalId;
+      if (customMatches.length === 1) return customMatches[0].assignedId;
+    }
+
+    // A nameless collision with an in-box exercise cannot be safely attributed
+    // to the custom movement. Snapshot names still recover custom references.
+    if (builtIn) return originalId;
+    return candidates[0].assignedId;
+  };
+
+  const expandReferenceIds = (ids: string[] | undefined) => {
+    if (!ids?.length) return undefined;
+    const expanded: string[] = [];
+    const add = (id: string) => {
+      if (!expanded.includes(id)) expanded.push(id);
+    };
+    for (const rawId of ids) {
+      const id = rawId.trim();
+      const candidates = candidatesByOriginalId.get(id);
+      if (DEFAULT_EXERCISE_BY_ID.has(id)) add(id);
+      for (const candidate of candidates ?? []) add(candidate.assignedId);
+      if (!candidates?.length && !DEFAULT_EXERCISE_BY_ID.has(id)) add(id);
+    }
+    return expanded.length ? expanded : undefined;
+  };
+
+  const customExercises = assigned.map((entry) => {
+    const { alternatives: rawAlternatives, ...rest } = entry;
+    const alternatives = expandReferenceIds(rawAlternatives);
+    return { ...rest, ...(alternatives ? { alternatives } : {}) };
+  });
+  return { customExercises, resolveReference, expandReferenceIds };
+}
+
 export function defaultSchedule(): Schedule { return { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] }; }
 export function emptyData(): AppData { return { days: {}, bodyWeights: [], waistEntries: [], customExercises: [], schedule: defaultSchedule() }; }
 
@@ -532,8 +617,13 @@ export function normalizeData(input: unknown): AppData {
   const out = emptyData();
   if (!input || typeof input !== "object") return out;
   const obj = input as Record<string, unknown>;
+  const exerciseIdentity = createExerciseIdentityContext(obj.customExercises);
+  out.customExercises = exerciseIdentity.customExercises;
+  const knownPresetById = new Map(
+    [...DEFAULT_EXERCISES, ...out.customExercises].map((preset) => [preset.id, preset]),
+  );
 
-  const favoriteExerciseIds = parseStringList(obj.favoriteExerciseIds);
+  const favoriteExerciseIds = exerciseIdentity.expandReferenceIds(parseStringList(obj.favoriteExerciseIds));
   if (favoriteExerciseIds?.length) out.favoriteExerciseIds = favoriteExerciseIds;
 
   if (obj.days && typeof obj.days === "object") {
@@ -548,7 +638,8 @@ export function normalizeData(input: unknown): AppData {
               if (!rawExercise || typeof rawExercise !== "object") return [];
               const exercise = rawExercise as Exercise;
               if (typeof exercise.id !== "string" || !exercise.id.trim()) return [];
-              const exerciseId = exercise.id.trim();
+              const exerciseId = exerciseIdentity.resolveReference(exercise.id, exercise.name);
+              if (!exerciseId) return [];
               const sets = Array.isArray(exercise.sets) ? exercise.sets.map(parseSet).filter((set): set is SetRecord => !!set) : [];
               const recordModes = parseRecordModes(exercise.recordModes);
               const primaryMuscle = parseMuscle(exercise.primaryMuscle);
@@ -560,7 +651,7 @@ export function normalizeData(input: unknown): AppData {
               const movementPattern = typeof exercise.movementPattern === "string" && VALID_PATTERNS.has(exercise.movementPattern as MovementPattern)
                 ? exercise.movementPattern as MovementPattern
                 : undefined;
-              const alternatives = parseStringList(exercise.alternatives);
+              const alternatives = exerciseIdentity.expandReferenceIds(parseStringList(exercise.alternatives));
               const supersetGroup = typeof exercise.supersetGroup === "string" && VALID_SUPERSET_GROUPS.has(exercise.supersetGroup as SupersetGroup)
                 ? exercise.supersetGroup as SupersetGroup
                 : undefined;
@@ -601,7 +692,7 @@ export function normalizeData(input: unknown): AppData {
                 id: exerciseId,
                 name: typeof exercise.name === "string" && exercise.name.trim()
                   ? exercise.name.trim()
-                  : DEFAULT_EXERCISE_BY_ID.get(exerciseId)?.name ?? "动作",
+                  : knownPresetById.get(exerciseId)?.name ?? "动作",
                 isMain: Boolean(exercise.isMain),
                 sets,
                 ...(recordModes ? { recordModes } : {}),
@@ -711,13 +802,6 @@ export function normalizeData(input: unknown): AppData {
     if (Object.keys(plan).length) out.cutPlan = plan;
   }
 
-  if (Array.isArray(obj.customExercises)) {
-    const usedExerciseIds = new Set(DEFAULT_EXERCISES.map((exercise) => exercise.id));
-    out.customExercises = obj.customExercises
-      .map(parseCustomExercise)
-      .filter((entry): entry is ExercisePreset => Boolean(entry))
-      .map((entry) => ({ ...entry, id: uniqueId(entry.id, "cx_imported", usedExerciseIds) }));
-  }
   if (obj.schedule && typeof obj.schedule === "object" && Array.isArray((obj.schedule as Schedule).split) && (obj.schedule as Schedule).split.length === 7) {
     const rawSchedule = obj.schedule as Schedule;
     const split = rawSchedule.split.map((type) => VALID_TYPES.includes(type as TrainingType) ? type as TrainingType : "") as (TrainingType | "")[];
@@ -743,9 +827,7 @@ export function normalizeData(input: unknown): AppData {
     if (Object.keys(profile).length) out.profile = profile;
   }
 
-  const presetById = new Map(
-    [...DEFAULT_EXERCISES, ...out.customExercises].map((preset) => [preset.id, preset])
-  );
+  const presetById = new Map(knownPresetById);
   for (const [, day] of Object.entries(out.days).sort(([a], [b]) => b.localeCompare(a))) {
     for (const exercise of day.workout?.exercises ?? []) {
       if (presetById.has(exercise.id)) continue;
@@ -767,7 +849,7 @@ export function normalizeData(input: unknown): AppData {
   const parseItem = (input: unknown): TemplateItem | null => {
     if (!input || typeof input !== "object") return null;
     const value = input as Record<string, unknown>;
-    const exerciseId = typeof value.exerciseId === "string" ? value.exerciseId.trim() : "";
+    const exerciseId = exerciseIdentity.resolveReference(value.exerciseId, value.name) ?? "";
     if (!exerciseId) return null;
     const recordModes = parseRecordModes(value.recordModes);
     const primaryMuscle = parseMuscle(value.primaryMuscle);
@@ -775,7 +857,7 @@ export function normalizeData(input: unknown): AppData {
     const volumeContributions = parseVolumeContributions(value.volumeContributions);
     const equipment = typeof value.equipment === "string" && VALID_EQUIPMENT.has(value.equipment as Equipment) ? value.equipment as Equipment : undefined;
     const movementPattern = typeof value.movementPattern === "string" && VALID_PATTERNS.has(value.movementPattern as MovementPattern) ? value.movementPattern as MovementPattern : undefined;
-    const alternatives = parseStringList(value.alternatives);
+    const alternatives = exerciseIdentity.expandReferenceIds(parseStringList(value.alternatives));
     const supersetGroup = typeof value.supersetGroup === "string" && VALID_SUPERSET_GROUPS.has(value.supersetGroup as SupersetGroup)
       ? value.supersetGroup as SupersetGroup
       : undefined;
@@ -949,12 +1031,15 @@ export function normalizeData(input: unknown): AppData {
           const change = entry as Record<string, unknown>;
           if (typeof change.templateId !== "string" || !change.templateId || typeof change.exerciseId !== "string" || !change.exerciseId) return [];
           if (typeof change.fromSets !== "number" || typeof change.toSets !== "number" || !Number.isFinite(change.fromSets) || !Number.isFinite(change.toSets)) return [];
-          return [{
-            templateId: change.templateId,
-            exerciseId: change.exerciseId,
-            fromSets: Math.max(1, Math.round(change.fromSets)),
-            toSets: Math.max(1, Math.round(change.toSets)),
-          }];
+          const templateId = change.templateId;
+          const fromSets = Math.max(1, Math.round(change.fromSets));
+          const toSets = Math.max(1, Math.round(change.toSets));
+          return (exerciseIdentity.expandReferenceIds([change.exerciseId]) ?? []).map((exerciseId) => ({
+            templateId,
+            exerciseId,
+            fromSets,
+            toSets,
+          }));
         })
       : [];
     if (
@@ -1124,9 +1209,72 @@ export function downloadBackup(data: AppData): void {
   URL.revokeObjectURL(url);
 }
 
+function remapTrainingPolicyExerciseReferences(
+  policy: TrainingPolicy,
+  identity: ExerciseIdentityContext,
+): TrainingPolicy {
+  const preferenceReferences = Object.entries(policy.exercisePreferences)
+    .map(([exerciseId, preference]) => ({
+      exerciseIds: identity.expandReferenceIds([exerciseId]) ?? [exerciseId],
+      preference,
+    }))
+    .sort((a, b) => b.exerciseIds.length - a.exerciseIds.length);
+  const exercisePreferences: TrainingPolicy["exercisePreferences"] = {};
+  for (const reference of preferenceReferences) {
+    for (const exerciseId of reference.exerciseIds) exercisePreferences[exerciseId] = reference.preference;
+  }
+
+  const usedRestrictionIds = new Set<string>();
+  const restrictions = policy.restrictions.flatMap((restriction) => {
+    if (!restriction.exerciseId) {
+      return [{ ...restriction, id: uniqueId(restriction.id, "restriction", usedRestrictionIds) }];
+    }
+    const exerciseIds = identity.expandReferenceIds([restriction.exerciseId]) ?? [restriction.exerciseId];
+    return exerciseIds.map((exerciseId, index) => ({
+      ...restriction,
+      id: uniqueId(index === 0 ? restriction.id : `${restriction.id}_${index + 1}`, "restriction", usedRestrictionIds),
+      exerciseId,
+    }));
+  }).slice(0, 80);
+
+  const overrides = policy.overrides.map((override) => ({
+    ...override,
+    ...(override.excludedExerciseIds?.length
+      ? { excludedExerciseIds: identity.expandReferenceIds(override.excludedExerciseIds) }
+      : {}),
+  }));
+
+  const rollbackSnapshot = policy.rollbackSnapshot
+    ? {
+        ...policy.rollbackSnapshot,
+        templates: policy.rollbackSnapshot.templates.map((template) => ({
+          ...template,
+          items: template.items.map((item) => {
+            const exerciseId = identity.resolveReference(item.exerciseId, item.name) ?? item.exerciseId;
+            const alternatives = identity.expandReferenceIds(item.alternatives);
+            return {
+              ...item,
+              exerciseId,
+              ...(alternatives ? { alternatives } : {}),
+            };
+          }),
+        })),
+      }
+    : undefined;
+
+  return {
+    ...policy,
+    exercisePreferences,
+    restrictions,
+    overrides,
+    ...(rollbackSnapshot ? { rollbackSnapshot } : {}),
+  };
+}
+
 function adaptiveTrainingFromBackup(parsed: Record<string, unknown>): TrainingPolicy | undefined {
   if (!parsed.adaptiveTraining) return undefined;
-  return importTrainingPolicyBackup(parsed.adaptiveTraining);
+  const identity = createExerciseIdentityContext(parsed.customExercises);
+  return remapTrainingPolicyExerciseReferences(importTrainingPolicyBackup(parsed.adaptiveTraining), identity);
 }
 
 export function parseBackup(text: string): AppData {
