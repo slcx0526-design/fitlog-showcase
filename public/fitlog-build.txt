@@ -1,1 +1,1 @@
-FitLog 12.3.0 long-term local data resilience
+FitLog 13.0.0 stable training framework and interaction finalization

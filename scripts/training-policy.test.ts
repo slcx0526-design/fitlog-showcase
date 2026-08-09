@@ -6,6 +6,7 @@ import { deriveAdaptiveLearningSignals } from "../lib/adaptiveLearning";
 import { buildPlanAdaptation } from "../lib/planAdaptation";
 import { buildScheduleAdaptation } from "../lib/scheduleAdaptation";
 import { defaultMicrocycle } from "../lib/microcycle";
+import { DEFAULT_EXERCISES } from "../lib/exercises";
 import {
   defaultTrainingPolicy,
   exportTrainingPolicyBackup,
@@ -177,6 +178,66 @@ function data(): AppData {
   assert.equal(result.policy.musclePriorities.sideDelt, "specialize");
   assert.equal(result.policy.exercisePreferences[squat.id], "exclude");
   assert.ok(result.recognized.length >= 4);
+}
+
+{
+  const current = data();
+  const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
+  const ids = ["px_barbell_bench", "px_incline_press", "px_machine_lateral", "px_triceps_pushdown"];
+  const sets = [4, 3, 4, 3];
+  const priorityPush: Template = {
+    id: "tpl_push_priority",
+    name: "胸肩推日",
+    type: "push",
+    items: ids.map((id, index) => {
+      const exercise = presets.get(id)!;
+      return {
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: sets[index],
+        repsLow: 8,
+        repsHigh: 12,
+        isMain: exercise.isMain,
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+      };
+    }),
+  };
+  current.templates = [priorityPush, pullTemplate, legTemplate];
+  current.schedule.microcycle = [
+    { id: "priority_1", type: "push", label: "推", templateId: priorityPush.id },
+    { id: "priority_2", type: "pull", label: "拉", templateId: pullTemplate.id },
+    { id: "priority_3", type: "legs", label: "腿", templateId: legTemplate.id },
+    { id: "priority_4", type: "rest", label: "休息" },
+  ];
+
+  const parsed = parseTrainingPolicyText("胸部为主，中束增长", current, defaultTrainingPolicy());
+  assert.equal(parsed.policy.musclePriorities.chest, "specialize");
+  assert.equal(parsed.policy.musclePriorities.sideDelt, "grow");
+
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === priorityPush.id);
+  assert.ok(change, "Both stated priorities should produce a bounded push-day proposal");
+  const nextById = new Map(change.nextItems.map((item) => [item.exerciseId, item]));
+  assert.equal(nextById.get("px_barbell_bench")?.sets, 5);
+  assert.equal(nextById.get("px_incline_press")?.sets, 3);
+  assert.equal(nextById.get("px_machine_lateral")?.sets, 5);
+  assert.equal(nextById.get("px_triceps_pushdown")?.sets, 3, "Unrequested triceps work must not be stripped to fund chest volume");
+  assert.ok(change.nextItems.every((item, index) => Math.abs(item.sets - priorityPush.items[index].sets) <= 1));
+  const chestFamilySets = change.nextItems.reduce((total, item) => total + (item.volumeContributions ?? [])
+    .filter((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest"))
+    .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
+  assert.ok(chestFamilySets <= 8, `Chest-family work must respect the per-session recovery cap, received ${chestFamilySets}`);
+  assert.ok(proposal.warnings.some((warning) => warning.includes("不把剩余缺口集中堆到一天")));
+}
+
+{
+  const result = parseTrainingPolicyText("上胸增长", data(), defaultTrainingPolicy());
+  assert.equal(result.policy.musclePriorities.upperChest, "grow");
+  assert.equal(result.policy.musclePriorities.chest, undefined, "A longer muscle alias must not leak into its parent muscle");
 }
 
 {

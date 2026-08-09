@@ -1,5 +1,5 @@
 import { DEFAULT_EXERCISES } from "./exercises";
-import { weeklyTargetFor, type MuscleGroup } from "./muscles";
+import { MUSCLE_LABELS, weeklyTargetFor, type MuscleGroup } from "./muscles";
 import { normalizeTemplateItemPrescription } from "./prescription";
 import { compileTrainingConstraints, exerciseConstraintViolations, exercisePreferenceScore } from "./trainingConstraints";
 import { musclePriorityMultiplier, policyRevision, type TrainingPolicy } from "./trainingPolicy";
@@ -59,6 +59,19 @@ type MutableTemplate = {
   replaced: number;
   removed: number;
 };
+
+const RECOVERY_GROUPS: Array<{ muscles: MuscleGroup[]; sessionCap: number }> = [
+  { muscles: ["chest", "upperChest"], sessionCap: 8 },
+  { muscles: ["back", "lats", "upperBack"], sessionCap: 10 },
+  { muscles: ["frontDelt", "sideDelt", "rearDelt"], sessionCap: 8 },
+  { muscles: ["biceps"], sessionCap: 6 },
+  { muscles: ["triceps"], sessionCap: 6 },
+  { muscles: ["quads"], sessionCap: 8 },
+  { muscles: ["hamstrings", "glutes"], sessionCap: 10 },
+  { muscles: ["calves"], sessionCap: 6 },
+];
+
+const MAX_PRIORITY_ADDITIONS_PER_TEMPLATE = 2;
 
 function cloneItems(items: TemplateItem[]) {
   return items.map((item) => ({
@@ -161,14 +174,24 @@ function replacementCandidates(
     });
 }
 
+function planningSteps(data: AppData) {
+  if (data.microcycle?.steps?.length) return data.microcycle.steps;
+  if (data.schedule.microcycle?.length) return data.schedule.microcycle;
+  return undefined;
+}
+
 function templateUsage(data: AppData) {
   const counts = new Map<string, number>();
-  const steps = data.microcycle?.steps?.length ? data.microcycle.steps : data.schedule.microcycle;
+  const steps = planningSteps(data);
   for (const step of steps ?? []) {
     if (step.templateId) counts.set(step.templateId, (counts.get(step.templateId) ?? 0) + 1);
   }
   if (!counts.size) for (const template of data.templates ?? []) counts.set(template.id, 1);
   return counts;
+}
+
+function planningCycleDays(data: AppData) {
+  return Math.max(1, planningSteps(data)?.length ?? data.schedule.split.length ?? 7);
 }
 
 function cycleMuscleSets(templates: MutableTemplate[], usage: Map<string, number>, presets: Map<string, Preset>) {
@@ -189,71 +212,138 @@ function itemMuscleWeight(item: TemplateItem, muscle: MuscleGroup, presets: Map<
   return directContributions(item, itemPreset(item, presets)).find((entry) => entry.muscle === muscle)?.weight ?? 0;
 }
 
+function withWorkingSets(item: TemplateItem, sets: number): TemplateItem {
+  return {
+    ...item,
+    sets,
+    ...(item.prescription ? { prescription: { ...item.prescription, workingSets: sets } } : {}),
+  };
+}
+
+function recoveryGroupFor(muscle: MuscleGroup) {
+  return RECOVERY_GROUPS.find((group) => group.muscles.includes(muscle))
+    ?? { muscles: [muscle], sessionCap: 8 };
+}
+
+function templateDirectSets(
+  template: MutableTemplate,
+  muscles: MuscleGroup[],
+  presets: Map<string, Preset>,
+) {
+  const included = new Set(muscles);
+  return template.items.reduce((total, item) => total + directContributions(item, itemPreset(item, presets))
+    .filter((entry) => included.has(entry.muscle))
+    .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
+}
+
+function canAddPrioritySet(
+  template: MutableTemplate,
+  itemIndex: number,
+  muscle: MuscleGroup,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  presets: Map<string, Preset>,
+) {
+  const item = template.items[itemIndex];
+  if (!item || item.sets >= 12) return false;
+  if (template.items.reduce((sum, candidate) => sum + candidate.sets, 0) >= constraints.maxWorkingSetsPerSession) return false;
+  const nextItems = template.items.map((candidate, index) => index === itemIndex
+    ? withWorkingSets(candidate, candidate.sets + 1)
+    : candidate);
+  if (estimateTemplateMinutes(nextItems, presets) > constraints.maxSessionMinutes) return false;
+  const recovery = recoveryGroupFor(muscle);
+  const addedWeight = itemMuscleWeight(item, muscle, presets);
+  return templateDirectSets(template, recovery.muscles, presets) + addedWeight <= recovery.sessionCap + 0.001;
+}
+
 function adjustMusclePriorities(
   data: AppData,
   policy: TrainingPolicy,
   templates: MutableTemplate[],
   usage: Map<string, number>,
   presets: Map<string, Preset>,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  warnings: string[],
 ) {
-  const before = cycleMuscleSets(templates, usage, presets);
-  for (const [muscle, priority] of Object.entries(policy.musclePriorities) as Array<[MuscleGroup, NonNullable<TrainingPolicy["musclePriorities"][MuscleGroup]>]>) {
-    const target = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
-    const desired = Math.max(1, Math.round(target.low * musclePriorityMultiplier(priority)));
-    let current = before[muscle] ?? 0;
-    if (priority === "specialize" || priority === "grow") {
-      if (current >= desired) continue;
+  const cycleDays = planningCycleDays(data);
+  const cycleScale = cycleDays / 7;
+  const currentTotals = cycleMuscleSets(templates, usage, presets);
+  const increases = (Object.entries(policy.musclePriorities) as Array<[MuscleGroup, NonNullable<TrainingPolicy["musclePriorities"][MuscleGroup]>]>)
+    .filter(([, priority]) => priority === "specialize" || priority === "grow")
+    .map(([muscle, priority]) => {
+      const target = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
+      return {
+        muscle,
+        priority,
+        desired: Math.max(1, Math.round(target.low * cycleScale * musclePriorityMultiplier(priority))),
+        current: currentTotals[muscle] ?? 0,
+        touchedItems: new Set<string>(),
+      };
+    });
+  const templateAdditions = new Map<string, number>();
+  const maxRounds = increases.some((state) => state.priority === "specialize") ? 2 : 1;
+
+  // Give every requested muscle one conservative pass before a specialization
+  // receives a second set. This prevents the first phrase from consuming the
+  // whole session budget and erasing the user's other stated priorities.
+  for (let round = 0; round < maxRounds; round += 1) {
+    for (const state of increases) {
+      if (round > 0 && state.priority !== "specialize") continue;
+      if (state.current >= state.desired) continue;
       const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
-        .filter(({ item }) => itemMuscleWeight(item, muscle, presets) > 0)
-        .filter(({ item }) => !compileTrainingConstraints(policy, new Date().toISOString().slice(0, 10)).avoidedExerciseIds.has(item.exerciseId))
+        .filter(({ item }) => itemMuscleWeight(item, state.muscle, presets) > 0)
+        .filter(({ item }) => !constraints.avoidedExerciseIds.has(item.exerciseId))
+        .filter(({ template, item }) => !state.touchedItems.has(`${template.source.id}:${item.exerciseId}`))
+        .filter(({ template }) => (templateAdditions.get(template.source.id) ?? 0) < MAX_PRIORITY_ADDITIONS_PER_TEMPLATE)
+        .filter(({ template, index }) => canAddPrioritySet(template, index, state.muscle, constraints, presets))
         .sort((a, b) => {
+          const recovery = recoveryGroupFor(state.muscle);
+          const loadDelta = templateDirectSets(a.template, recovery.muscles, presets) - templateDirectSets(b.template, recovery.muscles, presets);
+          if (loadDelta) return loadDelta;
           const aPreset = itemPreset(a.item, presets);
           const bPreset = itemPreset(b.item, presets);
-          const aScore = exercisePreferenceScore(aPreset ?? { id: a.item.exerciseId }, compileTrainingConstraints(policy, new Date().toISOString().slice(0, 10))) + (a.item.isMain ?? aPreset?.isMain ? 4 : 0);
-          const bScore = exercisePreferenceScore(bPreset ?? { id: b.item.exerciseId }, compileTrainingConstraints(policy, new Date().toISOString().slice(0, 10))) + (b.item.isMain ?? bPreset?.isMain ? 4 : 0);
-          return bScore - aScore;
+          const aScore = exercisePreferenceScore(aPreset ?? { id: a.item.exerciseId }, constraints) + (a.item.isMain ?? aPreset?.isMain ? 2 : 0);
+          const bScore = exercisePreferenceScore(bPreset ?? { id: b.item.exerciseId }, constraints) + (b.item.isMain ?? bPreset?.isMain ? 2 : 0);
+          return bScore - aScore || a.index - b.index;
         });
-      for (const candidate of candidates) {
-        if (current >= desired) break;
-        const count = usage.get(candidate.template.source.id) ?? 1;
-        const weight = itemMuscleWeight(candidate.item, muscle, presets);
-        const delta = Math.min(2, Math.max(1, Math.ceil((desired - current) / Math.max(weight * count, 0.1))));
-        candidate.template.items[candidate.index] = {
-          ...candidate.item,
-          sets: Math.min(12, candidate.item.sets + delta),
-          ...(candidate.item.prescription ? { prescription: { ...candidate.item.prescription, workingSets: Math.min(12, candidate.item.sets + delta) } } : {}),
-        };
-        candidate.template.reasons.add(`${muscle} 被设为${priority === "specialize" ? "专项强化" : "增长"}，增加直接组`);
-        current += delta * weight * count;
-      }
-    } else {
-      if (current <= desired) continue;
-      const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
-        .filter(({ item }) => itemMuscleWeight(item, muscle, presets) > 0 && item.sets > 1)
-        .sort((a, b) => {
-          const aPreset = itemPreset(a.item, presets);
-          const bPreset = itemPreset(b.item, presets);
-          const aMain = a.item.isMain ?? aPreset?.isMain ?? false;
-          const bMain = b.item.isMain ?? bPreset?.isMain ?? false;
-          return Number(aMain) - Number(bMain) || b.item.sets - a.item.sets;
-        });
-      for (const candidate of candidates) {
-        if (current <= desired) break;
-        const count = usage.get(candidate.template.source.id) ?? 1;
-        const weight = itemMuscleWeight(candidate.item, muscle, presets);
-        const removable = Math.min(candidate.item.sets - 1, Math.max(1, Math.ceil((current - desired) / Math.max(weight * count, 0.1))));
-        const nextSets = candidate.item.sets - removable;
-        candidate.template.items[candidate.index] = {
-          ...candidate.item,
-          sets: nextSets,
-          ...(candidate.item.prescription ? { prescription: { ...candidate.item.prescription, workingSets: nextSets } } : {}),
-        };
-        candidate.template.reasons.add(`${muscle} 被设为${priority === "maintain" ? "维持" : "降低优先级"}，减少直接组`);
-        current -= removable * weight * count;
-      }
+      const candidate = candidates[0];
+      if (!candidate) continue;
+      const nextSets = candidate.item.sets + 1;
+      candidate.template.items[candidate.index] = withWorkingSets(candidate.item, nextSets);
+      candidate.template.reasons.add(`${MUSCLE_LABELS[state.muscle]}：${state.priority === "specialize" ? "专项" : "增长"}，按 ${cycleDays} 天微周期增加 1 组`);
+      state.touchedItems.add(`${candidate.template.source.id}:${candidate.item.exerciseId}`);
+      templateAdditions.set(candidate.template.source.id, (templateAdditions.get(candidate.template.source.id) ?? 0) + 1);
+      state.current += itemMuscleWeight(candidate.item, state.muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
     }
   }
-  return before;
+
+  for (const state of increases) {
+    if (state.current + 0.001 >= state.desired) continue;
+    warnings.push(`${MUSCLE_LABELS[state.muscle]}目标按 ${cycleDays} 天微周期折算为 ${state.desired} 组；受单次恢复和总时长边界限制，不把剩余缺口集中堆到一天。`);
+  }
+
+  for (const [muscle, priority] of Object.entries(policy.musclePriorities) as Array<[MuscleGroup, NonNullable<TrainingPolicy["musclePriorities"][MuscleGroup]>]>) {
+    if (priority === "specialize" || priority === "grow") continue;
+    const target = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
+    const desired = Math.max(1, Math.round(target.low * cycleScale * musclePriorityMultiplier(priority)));
+    let current = cycleMuscleSets(templates, usage, presets)[muscle] ?? 0;
+    const reductionBudget = priority === "maintain" ? 1 : 2;
+    if (current <= desired) continue;
+    const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
+      .filter(({ item }) => itemMuscleWeight(item, muscle, presets) > 0 && item.sets > 2)
+      .sort((a, b) => {
+        const aPreset = itemPreset(a.item, presets);
+        const bPreset = itemPreset(b.item, presets);
+        const aMain = a.item.isMain ?? aPreset?.isMain ?? false;
+        const bMain = b.item.isMain ?? bPreset?.isMain ?? false;
+        return Number(aMain) - Number(bMain) || b.item.sets - a.item.sets;
+      });
+    for (const candidate of candidates.slice(0, reductionBudget)) {
+      if (current <= desired) break;
+      candidate.template.items[candidate.index] = withWorkingSets(candidate.item, candidate.item.sets - 1);
+      candidate.template.reasons.add(`${MUSCLE_LABELS[muscle]}：${priority === "maintain" ? "维持" : "降低"}，按 ${cycleDays} 天微周期减少 1 组`);
+      current -= itemMuscleWeight(candidate.item, muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
+    }
+  }
 }
 
 function enforceSessionCaps(
@@ -377,8 +467,8 @@ export function buildPlanAdaptation(
 
   const usage = templateUsage(data);
   const beforeMuscles = cycleMuscleSets(templates.map((template) => ({ ...template, items: cloneItems(template.source.items) })), usage, presets);
-  adjustMusclePriorities(data, policy, templates, usage, presets);
   for (const template of templates) enforceSessionCaps(template, constraints, presets);
+  adjustMusclePriorities(data, policy, templates, usage, presets, constraints, warnings);
   const afterMuscles = cycleMuscleSets(templates, usage, presets);
 
   const changes: TemplatePlanChange[] = templates.flatMap((template) => {
@@ -421,6 +511,7 @@ export function buildPlanAdaptation(
     reasons,
     evidence: [
       `目标：${policy.goal}`,
+      `处方按 ${planningCycleDays(data)} 天微周期折算，优先肌群不会把周期缺口集中堆到单次训练`,
       `单次上限：${constraints.maxSessionMinutes} 分钟 / ${constraints.maxWorkingSetsPerSession} 组 / ${constraints.maxExercisesPerSession} 动作`,
       `每周训练目标：${policy.weeklyTrainingDays.target} 天`,
       `明确排除动作：${constraints.excludedExerciseIds.size} 个`,

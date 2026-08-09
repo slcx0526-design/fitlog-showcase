@@ -272,15 +272,6 @@ input[type="number"] {
   animation: activeDot 1.4s ease-in-out infinite;
 }
 
-/* 页面进入过渡（仅 Lite 模式） */
-@keyframes pageFadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-:root[data-mode="lite"] main {
-  animation: pageFadeIn 180ms ease-out;
-}
-
 /* ============================================================
    移动端 / iOS Safari 主屏幕 standalone 模式适配
    ============================================================ */
@@ -317,12 +308,23 @@ html, body {
 /* 按钮 / 链接：禁掉 iOS 长按弹出菜单与文本选择 */
 button, a {
   -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 /* 但输入框必须能正常选择 */
 input, textarea {
   -webkit-touch-callout: default;
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* iOS 会在聚焦小于 16px 的控件时自动缩放页面。保持可手动缩放，
+   但让日常记录过程不再忽大忽小。 */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ============================================================
@@ -352,8 +354,7 @@ input, textarea {
     scroll-behavior: auto !important;
   }
   :root[data-mode="lite"] .lite-active-glow,
-  .active-dot,
-  :root[data-mode="lite"] main {
+  .active-dot {
     animation: none !important;
   }
 }

@@ -88,9 +88,24 @@ const PATTERNS: Array<{
     ja: (days) => `週間目標：トレーニング${days}日`,
   },
   {
-    pattern: /^(.+)：(专项强化|维持|降低优先级)$/,
-    en: (muscle, priority) => `${muscle}: ${priority === "专项强化" ? "specialize" : priority === "维持" ? "maintain" : "deprioritize"}`,
-    ja: (muscle, priority) => `${muscle}：${priority === "专项强化" ? "特化" : priority === "维持" ? "維持" : "優先度を下げる"}`,
+    pattern: /^(.+)：(专项强化|增长|维持|降低优先级)$/,
+    en: (muscle, priority) => `${muscle}: ${priority === "专项强化" ? "specialize" : priority === "增长" ? "grow" : priority === "维持" ? "maintain" : "deprioritize"}`,
+    ja: (muscle, priority) => `${muscle}：${priority === "专项强化" ? "特化" : priority === "增长" ? "増量" : priority === "维持" ? "維持" : "優先度を下げる"}`,
+  },
+  {
+    pattern: /^(.+)：(专项|增长|维持|降低)，按 (\d+) 天微周期(增加|减少) 1 组$/,
+    en: (muscle, priority, days, direction) => `${muscle}: ${priority === "专项" ? "specialize" : priority === "增长" ? "grow" : priority === "维持" ? "maintain" : "deprioritize"}; ${direction === "增加" ? "+1" : "-1"} set for the ${days}-day microcycle`,
+    ja: (muscle, priority, days, direction) => `${muscle}：${priority === "专项" ? "特化" : priority === "增长" ? "増量" : priority === "维持" ? "維持" : "優先度低下"}。${days}日マイクロサイクルで${direction === "增加" ? "+1" : "-1"}セット`,
+  },
+  {
+    pattern: /^(.+)目标按 (\d+) 天微周期折算为 ([\d.]+) 组；受单次恢复和总时长边界限制，不把剩余缺口集中堆到一天。$/,
+    en: (muscle, days, sets) => `${muscle} scales to ${sets} sets for a ${days}-day microcycle. Recovery and duration caps keep the remaining gap from being packed into one session.`,
+    ja: (muscle, days, sets) => `${muscle}の目標は${days}日マイクロサイクルで${sets}セットです。回復と時間の上限により、不足分を1日に集中させません。`,
+  },
+  {
+    pattern: /^处方按 (\d+) 天微周期折算，优先肌群不会把周期缺口集中堆到单次训练$/,
+    en: (days) => `Prescription targets are scaled to the ${days}-day microcycle; priority volume is not packed into one session`,
+    ja: (days) => `処方目標は${days}日マイクロサイクルに換算し、優先部位の不足分を1回に集中させません`,
   },
   {
     pattern: /^(排除动作|偏好动作|尽量避免)：(.+)$/,

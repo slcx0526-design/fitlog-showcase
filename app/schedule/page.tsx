@@ -26,7 +26,7 @@ import { computeVolumeSummary } from "@/lib/volume";
 import { workingSets } from "@/lib/trainingMetrics";
 import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
-import TrainingPolicyShortcut from "@/components/TrainingPolicyShortcut";
+import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
   { value: "push", label: "推" },
@@ -78,8 +78,9 @@ export default function SchedulePage() {
           <p className="page-heading__eyebrow">{tr("训练规划")}</p>
           <h1>{tr("计划")}</h1>
         </div>
-        <TrainingPolicyShortcut />
       </header>
+
+      <TrainingWorkspaceNav active="cycle" className="mb-5" />
 
       {/* —— 今日计划 + 入口 —— */}
       <section className="mb-5">

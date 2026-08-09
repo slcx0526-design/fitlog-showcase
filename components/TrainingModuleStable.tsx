@@ -44,6 +44,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
+  const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const finishConfirmationRef = useRef<HTMLDivElement>(null);
   const execution = useMemo(() => summarizeSessionExecution(workout), [workout]);
   const effectiveSets = execution.workingSets;
@@ -58,9 +59,12 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const cyclePhase = workout?.cyclePhase ?? activeCycle?.phase ?? "build";
   const cycleNumber = workout?.mesocycleCycleNumber ?? activeCycle?.mesocycleCycleNumber;
   const cycleIndex = activeCycle?.index ?? microcycleIndex(workout?.microcycleId);
-  const activeExerciseId = execution.next?.exercise.id
+  const suggestedActiveExerciseId = execution.next?.exercise.id
     ?? exercises.find((exercise) => !hasEntry(exercise.sets))?.id
     ?? exercises[0]?.id;
+  const resolvedActiveExerciseId = activeExerciseId && exercises.some((exercise) => exercise.id === activeExerciseId)
+    ? activeExerciseId
+    : suggestedActiveExerciseId ?? null;
 
   useEffect(() => {
     if (!confirmFinish) return;
@@ -165,9 +169,16 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
         key={exercise.id}
         date={date}
         exercise={exercise}
-        active={exercise.id === activeExerciseId}
+        active={exercise.id === resolvedActiveExerciseId}
         navigationTarget={navigationTarget === exercise.id}
-        onNavigate={setNavigationTarget}
+        onActivate={(exerciseId) => {
+          setActiveExerciseId(exerciseId);
+          setNavigationTarget((current) => current === exerciseId ? current : null);
+        }}
+        onNavigate={(exerciseId) => {
+          setActiveExerciseId(exerciseId);
+          setNavigationTarget(exerciseId);
+        }}
         nextExercise={exercise.supersetGroup
           ? exercises.slice(index + 1).find((candidate) => candidate.supersetGroup === exercise.supersetGroup) ?? exercises[index + 1]
           : exercises[index + 1]}

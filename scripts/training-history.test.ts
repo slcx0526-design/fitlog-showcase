@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
-import { analyzeTrackTrend, type TrackHistoryResult } from "../lib/prescription";
+import { analyzeTrackTrend, findTrackHistories, type TrackHistoryResult } from "../lib/prescription";
+import {
+  buildTrainingHistoryIndex,
+  findIndexedLastNutrition,
+  findIndexedLastWorkoutByType,
+  findIndexedTrackHistories,
+} from "../lib/historyIndex";
 import { normalizeData } from "../lib/storage";
 import {
   buildExerciseTrackArchive,
@@ -84,6 +90,22 @@ const days: Record<string, DayLog> = {
     },
   },
 };
+
+const historyIndex = buildTrainingHistoryIndex(days);
+for (const trackId of [strength.progressionTrackId, hypertrophy.progressionTrackId, "missing-track"]) {
+  assert.deepEqual(
+    findIndexedTrackHistories(historyIndex, "px_incline_barbell", "2026-07-06", trackId, 6),
+    findTrackHistories(days, "px_incline_barbell", "2026-07-06", trackId, 6),
+    `Indexed history must preserve confirmed, fallback, alternate, and Legacy ordering for ${trackId}`,
+  );
+}
+assert.equal(findIndexedTrackHistories(historyIndex, "px_incline_barbell", "2026-07-03", strength.progressionTrackId).same[0]?.date, "2026-07-01");
+assert.equal(findIndexedLastWorkoutByType(historyIndex, "push", "2026-07-06")?.date, "2026-07-05");
+const nutritionIndex = buildTrainingHistoryIndex({
+  ...days,
+  "2026-07-05": { ...days["2026-07-05"], nutrition: { calories: 2200, protein: 170, carbs: 250, fat: 65 } },
+});
+assert.equal(findIndexedLastNutrition(nutritionIndex, "2026-07-06")?.calories, 2200);
 
 const archive = buildExerciseTrackArchive(days, "2026-07-06");
 assert.equal(archive.length, 3, "Strength, hypertrophy, and legacy tracks must remain separate");

@@ -1,7 +1,0 @@
-.pulseImpactFix::before {
-  --impact-angle: -18deg;
-}
-
-.pulseImpactFix::after {
-  --impact-angle: 32deg;
-}

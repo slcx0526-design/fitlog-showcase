@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import AdaptivePageNav from "@/components/AdaptivePageNav";
+import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
 import { buildAdaptiveResponseModel } from "@/lib/adaptiveResponse";
 import { adaptiveText } from "@/lib/adaptiveText";
 import { useToday } from "@/lib/hooks";
@@ -52,7 +52,7 @@ export default function AdaptiveOutcomesPage() {
         </div>
       </header>
 
-      <AdaptivePageNav active="outcomes" />
+      <TrainingWorkspaceNav active="outcomes" />
 
       <div className="adaptive-layout mt-4">
         <div className="space-y-3">

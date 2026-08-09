@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AdaptivePageNav from "@/components/AdaptivePageNav";
+import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
 import {
   acceptAdaptiveLearningSignal,
   deriveAdaptiveLearningSignals,
@@ -302,7 +302,7 @@ export default function TrainingPolicyPage() {
         <button type="button" onClick={save} disabled={!dirty} className="page-utility-link press shrink-0 disabled:opacity-50">{dirty ? t("保存", "Save", "保存") : t("已保存", "Saved", "保存済み")}</button>
       </header>
 
-      <AdaptivePageNav active="policy" />
+      <TrainingWorkspaceNav active="policy" />
 
       <div className="adaptive-layout mt-4">
         <section className="control-card p-4">

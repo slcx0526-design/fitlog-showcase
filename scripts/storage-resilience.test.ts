@@ -6,6 +6,7 @@ import {
   decodeStorageValue,
   encodeStorageValue,
 } from "../lib/storageCodec";
+import { buildTrainingHistoryIndex, findIndexedTrackHistories } from "../lib/historyIndex";
 import type { DayLog, Exercise, TrainingType } from "../lib/types";
 
 const EXERCISES = [
@@ -122,6 +123,16 @@ assert.equal(Object.keys(decoded.days).length, 1_826);
 assert.equal(decoded.days["2025-12-31"].workout?.exercises[5].sets.length, 4);
 assert.equal(decoded.days["2025-12-31"].workout?.exercises[0].prescription?.progressionTrackId, "px_barbell_bench:strength:4-6");
 
+const historyIndexStartedAt = performance.now();
+const historyIndex = buildTrainingHistoryIndex(longTerm.days);
+const historyIndexMs = Math.round((performance.now() - historyIndexStartedAt) * 10) / 10;
+assert.equal(historyIndex.descendingDates.length, 1_826);
+for (const [id] of EXERCISES) {
+  const trackId = longTerm.days["2025-12-31"].workout?.exercises.find((exercise) => exercise.id === id)?.prescription?.progressionTrackId;
+  assert.ok(trackId);
+  assert.equal(findIndexedTrackHistories(historyIndex, id, "2026-01-01", trackId, 8).same.length, 8);
+}
+
 const footprint = estimateDataFootprint(longTerm);
 assert.equal(footprint.compressed, true);
 assert.ok(footprint.storedMegabytes < footprint.megabytes);
@@ -181,4 +192,5 @@ console.log("storage resilience tests passed", {
   rawMegabytes: Math.round((encoded.rawBytes / 1024 / 1024) * 100) / 100,
   storedMegabytes: Math.round((encoded.storedBytes / 1024 / 1024) * 100) / 100,
   days: Object.keys(longTerm.days).length,
+  historyIndexMs,
 });

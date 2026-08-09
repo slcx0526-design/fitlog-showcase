@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 
 const TABS = [
   { href: "/", label: "今天", icon: TodayIcon, match: (path: string) => path === "/" || path.startsWith("/nutrition") || path.startsWith("/cardio") },
-  { href: "/train", label: "训练", icon: TrainingIcon, match: (path: string) => path.startsWith("/train") || path.startsWith("/schedule") || path.startsWith("/templates") },
+  { href: "/train", label: "训练", icon: TrainingIcon, match: (path: string) => path.startsWith("/train") || path.startsWith("/schedule") || path.startsWith("/templates") || path.startsWith("/training-policy") || path.startsWith("/adaptive-outcomes") },
   { href: "/progress", label: "进度", icon: ProgressIcon, match: (path: string) => path.startsWith("/progress") || path.startsWith("/data") || path.startsWith("/history") },
   { href: "/cut", label: "减脂", icon: CutIcon, match: (path: string) => path.startsWith("/cut") },
 ];

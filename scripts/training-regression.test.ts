@@ -18,11 +18,14 @@ assert.equal(localeText("ja", "体脂估算", "Body-fat estimate", "体脂肪推
 assert.equal(localeText("zh", "体脂估算", "Body-fat estimate", "体脂肪推定"), "体脂估算");
 
 const progressShell = readFileSync("components/ProgressPageShell.tsx", "utf8");
+const bodyReview = readFileSync("components/BodyProgressReview.tsx", "utf8");
 const trainPage = readFileSync("app/train/page.tsx", "utf8");
 const themeCopy = readFileSync("lib/copy.ts", "utf8");
 const cutHome = readFileSync("components/CutHome.tsx", "utf8");
-assert.ok(progressShell.includes("relativeLabel(row.date, locale)"));
-assert.ok(progressShell.includes("formatCompact(row.date, locale)"));
+assert.ok(bodyReview.includes("relativeLabel(row.date, locale)"));
+assert.ok(bodyReview.includes("formatCompact(row.date, locale)"));
+assert.ok(progressShell.includes('dynamic(() => import("@/components/TrainingVolumeReview")'));
+assert.ok(progressShell.includes('dynamic(() => import("@/components/LogReview")'));
 assert.ok(trainPage.includes("localeText(locale"));
 assert.ok(themeCopy.includes('locale !== "zh"'));
 assert.ok(cutHome.includes("This week's pace will change with cardio logs"));

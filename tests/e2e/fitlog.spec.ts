@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 const ROUTES = [
   "/",
@@ -74,6 +75,88 @@ test("primary routes stay visible and inside the viewport", async ({ page }) => 
   await expect(page.locator("[data-apple-health-sync]")).toHaveCount(0);
   expect(consoleErrors).toEqual([]);
 });
+
+for (const visualMode of ["lite", "pulse", "midnight", "survival"]) {
+test(`active product routes meet the WCAG AA baseline in ${visualMode}`, async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Accessibility is audited once at the primary mobile viewport.");
+  test.setTimeout(60_000);
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey, mode }) => {
+    localStorage.setItem("fitlog:uiMode", mode);
+    const prescription = {
+      progressionTrackId: "px_barbell_bench:strength:4-6:4:reps",
+      progressionTrackLabel: "力量 · 4–6 次",
+      trainingIntent: "strength",
+      targetRepMin: 4,
+      targetRepMax: 6,
+      targetRirMin: 1,
+      targetRirMax: 2,
+      workingSets: 4,
+      loadIncrementKg: 2.5,
+      progressionRule: "doubleProgression",
+      performanceMode: "reps",
+    };
+    const exercise = {
+      id: "px_barbell_bench",
+      name: "平板杠铃卧推",
+      isMain: true,
+      primaryMuscle: "chest",
+      volumeContributions: [{ muscle: "chest", weight: 1, direct: true }],
+      equipment: "free",
+      recordModes: ["weight", "reps"],
+      prescription,
+    };
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      profile: { trainingLevel: "intermediate", sex: "male", heightCm: 178, birthYear: 1998 },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          recovery: { sleepHours: 7.5, sleepQuality: 4, energy: 4, soreness: 2, stress: 2 },
+          workout: {
+            type: "push",
+            done: false,
+            microcycleId: "mc_accessibility",
+            exercises: [{ ...exercise, sets: [{ weight: 80, reps: 5, type: "working", completion: "completed" }] }],
+          },
+        },
+      },
+      bodyWeights: [{ date: dateKey, weight: 79.5 }],
+      waistEntries: [{ date: dateKey, waist: 83.5 }],
+      customExercises: [],
+      templates: [{
+        id: "tpl_accessibility",
+        name: "推 · 力量",
+        type: "push",
+        items: [{ exerciseId: exercise.id, name: exercise.name, sets: 4, repsLow: 4, repsHigh: 6, isMain: true, primaryMuscle: "chest", volumeContributions: exercise.volumeContributions, equipment: "free", recordModes: ["weight", "reps"], prescription }],
+      }],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+      microcycle: {
+        currentId: "mc_accessibility",
+        startedAt: dateKey,
+        stepIndex: 0,
+        steps: [{ id: "step_accessibility", type: "push", label: "Push Strength", templateId: "tpl_accessibility" }],
+        phase: "build",
+      },
+    }));
+  }, { dateKey: date, mode: visualMode });
+
+  for (const route of ROUTES) {
+    await page.goto(route, { waitUntil: "load" });
+    await expect(page.locator("main")).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-mode", visualMode);
+    const result = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    const violations = result.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      targets: violation.nodes.flatMap((node) => node.target),
+    }));
+    expect(violations, `${visualMode} ${route} accessibility violations`).toEqual([]);
+  }
+});
+}
 
 test("all visual modes keep core mobile flows contained", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Theme containment is a focused mobile regression.");
@@ -174,7 +257,7 @@ test("planning controls stay reachable without floating overlap", async ({ page 
   await page.goto("/schedule");
   const editor = page.locator("[data-microcycle-editor]");
   await expect(editor).not.toHaveAttribute("open", "");
-  await expect(page.locator("[data-training-policy-shortcut]")).toHaveCSS("position", "static");
+  await expect(page.locator("[data-training-workspace-nav]")).toHaveCSS("position", "static");
   await editor.locator("summary").click();
   await expect(editor).toHaveAttribute("open", "");
   await expect(editor.getByRole("textbox", { name: "第 3 步名称" })).toHaveValue("腿");
@@ -299,7 +382,7 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
 
   await page.goto("/training-policy");
   await expect(page.getByRole("heading", { name: "Adaptive training plan" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Training plan views" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Training planning views" })).toBeVisible();
   await page.getByText("Quick preference input", { exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Training preference description" })).toBeVisible();
   await page.getByRole("button", { name: /^Strength/ }).click();
@@ -489,6 +572,79 @@ test("the latest set survives an immediate reload", async ({ page }) => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
     return data.days?.[dateKey]?.workout?.exercises?.[0]?.sets?.[0]?.reps;
   }, date)).toBe(6);
+});
+
+test("typing a two-digit final set never advances before explicit confirmation", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The regression is specific to touch input and iOS-sized controls.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const prescription = (exerciseId: string) => ({
+      progressionTrackId: `${exerciseId}:hypertrophy:8-12:1:reps`,
+      progressionTrackLabel: "增肌 · 8–12 次",
+      trainingIntent: "hypertrophy",
+      targetRepMin: 8,
+      targetRepMax: 12,
+      targetRirMin: 1,
+      targetRirMax: 2,
+      workingSets: 1,
+      loadIncrementKg: 2.5,
+      progressionRule: "doubleProgression",
+      performanceMode: "reps",
+    });
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [
+              {
+                id: "px_barbell_bench",
+                name: "平板杠铃卧推",
+                isMain: true,
+                recordModes: ["weight", "reps"],
+                prescription: prescription("px_barbell_bench"),
+                sets: [{ weight: 80, reps: 0, type: "working", completion: "completed" }],
+              },
+              {
+                id: "px_machine_lateral",
+                name: "器械侧平举",
+                recordModes: ["weight", "reps"],
+                prescription: prescription("px_machine_lateral"),
+                sets: [],
+              },
+            ],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  const bench = page.locator("#exercise-px_barbell_bench");
+  const lateralRaise = page.locator("#exercise-px_machine_lateral");
+  const reps = bench.getByRole("textbox", { name: "第1组次数" });
+  await expect(reps).toBeVisible();
+  await expect(bench).toHaveAttribute("data-active", "true");
+  await expect(reps).toHaveCSS("font-size", "16px");
+
+  await reps.click();
+  await reps.pressSequentially("1");
+  await expect(reps).toBeFocused();
+  await expect(reps).toHaveValue("1");
+  await expect(bench).toHaveAttribute("data-active", "true");
+  await expect(lateralRaise).toHaveAttribute("data-active", "false");
+
+  await reps.pressSequentially("2");
+  await expect(reps).toHaveValue("12");
+  await expect(bench).toHaveAttribute("data-active", "true");
+  await expect(bench.getByRole("button", { name: /下一项.*器械侧平举/ })).toBeVisible();
 });
 
 test("exercise picker behaves as an accessible mobile sheet", async ({ page }) => {

@@ -83,11 +83,10 @@ import {
 import {
   applyPrescriptionSnapshot,
   deloadPrescription,
-  findTrackHistory,
   normalizeTemplateItemPrescription,
   prescriptionForPreset,
   prescriptionFromTemplateItem,
-  type TrackHistoryResult,
+  type TrackHistoryCollection,
 } from "./prescription";
 import { hasSetPerformance, workingSets } from "./trainingMetrics";
 import { inspectDataHealth } from "./dataHealth";
@@ -103,6 +102,12 @@ import {
   mergeAppleHealthSnapshot as mergeAppleHealthData,
   type AppleHealthMergeSummary,
 } from "./appleHealth";
+import {
+  buildTrainingHistoryIndex,
+  findIndexedLastNutrition,
+  findIndexedLastWorkoutByType,
+  findIndexedTrackHistories,
+} from "./historyIndex";
 
 interface StoreApi {
   loaded: boolean;
@@ -160,11 +165,12 @@ interface StoreApi {
   applyTemplate: (id: string, date: string, options?: { microcycleStepId?: string }) => number;
 
   // 跨天查询
-  lastSession: (
+  trackHistories: (
     exerciseId: string,
     beforeDate: string,
-    progressionTrackId?: string
-  ) => { date: string; sets: SetRecord[]; exercise?: Exercise; other?: TrackHistoryResult | null; legacy?: TrackHistoryResult | null } | null;
+    progressionTrackId?: string,
+    limit?: number,
+  ) => TrackHistoryCollection;
   lastNutrition: (beforeDate: string) => NutritionLog | null;
 
   // 体重
@@ -254,8 +260,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
-  const pendingLocalWriteRef = useRef(false);
   const remoteDataRef = useRef<AppData | null>(null);
+  const historyIndex = useMemo(() => buildTrainingHistoryIndex(data.days), [data.days]);
 
   // 仅客户端：挂载后读取本地数据
   useEffect(() => {
@@ -273,11 +279,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const previousStored = e.oldValue ? parseStoredData(e.oldValue) : emptyData();
         const reconciled = reconcileStorageEvent(dataRef.current, previousStored, incoming);
         if (reconciled.shouldPersist) {
-          pendingLocalWriteRef.current = true;
           remoteDataRef.current = null;
           setData(reconciled.data);
         } else {
-          pendingLocalWriteRef.current = false;
           remoteDataRef.current = reconciled.data;
           dataRef.current = reconciled.data;
           setData(reconciled.data);
@@ -302,10 +306,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     remoteDataRef.current = null;
-    pendingLocalWriteRef.current = true;
     const t = setTimeout(() => {
       saveData(data);
-      pendingLocalWriteRef.current = false;
     }, 120);
     return () => clearTimeout(t);
   }, [data, loaded]);
@@ -315,7 +317,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const flush = () => {
       if (loadedRef.current) {
         saveData(dataRef.current);
-        pendingLocalWriteRef.current = false;
       }
     };
     const onVis = () => {
@@ -944,34 +945,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- 跨天查询 ----
-  const lastSession = useCallback(
-    (exerciseId: string, beforeDate: string, progressionTrackId?: string) => {
-      const history = findTrackHistory(data.days, exerciseId, beforeDate, progressionTrackId);
-      if (!history.same) return null;
-      return {
-        date: history.same.date,
-        sets: history.same.sets,
-        exercise: history.same.exercise,
-        other: history.other,
-        legacy: history.legacy,
-      };
-    },
-    [data.days]
+  const trackHistories = useCallback(
+    (exerciseId: string, beforeDate: string, progressionTrackId?: string, limit = 8) =>
+      findIndexedTrackHistories(historyIndex, exerciseId, beforeDate, progressionTrackId, limit),
+    [historyIndex],
   );
 
   const lastNutrition = useCallback(
-    (beforeDate: string) => {
-      const dates = Object.keys(data.days)
-        .filter((d) => d < beforeDate)
-        .sort()
-        .reverse();
-      for (const d of dates) {
-        const n = data.days[d].nutrition;
-        if (n && (n.calories || n.protein || n.carbs || n.fat)) return n;
-      }
-      return null;
-    },
-    [data.days]
+    (beforeDate: string) => findIndexedLastNutrition(historyIndex, beforeDate),
+    [historyIndex],
   );
 
   // ---- 体重 ----
@@ -1263,28 +1245,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- 跨天 type 查询 ----
   const lastWorkoutByType = useCallback(
-    (type: TrainingType, beforeDate: string) => {
-      const dates = Object.keys(data.days)
-        .filter((d) => d < beforeDate)
-        .sort()
-        .reverse();
-      for (const d of dates) {
-        const w = data.days[d].workout;
-        if (
-          w &&
-          w.type === type &&
-          w.done !== false &&
-          w.exercises.some((e) => workingSets(e.sets).length > 0)
-        ) {
-          return {
-            date: d,
-            exercises: w.exercises.filter((e) => workingSets(e.sets).length > 0),
-          };
-        }
-      }
-      return null;
-    },
-    [data.days]
+    (type: TrainingType, beforeDate: string) => findIndexedLastWorkoutByType(historyIndex, type, beforeDate),
+    [historyIndex],
   );
 
   // ---- 数据管理 ----
@@ -1386,7 +1348,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTemplateItems,
       deleteTemplate,
       applyTemplate,
-      lastSession,
+      trackHistories,
       lastNutrition,
       setBodyWeight,
       removeBodyWeight,
@@ -1444,7 +1406,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTemplateItems,
       deleteTemplate,
       applyTemplate,
-      lastSession,
+      trackHistories,
       lastNutrition,
       setBodyWeight,
       removeBodyWeight,

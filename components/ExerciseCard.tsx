@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { Exercise, PerformanceMode, SetRecord } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -13,7 +13,6 @@ import {
   exercisePrescription,
   exerciseTrackId,
   exerciseTrackLabel,
-  findTrackHistories,
   lastProgressionSet,
   performanceModeFor,
   progressionSuggestion,
@@ -69,6 +68,7 @@ export default function ExerciseCard({
   nextExercise,
   navigationTarget = false,
   active = false,
+  onActivate,
   onNavigate,
 }: {
   date: string;
@@ -76,12 +76,13 @@ export default function ExerciseCard({
   nextExercise?: Exercise;
   navigationTarget?: boolean;
   active?: boolean;
+  onActivate?: (exerciseId: string) => void;
   onNavigate?: (exerciseId: string) => void;
 }) {
   const { tr, locale } = useI18n();
   const { persona } = usePersona();
   const { mode } = useUIMode();
-  const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, data } = useStore();
+  const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, trackHistories, data } = useStore();
   const toast = useToast();
   const contentId = useId();
   const [open, setOpen] = useState(active);
@@ -91,7 +92,10 @@ export default function ExerciseCard({
   const prescription = exercisePrescription(exercise);
   const trackId = exerciseTrackId(exercise);
   const trackLabel = exerciseTrackLabel(exercise);
-  const histories = findTrackHistories(data.days, exercise.id, date, trackId, 6);
+  const histories = useMemo(
+    () => trackHistories(exercise.id, date, trackId, 6),
+    [date, exercise.id, trackHistories, trackId],
+  );
   const previous = histories.same[0] ?? null;
   const performanceMode = prescription.performanceMode ?? performanceModeFor(exercise.recordModes);
   const recordsWeight = performanceMode === "reps" && (exercise.recordModes?.includes("weight") ?? true);
@@ -119,7 +123,6 @@ export default function ExerciseCard({
   const trend = analyzeTrackTrend(reviewingCompleted && currentHistory ? [currentHistory, ...histories.same] : histories.same);
   const workSummary = summarizeExerciseWork(exercise);
   const plannedSets = plannedWorkingSets(exercise);
-  const completed = plannedSets > 0 && workSummary.completionCredits >= plannedSets;
   const currentLoad = recordsWeight ? currentWorking[currentWorking.length - 1] ?? null : null;
   const carry = currentLoad ?? (recordsWeight && previous && !previous.implicitCompletion ? lastProgressionSet(previous.sets) : null);
   const acceptedWeight = exercise.plannedLoadKg;
@@ -201,18 +204,25 @@ export default function ExerciseCard({
   }, [exercise.id, navigationTarget]);
 
   useEffect(() => {
-    if (navigationTarget || active) {
-      setOpen(true);
-      return;
-    }
-    if (completed) setOpen(false);
-  }, [active, completed, navigationTarget]);
+    if (active) setOpen(true);
+  }, [active]);
 
-  return <section id={`exercise-${exercise.id}`} className="control-card exercise-card scroll-mt-3" data-active={active}>
+  return <section
+    id={`exercise-${exercise.id}`}
+    className="control-card exercise-card scroll-mt-3"
+    data-active={active}
+    onFocusCapture={(event) => {
+      if (!(event.target as HTMLElement).closest("[data-exercise-toggle]")) onActivate?.(exercise.id);
+    }}
+  >
     <div className="flex items-center gap-2 px-3.5 py-3">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        data-exercise-toggle
+        onClick={() => {
+          onActivate?.(exercise.id);
+          setOpen((value) => !value);
+        }}
         aria-expanded={open}
         aria-controls={contentId}
         aria-label={tx(

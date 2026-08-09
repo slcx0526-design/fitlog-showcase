@@ -1,5 +1,5 @@
 import { DEFAULT_EXERCISES } from "./exercises";
-import { MUSCLE_ORDER, type Equipment, type MuscleGroup } from "./muscles";
+import { MUSCLE_LABELS, MUSCLE_ORDER, type Equipment, type MuscleGroup } from "./muscles";
 import type { AppData, MovementPattern, Schedule, TemplateItem } from "./types";
 import { emitPersistenceStatus } from "./persistence";
 
@@ -130,7 +130,7 @@ const DECISION_OUTCOMES: TrainingDecisionOutcome[] = [
 ];
 
 const MUSCLE_ALIASES: Partial<Record<MuscleGroup, string[]>> = {
-  chest: ["胸", "胸肌", "chest", "胸筋"],
+  chest: ["胸部", "胸肌", "胸", "chest", "胸筋"],
   upperChest: ["上胸", "upper chest", "上部胸筋"],
   back: ["背部", "back", "背中"],
   lats: ["背阔", "背阔肌", "lats", "latissimus", "広背筋"],
@@ -575,6 +575,72 @@ function parseExercisePreferences(data: AppData, text: string) {
   return { preferences, recognized };
 }
 
+type MuscleIntentCandidate = {
+  muscle: MuscleGroup;
+  priority: MusclePriority;
+  start: number;
+  end: number;
+  aliasLength: number;
+};
+
+function phraseMatches(normalized: string, phrase: string) {
+  const matches: Array<{ start: number; end: number }> = [];
+  let offset = 0;
+  while (offset < normalized.length) {
+    const start = normalized.indexOf(phrase, offset);
+    if (start < 0) break;
+    matches.push({ start, end: start + phrase.length });
+    offset = start + 1;
+  }
+  return matches;
+}
+
+function muscleIntentCandidates(normalized: string) {
+  const candidates: MuscleIntentCandidate[] = [];
+  const patterns = (key: string): Array<[MusclePriority, string[]]> => [
+    ["specialize", [
+      `以${key}为主`, `${key}为主`, `主攻${key}`, `${key}主攻`, `${key}优先`, `${key}重点`,
+      `强化${key}`, `多练${key}`, `prioritize${key}`, `${key}priority`, `focus${key}`,
+      `${key}focus`, `${key}を優先`, `${key}重点`,
+    ]],
+    ["grow", [
+      `${key}增长`, `${key}生长`, `${key}增肌`, `增长${key}`, `加强${key}`,
+      `grow${key}`, `${key}growth`, `build${key}`, `${key}を伸ばす`, `${key}成長`,
+    ]],
+    ["maintain", [
+      `${key}维持`, `${key}保留`, `${key}够用`, `maintain${key}`, `${key}maintenance`, `${key}を維持`,
+    ]],
+    ["deprioritize", [
+      `${key}少练`, `降低${key}`, `${key}不重要`, `deprioritize${key}`, `reduce${key}`, `${key}を減らす`,
+    ]],
+  ];
+
+  for (const muscle of MUSCLE_ORDER) {
+    for (const alias of MUSCLE_ALIASES[muscle] ?? []) {
+      const key = compact(alias);
+      if (!key) continue;
+      for (const [priority, phrases] of patterns(key)) {
+        for (const phrase of new Set(phrases)) {
+          for (const match of phraseMatches(normalized, phrase)) {
+            candidates.push({ muscle, priority, ...match, aliasLength: key.length });
+          }
+        }
+      }
+    }
+  }
+
+  const accepted: MuscleIntentCandidate[] = [];
+  for (const candidate of candidates.sort((left, right) => (
+    (right.end - right.start) - (left.end - left.start)
+    || right.aliasLength - left.aliasLength
+    || left.start - right.start
+  ))) {
+    const overlaps = accepted.some((current) => candidate.start < current.end && candidate.end > current.start);
+    if (!overlaps) accepted.push(candidate);
+  }
+  return accepted.sort((left, right) => left.start - right.start);
+}
+
 export function parseTrainingPolicyText(
   text: string,
   data: AppData,
@@ -621,22 +687,16 @@ export function parseTrainingPolicyText(
   }
 
   const musclePriorities: Partial<Record<MuscleGroup, MusclePriority>> = {};
-  for (const muscle of MUSCLE_ORDER) {
-    for (const alias of MUSCLE_ALIASES[muscle] ?? []) {
-      const key = compact(alias);
-      if (!normalized.includes(key)) continue;
-      if ([`${key}优先`, `${key}重点`, `强化${key}`, `多练${key}`, `prioritize${key}`, `${key}priority`, `focus${key}`, `${key}を優先`, `${key}重点`].some((phrase) => normalized.includes(phrase))) {
-        musclePriorities[muscle] = "specialize";
-        recognized.push(`${alias}：专项强化`);
-      } else if ([`${key}维持`, `${key}保留`, `${key}够用`, `maintain${key}`, `${key}maintenance`, `${key}を維持`].some((phrase) => normalized.includes(phrase))) {
-        musclePriorities[muscle] = "maintain";
-        recognized.push(`${alias}：维持`);
-      } else if ([`${key}少练`, `降低${key}`, `${key}不重要`, `deprioritize${key}`, `reduce${key}`, `${key}を減らす`].some((phrase) => normalized.includes(phrase))) {
-        musclePriorities[muscle] = "deprioritize";
-        recognized.push(`${alias}：降低优先级`);
-      }
-      break;
-    }
+  for (const match of muscleIntentCandidates(normalized)) {
+    musclePriorities[match.muscle] = match.priority;
+    const priority = match.priority === "specialize"
+      ? "专项强化"
+      : match.priority === "grow"
+        ? "增长"
+        : match.priority === "maintain"
+          ? "维持"
+          : "降低优先级";
+    recognized.push(`${MUSCLE_LABELS[match.muscle]}：${priority}`);
   }
   if (Object.keys(musclePriorities).length) patch.musclePriorities = musclePriorities;
 
