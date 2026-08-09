@@ -257,6 +257,20 @@ function data(): AppData {
 }
 
 {
+  const result = parseTrainingPolicyText(
+    "胸部是重点，中束也想加强",
+    data(),
+    defaultTrainingPolicy(),
+  );
+  assert.equal(result.policy.musclePriorities.chest, "specialize");
+  assert.equal(result.policy.musclePriorities.sideDelt, "grow");
+  assert.equal(result.unresolved.length, 0, "Natural connectors must not hide a missed muscle priority");
+  const english = parseTrainingPolicyText("Focus on chest and grow side delts", data(), defaultTrainingPolicy());
+  assert.equal(english.policy.musclePriorities.chest, "specialize");
+  assert.equal(english.policy.musclePriorities.sideDelt, "grow");
+}
+
+{
   const current = data();
   const sharedTemplate: Template = {
     id: "tpl_shared_priority",
@@ -339,6 +353,85 @@ function data(): AppData {
     .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
   assert.ok(chestFamilySets <= 8, `Existing chest-family volume must be repaired to the 8-set cap, received ${chestFamilySets}`);
   assert.equal(change.nextItems.find((item) => item.exerciseId === "px_triceps_pushdown")?.sets, 3, "Recovery repair must not remove unrelated direct triceps work");
+}
+
+{
+  const current = data();
+  const oneSetTemplate: Template = {
+    id: "tpl_one_set_cap",
+    name: "单组动作超限",
+    type: "push",
+    items: Array.from({ length: 8 }, (_, index) => ({
+      exerciseId: `cx_one_set_${index}`,
+      name: `单组动作 ${index + 1}`,
+      sets: 1,
+      repsLow: 8,
+      repsHigh: 12,
+      isMain: false,
+      primaryMuscle: "chest" as const,
+      volumeContributions: [{ muscle: "chest" as const, weight: 1, direct: true }],
+    })),
+  };
+  current.templates = [oneSetTemplate];
+  current.schedule = {
+    split: ["push", "rest", "rest", "rest", "rest", "rest", "rest"],
+    microcycle: [{ id: "one_set_step", type: "push", label: "推", templateId: oneSetTemplate.id }],
+  };
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    weeklyTrainingDays: { minimum: 1, target: 1, maximum: 2 },
+    maxExercisesPerSession: 8,
+    maxWorkingSetsPerSession: 6,
+    maxSessionMinutes: 240,
+  });
+  const proposal = buildPlanAdaptation(current, policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === oneSetTemplate.id);
+  assert.ok(change, "A hard set cap must still be enforced when every movement is already at one set");
+  assert.ok(change.nextItems.reduce((sum, item) => sum + item.sets, 0) <= 6);
+  assert.equal(change.nextItems.length, 6);
+  assert.equal(proposal.impact.removedExercises, 2);
+  assert.ok(change.reasons.some((reason) => reason.includes("单次上限仍超出")));
+  assert.match(adaptiveText("en", change.reasons.find((reason) => reason.includes("单次上限仍超出"))!), /within 240 minutes and 6 sets/);
+}
+
+{
+  const current = data();
+  const oneSetRecoveryTemplate: Template = {
+    id: "tpl_one_set_recovery_cap",
+    name: "单组胸部恢复超限",
+    type: "push",
+    items: Array.from({ length: 9 }, (_, index) => ({
+      exerciseId: `cx_one_set_chest_${index}`,
+      name: `胸部单组动作 ${index + 1}`,
+      sets: 1,
+      repsLow: 8,
+      repsHigh: 12,
+      isMain: index === 0,
+      primaryMuscle: index === 0 ? "upperChest" as const : "chest" as const,
+      volumeContributions: [{ muscle: index === 0 ? "upperChest" as const : "chest" as const, weight: 1, direct: true }],
+    })),
+  };
+  current.templates = [oneSetRecoveryTemplate];
+  current.schedule = {
+    split: ["push", "rest", "rest", "rest", "rest", "rest", "rest"],
+    microcycle: [{ id: "one_set_recovery_step", type: "push", label: "推", templateId: oneSetRecoveryTemplate.id }],
+  };
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    weeklyTrainingDays: { minimum: 1, target: 1, maximum: 2 },
+    musclePriorities: { chest: "specialize" },
+    maxExercisesPerSession: 12,
+    maxWorkingSetsPerSession: 12,
+    maxSessionMinutes: 240,
+  });
+  const proposal = buildPlanAdaptation(current, policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === oneSetRecoveryTemplate.id);
+  assert.ok(change, "A recovery cap must still be enforced when every contributing movement is already at one set");
+  const chestSets = change.nextItems.reduce((total, item) => total + (item.volumeContributions ?? [])
+    .filter((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest"))
+    .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
+  assert.ok(chestSets <= 8, `One-set chest movements must be repaired to the recovery cap, received ${chestSets}`);
+  assert.ok(change.nextItems.some((item) => item.exerciseId === "cx_one_set_chest_0"), "The main movement should survive before lower-priority accessories");
+  assert.ok(change.reasons.some((reason) => reason.includes("移除低优先级动作")));
+  assert.match(adaptiveText("en", change.reasons.find((reason) => reason.includes("移除低优先级动作"))!), /direct-work cap/);
 }
 
 {

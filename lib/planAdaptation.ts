@@ -274,12 +274,12 @@ function enforceRecoveryCaps(
         .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
         .filter(({ item }) => item.sets > 1 && directContributions(item, itemPreset(item, presets)).some((entry) => recovery.muscles.includes(entry.muscle)))
         .sort((left, right) => {
-          const priorityDelta = recoveryPriorityScore(left.item, recovery.muscles, policy, presets)
-            - recoveryPriorityScore(right.item, recovery.muscles, policy, presets);
-          if (priorityDelta) return priorityDelta;
           const leftMain = left.item.isMain ?? left.preset?.isMain ?? false;
           const rightMain = right.item.isMain ?? right.preset?.isMain ?? false;
           if (leftMain !== rightMain) return Number(leftMain) - Number(rightMain);
+          const priorityDelta = recoveryPriorityScore(left.item, recovery.muscles, policy, presets)
+            - recoveryPriorityScore(right.item, recovery.muscles, policy, presets);
+          if (priorityDelta) return priorityDelta;
           const preferenceDelta = exercisePreferenceScore(left.preset ?? { id: left.item.exerciseId }, constraints)
             - exercisePreferenceScore(right.preset ?? { id: right.item.exerciseId }, constraints);
           return preferenceDelta || right.item.sets - left.item.sets || right.index - left.index;
@@ -294,7 +294,32 @@ function enforceRecoveryCaps(
     for (const [exerciseName, count] of reductions) {
       template.reasons.add(`${groupLabel}：单次直接组上限 ${recovery.sessionCap}，${exerciseName} -${count} 组`);
     }
-    const remaining = templateDirectSets(template, recovery.muscles, presets);
+    let remaining = templateDirectSets(template, recovery.muscles, presets);
+    guard = 0;
+    while (remaining > recovery.sessionCap + 0.001 && template.items.length > 1 && guard < 80) {
+      guard += 1;
+      const candidates = template.items
+        .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
+        .filter(({ item, preset }) => directContributions(item, preset)
+          .some((entry) => recovery.muscles.includes(entry.muscle)))
+        .sort((left, right) => {
+          const leftMain = left.item.isMain ?? left.preset?.isMain ?? false;
+          const rightMain = right.item.isMain ?? right.preset?.isMain ?? false;
+          if (leftMain !== rightMain) return Number(leftMain) - Number(rightMain);
+          const priorityDelta = recoveryPriorityScore(left.item, recovery.muscles, policy, presets)
+            - recoveryPriorityScore(right.item, recovery.muscles, policy, presets);
+          if (priorityDelta) return priorityDelta;
+          const preferenceDelta = exercisePreferenceScore(left.preset ?? { id: left.item.exerciseId }, constraints)
+            - exercisePreferenceScore(right.preset ?? { id: right.item.exerciseId }, constraints);
+          return preferenceDelta || right.index - left.index;
+        });
+      const candidate = candidates[0];
+      if (!candidate) break;
+      template.items.splice(candidate.index, 1);
+      template.removed += 1;
+      template.reasons.add(`${groupLabel}：单次直接组上限 ${recovery.sessionCap}，移除低优先级动作 ${candidate.item.name}`);
+      remaining = templateDirectSets(template, recovery.muscles, presets);
+    }
     if (remaining > recovery.sessionCap + 0.001) {
       const warning = `${template.source.name} 的${groupLabel}直接组仍为 ${Math.round(remaining * 10) / 10}，高于单次恢复上限 ${recovery.sessionCap}；请人工确认动作结构。`;
       if (!warnings.includes(warning)) warnings.push(warning);
@@ -417,6 +442,11 @@ function enforceSessionCaps(
   constraints: ReturnType<typeof compileTrainingConstraints>,
   presets: Map<string, Preset>,
 ) {
+  const setCount = () => template.items.reduce((sum, item) => sum + item.sets, 0);
+  const exceedsWorkOrTimeCap = () => (
+    setCount() > constraints.maxWorkingSetsPerSession
+    || estimateTemplateMinutes(template.items, presets) > constraints.maxSessionMinutes
+  );
   const lowValueIndex = () => template.items
     .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
     .sort((a, b) => {
@@ -438,8 +468,7 @@ function enforceSessionCaps(
   let guard = 0;
   while (
     guard < 80
-    && (template.items.reduce((sum, item) => sum + item.sets, 0) > constraints.maxWorkingSetsPerSession
-      || estimateTemplateMinutes(template.items, presets) > constraints.maxSessionMinutes)
+    && exceedsWorkOrTimeCap()
   ) {
     guard += 1;
     const candidates = template.items
@@ -461,6 +490,19 @@ function enforceSessionCaps(
       ...(candidate.item.prescription ? { prescription: { ...candidate.item.prescription, workingSets: nextSets } } : {}),
     };
     template.reasons.add(`控制在 ${constraints.maxSessionMinutes} 分钟 / ${constraints.maxWorkingSetsPerSession} 组以内`);
+  }
+
+  // A one-set floor can still violate a hard session cap when the template has
+  // many movements. Remove the lowest-value movement instead of claiming the
+  // unchanged template satisfies the user's explicit limit.
+  guard = 0;
+  while (guard < 80 && template.items.length > 1 && exceedsWorkOrTimeCap()) {
+    guard += 1;
+    const index = lowValueIndex();
+    if (index == null) break;
+    const [removed] = template.items.splice(index, 1);
+    template.removed += 1;
+    template.reasons.add(`单次上限仍超出，移除低优先级动作 ${removed.name}，控制在 ${constraints.maxSessionMinutes} 分钟 / ${constraints.maxWorkingSetsPerSession} 组以内`);
   }
 }
 

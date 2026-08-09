@@ -84,6 +84,7 @@ const VALID_SUGGESTION_STATUSES = new Set([
   "addWeight", "addReps", "stabilize", "effortCheck", "finishSets", "noHistory",
   "modeReference", "manualProgression", "mixedLoads", "missingLoad", "unconfirmedHistory",
 ]);
+const DEFAULT_EXERCISE_BY_ID = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
 
 function parseRecordModes(input: unknown): RecordMode[] | undefined {
   if (!Array.isArray(input)) return undefined;
@@ -275,42 +276,63 @@ function uniqueId(candidate: string, prefix: string, used: Set<string>) {
 function parsePrescription(input: unknown): ProgressionPrescription | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
-  if (typeof value.progressionTrackId !== "string" || !value.progressionTrackId) return undefined;
+  const progressionTrackId = typeof value.progressionTrackId === "string" ? value.progressionTrackId.trim() : "";
+  if (!progressionTrackId) return undefined;
   if (value.trainingIntent !== "strength" && value.trainingIntent !== "hypertrophy" && value.trainingIntent !== "endurance" && value.trainingIntent !== "custom") return undefined;
-  const min = typeof value.targetRepMin === "number" ? Math.max(1, Math.round(value.targetRepMin)) : 8;
-  const max = typeof value.targetRepMax === "number" ? Math.max(min, Math.round(value.targetRepMax)) : 12;
+  const performanceMode = value.performanceMode === "duration" || value.performanceMode === "distance" || value.performanceMode === "reps"
+    ? value.performanceMode
+    : undefined;
+  const targetLimit = performanceMode === "duration" ? 3_600 : performanceMode === "distance" ? 100_000 : 40;
+  const fallback = performanceMode === "duration" ? [30, 60] : performanceMode === "distance" ? [20, 50] : [8, 12];
+  const min = typeof value.targetRepMin === "number" && Number.isFinite(value.targetRepMin)
+    ? Math.min(targetLimit, Math.max(1, Math.round(value.targetRepMin)))
+    : fallback[0];
+  const max = typeof value.targetRepMax === "number" && Number.isFinite(value.targetRepMax)
+    ? Math.min(targetLimit, Math.max(min, Math.round(value.targetRepMax)))
+    : Math.max(min, fallback[1]);
+  const targetRirMin = typeof value.targetRirMin === "number" && Number.isFinite(value.targetRirMin) && value.targetRirMin >= 0 && value.targetRirMin <= 10
+    ? Math.round(value.targetRirMin * 10) / 10
+    : undefined;
+  const targetRirMax = typeof value.targetRirMax === "number" && Number.isFinite(value.targetRirMax) && value.targetRirMax >= 0 && value.targetRirMax <= 10
+    ? Math.max(targetRirMin ?? 0, Math.round(value.targetRirMax * 10) / 10)
+    : undefined;
   return {
-    progressionTrackId: value.progressionTrackId,
-    progressionTrackLabel: typeof value.progressionTrackLabel === "string" ? value.progressionTrackLabel : "训练轨道",
+    progressionTrackId,
+    progressionTrackLabel: typeof value.progressionTrackLabel === "string" && value.progressionTrackLabel.trim() ? value.progressionTrackLabel.trim() : "训练轨道",
     trainingIntent: value.trainingIntent,
     targetRepMin: min,
     targetRepMax: max,
-    ...(typeof value.targetRirMin === "number" ? { targetRirMin: value.targetRirMin } : {}),
-    ...(typeof value.targetRirMax === "number" ? { targetRirMax: value.targetRirMax } : {}),
-    workingSets: typeof value.workingSets === "number" ? Math.max(1, Math.round(value.workingSets)) : 3,
-    loadIncrementKg: typeof value.loadIncrementKg === "number" ? Math.max(0, value.loadIncrementKg) : 2.5,
+    ...(targetRirMin != null ? { targetRirMin } : {}),
+    ...(targetRirMax != null ? { targetRirMax } : {}),
+    workingSets: typeof value.workingSets === "number" && Number.isFinite(value.workingSets)
+      ? Math.min(12, Math.max(1, Math.round(value.workingSets)))
+      : 3,
+    loadIncrementKg: typeof value.loadIncrementKg === "number" && Number.isFinite(value.loadIncrementKg)
+      ? Math.min(100, Math.max(0, Math.round(value.loadIncrementKg * 100) / 100))
+      : 2.5,
     progressionRule: value.progressionRule === "repsFirst" || value.progressionRule === "custom" ? value.progressionRule : "doubleProgression",
-    ...(value.performanceMode === "duration" || value.performanceMode === "distance" || value.performanceMode === "reps" ? { performanceMode: value.performanceMode } : {}),
+    ...(performanceMode ? { performanceMode } : {}),
   };
 }
 
-function parseProgressionPlan(input: unknown, plannedLoadKg?: number): ProgressionPlanSnapshot | undefined {
+function parseProgressionPlan(input: unknown, plannedLoadKg?: number, expectedTrackId?: string): ProgressionPlanSnapshot | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
   if (value.origin !== "suggestion" && value.origin !== "reference" && value.origin !== "manual") return undefined;
-  if (typeof value.progressionTrackId !== "string" || !value.progressionTrackId) return undefined;
+  const progressionTrackId = typeof value.progressionTrackId === "string" ? value.progressionTrackId.trim() : "";
+  if (!progressionTrackId || (expectedTrackId && progressionTrackId !== expectedTrackId)) return undefined;
   if (typeof value.acceptedAt !== "string" || !value.acceptedAt) return undefined;
-  if (typeof value.plannedLoadKg !== "number" || !Number.isFinite(value.plannedLoadKg) || value.plannedLoadKg <= 0) return undefined;
-  const load = Math.round(value.plannedLoadKg * 100) / 100;
+  if (typeof value.plannedLoadKg !== "number" || !Number.isFinite(value.plannedLoadKg) || value.plannedLoadKg <= 0 || value.plannedLoadKg > 5_000) return undefined;
+  const load = Math.min(5_000, Math.round(value.plannedLoadKg * 100) / 100);
   if (plannedLoadKg != null && Math.abs(plannedLoadKg - load) > 0.05) return undefined;
   return {
     origin: value.origin,
     acceptedAt: value.acceptedAt,
-    progressionTrackId: value.progressionTrackId,
+    progressionTrackId,
     plannedLoadKg: load,
     ...(isDateKey(value.sourceDate) ? { sourceDate: value.sourceDate } : {}),
-    ...(typeof value.suggestedLoadKg === "number" && Number.isFinite(value.suggestedLoadKg) && value.suggestedLoadKg > 0
-      ? { suggestedLoadKg: Math.round(value.suggestedLoadKg * 100) / 100 }
+    ...(typeof value.suggestedLoadKg === "number" && Number.isFinite(value.suggestedLoadKg) && value.suggestedLoadKg > 0 && value.suggestedLoadKg <= 5_000
+      ? { suggestedLoadKg: Math.min(5_000, Math.round(value.suggestedLoadKg * 100) / 100) }
       : {}),
     ...(typeof value.suggestionStatus === "string" && VALID_SUGGESTION_STATUSES.has(value.suggestionStatus)
       ? { suggestionStatus: value.suggestionStatus as ProgressionPlanSnapshot["suggestionStatus"] }
@@ -323,12 +345,12 @@ function parseSet(input: unknown): SetRecord | null {
   const value = input as Record<string, unknown>;
   const validWeight = typeof value.weight === "number" && Number.isFinite(value.weight);
   const validReps = typeof value.reps === "number" && Number.isFinite(value.reps);
-  const durationSeconds = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) && value.durationSeconds >= 0 ? Math.round(value.durationSeconds) : undefined;
-  const distanceMeters = typeof value.distanceMeters === "number" && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0 ? Math.round(value.distanceMeters * 100) / 100 : undefined;
+  const durationSeconds = typeof value.durationSeconds === "number" && Number.isFinite(value.durationSeconds) && value.durationSeconds >= 0 ? Math.min(604_800, Math.round(value.durationSeconds)) : undefined;
+  const distanceMeters = typeof value.distanceMeters === "number" && Number.isFinite(value.distanceMeters) && value.distanceMeters >= 0 ? Math.min(10_000_000, Math.round(value.distanceMeters * 100) / 100) : undefined;
   if ((!validWeight || !validReps) && durationSeconds == null && distanceMeters == null) return null;
   const set: SetRecord = {
-    weight: validWeight ? Math.max(0, Math.round((value.weight as number) * 100) / 100) : 0,
-    reps: validReps ? Math.max(0, Math.round(value.reps as number)) : 0,
+    weight: validWeight ? Math.min(5_000, Math.max(0, Math.round((value.weight as number) * 100) / 100)) : 0,
+    reps: validReps ? Math.min(100_000, Math.max(0, Math.round(value.reps as number))) : 0,
   };
   if (durationSeconds != null) set.durationSeconds = durationSeconds;
   if (distanceMeters != null) set.distanceMeters = distanceMeters;
@@ -342,12 +364,11 @@ function parseSet(input: unknown): SetRecord | null {
 
 function parseCustomExercise(input: unknown): ExercisePreset | null {
   if (!input || typeof input !== "object") return null;
-  const value = input as ExercisePreset;
-  if (typeof value.id !== "string" || typeof value.name !== "string" || !value.name.trim()) return null;
-  const primaryMuscle = VALID_MUSCLES.has(value.primaryMuscle ?? "") ? value.primaryMuscle as MuscleGroup : undefined;
-  const configuredContributions = value.volumeContributions?.length
-    ? value.volumeContributions
-    : (value.secondaryMuscles ?? []).map((muscle) => ({ muscle, weight: 0.5, direct: false }));
+  const value = input as Record<string, unknown>;
+  if (typeof value.id !== "string" || !value.id.trim() || typeof value.name !== "string" || !value.name.trim()) return null;
+  const primaryMuscle = parseMuscle(value.primaryMuscle);
+  const configuredContributions = parseVolumeContributions(value.volumeContributions)
+    ?? (parseMuscleList(value.secondaryMuscles, primaryMuscle) ?? []).map((muscle) => ({ muscle, weight: 0.5, direct: false }));
   const secondary = configuredContributions
     .filter((item) => item && VALID_MUSCLES.has(item.muscle) && item.muscle !== primaryMuscle && typeof item.weight === "number" && Number.isFinite(item.weight))
     .filter((item, index, items) => items.findIndex((candidate) => candidate.muscle === item.muscle) === index)
@@ -356,17 +377,36 @@ function parseCustomExercise(input: unknown): ExercisePreset | null {
     ? [{ muscle: primaryMuscle, weight: 1, direct: true }, ...secondary]
     : secondary;
   const recordModes = parseRecordModes(value.recordModes);
+  const aliases = parseStringList(value.aliases);
+  const alternatives = parseStringList(value.alternatives);
+  const equipment = typeof value.equipment === "string" && VALID_EQUIPMENT.has(value.equipment as Equipment)
+    ? value.equipment as Equipment
+    : undefined;
+  const movementPattern = typeof value.movementPattern === "string" && VALID_PATTERNS.has(value.movementPattern as MovementPattern)
+    ? value.movementPattern as MovementPattern
+    : undefined;
+  const defaultLoadIncrementKg = typeof value.defaultLoadIncrementKg === "number" && Number.isFinite(value.defaultLoadIncrementKg)
+    ? Math.min(100, Math.max(0, Math.round(value.defaultLoadIncrementKg * 100) / 100))
+    : undefined;
   return {
-    ...value,
-    id: value.id,
+    id: value.id.trim(),
     name: value.name.trim(),
+    ...(typeof value.englishName === "string" && value.englishName.trim() ? { englishName: value.englishName.trim() } : {}),
+    ...(aliases ? { aliases } : {}),
     isMain: Boolean(value.isMain),
     type: "custom",
     custom: true,
     ...(primaryMuscle ? { primaryMuscle } : { primaryMuscle: undefined }),
     secondaryMuscles: secondary.map((item) => item.muscle),
     volumeContributions,
-    recordModes,
+    ...(equipment ? { equipment } : {}),
+    ...(movementPattern ? { movementPattern } : {}),
+    ...(typeof value.compound === "boolean" ? { compound: value.compound } : {}),
+    ...(defaultLoadIncrementKg != null ? { defaultLoadIncrementKg } : {}),
+    ...(recordModes ? { recordModes } : {}),
+    ...(typeof value.category === "string" && value.category.trim() ? { category: value.category.trim() } : {}),
+    ...(alternatives ? { alternatives } : {}),
+    ...(typeof value.region === "string" && value.region.trim() ? { region: value.region.trim() } : {}),
   };
 }
 
@@ -504,8 +544,11 @@ export function normalizeData(input: unknown): AppData {
       if (day.workout && typeof day.workout === "object") {
         const workout = day.workout;
         const exercises = Array.isArray(workout.exercises)
-          ? workout.exercises.map((rawExercise) => {
+          ? workout.exercises.flatMap((rawExercise) => {
+              if (!rawExercise || typeof rawExercise !== "object") return [];
               const exercise = rawExercise as Exercise;
+              if (typeof exercise.id !== "string" || !exercise.id.trim()) return [];
+              const exerciseId = exercise.id.trim();
               const sets = Array.isArray(exercise.sets) ? exercise.sets.map(parseSet).filter((set): set is SetRecord => !!set) : [];
               const recordModes = parseRecordModes(exercise.recordModes);
               const primaryMuscle = parseMuscle(exercise.primaryMuscle);
@@ -522,25 +565,70 @@ export function normalizeData(input: unknown): AppData {
                 ? exercise.supersetGroup as SupersetGroup
                 : undefined;
               const prescription = parsePrescription(exercise.prescription);
-              const plannedLoadKg = typeof exercise.plannedLoadKg === "number" && Number.isFinite(exercise.plannedLoadKg) && exercise.plannedLoadKg > 0
-                ? Math.round(exercise.plannedLoadKg * 100) / 100
+              const performanceMode = prescription?.performanceMode ?? (recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps");
+              const targetLimit = performanceMode === "duration" ? 3_600 : performanceMode === "distance" ? 100_000 : 40;
+              const legacyTargetRepMin = typeof exercise.targetRepMin === "number" && Number.isFinite(exercise.targetRepMin)
+                ? Math.min(targetLimit, Math.max(1, Math.round(exercise.targetRepMin)))
                 : undefined;
-              const progressionPlan = parseProgressionPlan(exercise.progressionPlan, plannedLoadKg);
-              return normalizeExercisePrescription({
-                ...exercise,
+              const legacyTargetRepMax = typeof exercise.targetRepMax === "number" && Number.isFinite(exercise.targetRepMax)
+                ? Math.min(targetLimit, Math.max(legacyTargetRepMin ?? 1, Math.round(exercise.targetRepMax)))
+                : undefined;
+              const legacyTargetRirMin = typeof exercise.targetRirMin === "number" && Number.isFinite(exercise.targetRirMin) && exercise.targetRirMin >= 0 && exercise.targetRirMin <= 10
+                ? Math.round(exercise.targetRirMin * 10) / 10
+                : undefined;
+              const legacyTargetRirMax = typeof exercise.targetRirMax === "number" && Number.isFinite(exercise.targetRirMax) && exercise.targetRirMax >= 0 && exercise.targetRirMax <= 10
+                ? Math.max(legacyTargetRirMin ?? 0, Math.round(exercise.targetRirMax * 10) / 10)
+                : undefined;
+              const rawPlanned = exercise.planned;
+              const planned = rawPlanned && typeof rawPlanned === "object"
+                && typeof rawPlanned.sets === "number" && Number.isFinite(rawPlanned.sets)
+                && typeof rawPlanned.repsLow === "number" && Number.isFinite(rawPlanned.repsLow)
+                && typeof rawPlanned.repsHigh === "number" && Number.isFinite(rawPlanned.repsHigh)
+                ? {
+                    sets: Math.min(12, Math.max(1, Math.round(rawPlanned.sets))),
+                    repsLow: Math.min(targetLimit, Math.max(1, Math.round(rawPlanned.repsLow))),
+                    repsHigh: Math.min(targetLimit, Math.max(1, Math.round(rawPlanned.repsHigh))),
+                    ...(typeof rawPlanned.rpe === "number" && Number.isFinite(rawPlanned.rpe) && rawPlanned.rpe >= 5 && rawPlanned.rpe <= 10
+                      ? { rpe: Math.round(rawPlanned.rpe * 10) / 10 }
+                      : {}),
+                  }
+                : undefined;
+              if (planned && planned.repsHigh < planned.repsLow) planned.repsHigh = planned.repsLow;
+              const plannedLoadKg = typeof exercise.plannedLoadKg === "number" && Number.isFinite(exercise.plannedLoadKg) && exercise.plannedLoadKg > 0 && exercise.plannedLoadKg <= 5_000
+                ? Math.min(5_000, Math.round(exercise.plannedLoadKg * 100) / 100)
+                : undefined;
+              const candidate: Exercise = {
+                id: exerciseId,
+                name: typeof exercise.name === "string" && exercise.name.trim()
+                  ? exercise.name.trim()
+                  : DEFAULT_EXERCISE_BY_ID.get(exerciseId)?.name ?? "动作",
+                isMain: Boolean(exercise.isMain),
                 sets,
-                recordModes,
-                primaryMuscle,
-                secondaryMuscles,
-                volumeContributions,
-                equipment,
-                movementPattern,
-                alternatives,
-                supersetGroup,
-                prescription,
-                plannedLoadKg,
-                progressionPlan,
-              });
+                ...(recordModes ? { recordModes } : {}),
+                ...(primaryMuscle ? { primaryMuscle } : {}),
+                ...(secondaryMuscles ? { secondaryMuscles } : {}),
+                ...(volumeContributions ? { volumeContributions } : {}),
+                ...(equipment ? { equipment } : {}),
+                ...(movementPattern ? { movementPattern } : {}),
+                ...(alternatives ? { alternatives } : {}),
+                ...(supersetGroup ? { supersetGroup } : {}),
+                ...(planned ? { planned } : {}),
+                ...(prescription ? { prescription } : {}),
+                ...(typeof exercise.progressionTrackId === "string" && exercise.progressionTrackId.trim() ? { progressionTrackId: exercise.progressionTrackId.trim() } : {}),
+                ...(typeof exercise.progressionTrackLabel === "string" && exercise.progressionTrackLabel.trim() ? { progressionTrackLabel: exercise.progressionTrackLabel.trim() } : {}),
+                ...(exercise.trainingIntent === "strength" || exercise.trainingIntent === "hypertrophy" || exercise.trainingIntent === "endurance" || exercise.trainingIntent === "custom" ? { trainingIntent: exercise.trainingIntent } : {}),
+                ...(legacyTargetRepMin != null ? { targetRepMin: legacyTargetRepMin } : {}),
+                ...(legacyTargetRepMax != null ? { targetRepMax: legacyTargetRepMax } : {}),
+                ...(legacyTargetRirMin != null ? { targetRirMin: legacyTargetRirMin } : {}),
+                ...(legacyTargetRirMax != null ? { targetRirMax: legacyTargetRirMax } : {}),
+                ...(typeof exercise.workingSets === "number" && Number.isFinite(exercise.workingSets) ? { workingSets: Math.min(12, Math.max(1, Math.round(exercise.workingSets))) } : {}),
+                ...(typeof exercise.loadIncrementKg === "number" && Number.isFinite(exercise.loadIncrementKg) ? { loadIncrementKg: Math.min(100, Math.max(0, Math.round(exercise.loadIncrementKg * 100) / 100)) } : {}),
+                ...(exercise.progressionRule === "doubleProgression" || exercise.progressionRule === "repsFirst" || exercise.progressionRule === "custom" ? { progressionRule: exercise.progressionRule } : {}),
+                ...(plannedLoadKg != null ? { plannedLoadKg } : {}),
+              };
+              const normalized = normalizeExercisePrescription(candidate);
+              const progressionPlan = parseProgressionPlan(exercise.progressionPlan, plannedLoadKg, normalized.prescription?.progressionTrackId);
+              return [{ ...normalized, ...(progressionPlan ? { progressionPlan } : {}) }];
             })
           : [];
         const parsedType = VALID_TYPES.includes(workout.type) ? workout.type : "custom";
@@ -679,7 +767,8 @@ export function normalizeData(input: unknown): AppData {
   const parseItem = (input: unknown): TemplateItem | null => {
     if (!input || typeof input !== "object") return null;
     const value = input as Record<string, unknown>;
-    if (typeof value.exerciseId !== "string" || !value.exerciseId) return null;
+    const exerciseId = typeof value.exerciseId === "string" ? value.exerciseId.trim() : "";
+    if (!exerciseId) return null;
     const recordModes = parseRecordModes(value.recordModes);
     const primaryMuscle = parseMuscle(value.primaryMuscle);
     const secondaryMuscles = parseMuscleList(value.secondaryMuscles, primaryMuscle);
@@ -694,7 +783,7 @@ export function normalizeData(input: unknown): AppData {
     const performanceMode = prescription?.performanceMode ?? (recordModes?.includes("duration") ? "duration" : recordModes?.includes("distance") ? "distance" : "reps");
     let low = 8;
     let high = 12;
-    if (typeof value.repsLow === "number" && typeof value.repsHigh === "number") { low = value.repsLow; high = value.repsHigh; }
+    if (typeof value.repsLow === "number" && Number.isFinite(value.repsLow) && typeof value.repsHigh === "number" && Number.isFinite(value.repsHigh)) { low = value.repsLow; high = value.repsHigh; }
     else if (typeof value.reps === "string") {
       const range = value.reps.match(/(\d+)\s*[-–~]\s*(\d+)/);
       const single = parseInt(value.reps, 10);
@@ -704,11 +793,17 @@ export function normalizeData(input: unknown): AppData {
     const targetMax = performanceMode === "duration" ? 3_600 : performanceMode === "distance" ? 100_000 : 40;
     low = Math.min(targetMax, Math.max(1, Math.round(low)));
     high = Math.min(targetMax, Math.max(low, Math.round(high)));
+    const targetRirMin = typeof value.targetRirMin === "number" && Number.isFinite(value.targetRirMin) && value.targetRirMin >= 0 && value.targetRirMin <= 10
+      ? Math.round(value.targetRirMin * 10) / 10
+      : undefined;
+    const targetRirMax = typeof value.targetRirMax === "number" && Number.isFinite(value.targetRirMax) && value.targetRirMax >= 0 && value.targetRirMax <= 10
+      ? Math.max(targetRirMin ?? 0, Math.round(value.targetRirMax * 10) / 10)
+      : undefined;
     const item: TemplateItem = {
-      exerciseId: value.exerciseId,
+      exerciseId,
       name: typeof value.name === "string" && value.name.trim()
         ? value.name.trim()
-        : presetById.get(value.exerciseId)?.name ?? "动作",
+        : presetById.get(exerciseId)?.name ?? "动作",
       sets: typeof value.sets === "number" && value.sets >= 1 && value.sets <= 12 ? Math.round(value.sets) : 3,
       repsLow: low,
       repsHigh: high,
@@ -722,26 +817,26 @@ export function normalizeData(input: unknown): AppData {
       ...(alternatives ? { alternatives } : {}),
       ...(supersetGroup ? { supersetGroup } : {}),
       ...(prescription ? { prescription } : {}),
-      ...(typeof value.progressionTrackId === "string" ? { progressionTrackId: value.progressionTrackId } : {}),
-      ...(typeof value.progressionTrackLabel === "string" ? { progressionTrackLabel: value.progressionTrackLabel } : {}),
+      ...(typeof value.progressionTrackId === "string" && value.progressionTrackId.trim() ? { progressionTrackId: value.progressionTrackId.trim() } : {}),
+      ...(typeof value.progressionTrackLabel === "string" && value.progressionTrackLabel.trim() ? { progressionTrackLabel: value.progressionTrackLabel.trim() } : {}),
       ...(value.trainingIntent === "strength" || value.trainingIntent === "hypertrophy" || value.trainingIntent === "endurance" || value.trainingIntent === "custom" ? { trainingIntent: value.trainingIntent } : {}),
-      ...(typeof value.targetRirMin === "number" ? { targetRirMin: value.targetRirMin } : {}),
-      ...(typeof value.targetRirMax === "number" ? { targetRirMax: value.targetRirMax } : {}),
-      ...(typeof value.loadIncrementKg === "number" ? { loadIncrementKg: Math.max(0, value.loadIncrementKg) } : {}),
+      ...(targetRirMin != null ? { targetRirMin } : {}),
+      ...(targetRirMax != null ? { targetRirMax } : {}),
+      ...(typeof value.loadIncrementKg === "number" && Number.isFinite(value.loadIncrementKg) ? { loadIncrementKg: Math.min(100, Math.max(0, Math.round(value.loadIncrementKg * 100) / 100)) } : {}),
       ...(value.progressionRule === "doubleProgression" || value.progressionRule === "repsFirst" || value.progressionRule === "custom" ? { progressionRule: value.progressionRule } : {}),
       ...(recordModes ? { recordModes } : {}),
     };
-    return normalizeTemplateItemPrescription(item, presetById.get(item.exerciseId));
+    return normalizeTemplateItemPrescription(item, presetById.get(exerciseId));
   };
 
   const parseTemplateSnapshot = (input: unknown): Template | undefined => {
     if (!input || typeof input !== "object") return undefined;
     const value = input as Record<string, unknown>;
     if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") return undefined;
-    if (typeof value.id !== "string" || !value.id) return undefined;
+    if (typeof value.id !== "string" || !value.id.trim()) return undefined;
     return {
-      id: value.id,
-      name: typeof value.name === "string" ? value.name : "",
+      id: value.id.trim(),
+      name: typeof value.name === "string" ? value.name.trim() : "",
       type: value.type,
       items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => Boolean(item)) : [],
     };
@@ -754,10 +849,10 @@ export function normalizeData(input: unknown): AppData {
       if (!rawTemplate || typeof rawTemplate !== "object") continue;
       const value = rawTemplate as Record<string, unknown>;
       if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
-      const candidate = typeof value.id === "string" && value.id
-        ? value.id
+      const candidate = typeof value.id === "string" && value.id.trim()
+        ? value.id.trim()
         : `tpl_imported_${templates.length + 1}`;
-      templates.push({ id: uniqueId(candidate, "tpl_imported", usedTemplateIds), name: typeof value.name === "string" ? value.name : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
+      templates.push({ id: uniqueId(candidate, "tpl_imported", usedTemplateIds), name: typeof value.name === "string" ? value.name.trim() : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
     }
     if (templates.length) out.templates = templates;
   } else if (obj.templates && typeof obj.templates === "object") {
@@ -790,8 +885,9 @@ export function normalizeData(input: unknown): AppData {
       if (!VALID_MUSCLES.has(muscle)) continue;
       if (!rawTarget || typeof rawTarget !== "object") continue;
       const target = rawTarget as Record<string, unknown>;
-      if (typeof target.low !== "number" || typeof target.high !== "number") continue;
-      targets[muscle as keyof typeof targets] = { low: Math.max(0, Math.round(target.low)), high: Math.max(Math.round(target.low), Math.round(target.high)) };
+      if (typeof target.low !== "number" || !Number.isFinite(target.low) || typeof target.high !== "number" || !Number.isFinite(target.high)) continue;
+      const low = Math.min(100, Math.max(0, Math.round(target.low)));
+      targets[muscle as keyof typeof targets] = { low, high: Math.min(100, Math.max(low, Math.round(target.high))) };
     }
     if (Object.keys(targets).length) out.muscleTargets = targets;
   }
@@ -817,7 +913,7 @@ export function normalizeData(input: unknown): AppData {
       out.microcycle = {
         currentId: value.currentId,
         startedAt: value.startedAt,
-        index: typeof value.index === "number" ? Math.max(1, Math.round(value.index)) : 1,
+        index: typeof value.index === "number" && Number.isFinite(value.index) ? Math.min(1_000_000, Math.max(1, Math.round(value.index))) : 1,
         ...(steps.length ? { steps } : {}),
         ...(value.phase === "build" || value.phase === "deload" ? { phase: value.phase } : {}),
         ...(typeof value.mesocycleId === "string" && value.mesocycleId ? { mesocycleId: value.mesocycleId } : {}),

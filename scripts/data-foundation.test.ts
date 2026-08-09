@@ -323,6 +323,104 @@ assert.equal(new Set((normalized.templates ?? []).map((item) => item.id)).size, 
 assert.equal(normalized.schedule.microcycle?.[0].templateId, undefined);
 assert.equal(inspectDataHealth(normalized).status, "healthy");
 
+const isolatedCorruption = normalizeData({
+  days: {
+    "2026-07-30": {
+      workout: {
+        type: "push",
+        done: true,
+        exercises: [
+          null,
+          7,
+          {},
+          {
+            id: "px_barbell_bench",
+            name: "",
+            isMain: true,
+            sets: [
+              { weight: 80, reps: 8, type: "working" },
+              { weight: 1e100, reps: 1e100, durationSeconds: 1e100, distanceMeters: 1e100, type: "working" },
+            ],
+            prescription: {
+              progressionTrackId: " malformed-track ",
+              progressionTrackLabel: " ",
+              trainingIntent: "hypertrophy",
+              targetRepMin: Number.NaN,
+              targetRepMax: Number.POSITIVE_INFINITY,
+              targetRirMin: Number.NaN,
+              targetRirMax: Number.POSITIVE_INFINITY,
+              workingSets: Number.POSITIVE_INFINITY,
+              loadIncrementKg: Number.POSITIVE_INFINITY,
+              progressionRule: "doubleProgression",
+            },
+            plannedLoadKg: 80,
+            progressionPlan: {
+              origin: "suggestion",
+              acceptedAt: "2026-07-30T08:00:00.000Z",
+              progressionTrackId: "another-track",
+              plannedLoadKg: 80,
+            },
+            alternatives: "invalid",
+          },
+          {
+            id: " px_lateral_raise ",
+            name: "",
+            isMain: false,
+            sets: [{ weight: 10, reps: 12, type: "working" }],
+            progressionTrackId: "   ",
+            targetRepMin: Number.NaN,
+            targetRepMax: Number.POSITIVE_INFINITY,
+            workingSets: Number.POSITIVE_INFINITY,
+            plannedLoadKg: 1e100,
+          },
+        ],
+      },
+    },
+  },
+  customExercises: [{
+    id: " malformed_custom ",
+    name: " 自定义动作 ",
+    primaryMuscle: "chest",
+    secondaryMuscles: "invalid",
+    volumeContributions: "invalid",
+    aliases: "invalid",
+    alternatives: "invalid",
+    equipment: "spaceship",
+    defaultLoadIncrementKg: Number.POSITIVE_INFINITY,
+  }],
+  muscleTargets: { chest: { low: Number.NaN, high: Number.POSITIVE_INFINITY } },
+  microcycle: { currentId: "mc_invalid_numeric", startedAt: "2026-07-30", index: Number.NaN },
+} as unknown as AppData);
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises.length, 2, "Malformed exercise entries must be isolated instead of aborting the whole backup");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].name, "平板杠铃卧推", "A valid built-in id can recover a missing display name");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].sets[0].weight, 80);
+assert.deepEqual(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].sets[1], {
+  weight: 5_000,
+  reps: 100_000,
+  durationSeconds: 604_800,
+  distanceMeters: 10_000_000,
+  type: "working",
+});
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.progressionTrackId, "malformed-track");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.progressionTrackLabel, "训练轨道");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].progressionPlan, undefined, "A planned-load snapshot from another track must not survive normalization");
+assert.deepEqual(isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription && {
+  targetRepMin: isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.targetRepMin,
+  targetRepMax: isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.targetRepMax,
+  workingSets: isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.workingSets,
+  loadIncrementKg: isolatedCorruption.days["2026-07-30"].workout?.exercises[0].prescription?.loadIncrementKg,
+}, { targetRepMin: 8, targetRepMax: 12, workingSets: 3, loadIncrementKg: 2.5 });
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[1].id, "px_lateral_raise");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[1].prescription?.progressionTrackId, "legacy:px_lateral_raise", "A blank legacy track must fall back to an isolated legacy track");
+assert.equal(isolatedCorruption.days["2026-07-30"].workout?.exercises[1].plannedLoadKg, undefined);
+assert.equal(isolatedCorruption.muscleTargets, undefined);
+assert.equal(isolatedCorruption.microcycle?.index, 1);
+assert.equal(isolatedCorruption.customExercises[0].id, "malformed_custom");
+assert.equal(isolatedCorruption.customExercises[0].aliases, undefined);
+assert.equal(isolatedCorruption.customExercises[0].alternatives, undefined);
+assert.equal(isolatedCorruption.customExercises[0].equipment, undefined);
+assert.deepEqual(isolatedCorruption.customExercises[0].volumeContributions, [{ muscle: "chest", weight: 1, direct: true }]);
+
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
 assert.equal(backup.version, 18);

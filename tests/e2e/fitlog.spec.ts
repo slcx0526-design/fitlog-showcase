@@ -333,6 +333,9 @@ test("existing daily and review surfaces remain fully localized", async ({ page 
     }));
   }, { dateKey: date });
 
+  await page.goto("/");
+  await expect(page.getByText("A workout type is selected, but no effective working sets are logged yet.", { exact: true })).toBeVisible();
+  await expect(page.getByText("已选择训练类型，尚未记录有效工作组。", { exact: true })).toHaveCount(0);
   await page.goto("/progress?tab=training");
   await expect(page.getByText("Muscle volume prescription", { exact: true })).toBeVisible();
   await expect(page.getByText("肌群容量处方", { exact: true })).toHaveCount(0);

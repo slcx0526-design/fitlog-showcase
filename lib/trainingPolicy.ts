@@ -600,12 +600,16 @@ function muscleIntentCandidates(normalized: string) {
   const patterns = (key: string): Array<[MusclePriority, string[]]> => [
     ["specialize", [
       `以${key}为主`, `${key}为主`, `主攻${key}`, `${key}主攻`, `${key}优先`, `${key}重点`,
-      `强化${key}`, `多练${key}`, `prioritize${key}`, `${key}priority`, `focus${key}`,
-      `${key}focus`, `${key}を優先`, `${key}重点`,
+      `${key}是重点`, `${key}作为重点`, `${key}为重点`, `${key}重点练`, `重点练${key}`,
+      `${key}主练`, `主练${key}`, `重点发展${key}`, `强化${key}`, `多练${key}`,
+      `prioritize${key}`, `${key}priority`, `focus${key}`, `focuson${key}`,
+      `${key}focus`, `${key}mainfocus`, `${key}を優先`, `${key}重点`,
     ]],
     ["grow", [
       `${key}增长`, `${key}生长`, `${key}增肌`, `增长${key}`, `加强${key}`,
-      `grow${key}`, `${key}growth`, `build${key}`, `${key}を伸ばす`, `${key}成長`,
+      `${key}也要增长`, `${key}也想增长`, `${key}想增长`, `${key}也想加强`,
+      `想加强${key}`, `让${key}增长`, `发展${key}`, `提升${key}`, `${key}提升`,
+      `grow${key}`, `${key}growth`, `build${key}`, `develop${key}`, `${key}を伸ばす`, `${key}成長`,
     ]],
     ["maintain", [
       `${key}维持`, `${key}保留`, `${key}够用`, `maintain${key}`, `${key}maintenance`, `${key}を維持`,

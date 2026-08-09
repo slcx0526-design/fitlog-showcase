@@ -143,9 +143,19 @@ const PATTERNS: Array<{
     ja: (minutes, sets) => `${minutes}分・${sets}セット以内に調整`,
   },
   {
+    pattern: /^单次上限仍超出，移除低优先级动作 (.+)，控制在 (\d+) 分钟 \/ (\d+) 组以内$/,
+    en: (exercise, minutes, sets) => `Removed lower-priority ${exercise} to keep the session within ${minutes} minutes and ${sets} sets`,
+    ja: (exercise, minutes, sets) => `${minutes}分・${sets}セット以内にするため、優先度の低い${exercise}を削除`,
+  },
+  {
     pattern: /^(.+)：单次直接组上限 ([\d.]+)，(.+) -([\d.]+) 组$/,
     en: (muscles, cap, exercise, sets) => `${muscles}: ${exercise} -${sets} sets to stay within the ${cap}-set direct-work cap`,
     ja: (muscles, cap, exercise, sets) => `${muscles}：直接セット上限${cap}に収めるため、${exercise}を-${sets}セット`,
+  },
+  {
+    pattern: /^(.+)：单次直接组上限 ([\d.]+)，移除低优先级动作 (.+)$/,
+    en: (muscles, cap, exercise) => `${muscles}: removed lower-priority ${exercise} to stay within the ${cap}-set direct-work cap`,
+    ja: (muscles, cap, exercise) => `${muscles}：直接セット上限${cap}に収めるため、優先度の低い${exercise}を削除`,
   },
   {
     pattern: /^(.+) 的(.+)直接组仍为 ([\d.]+)，高于单次恢复上限 ([\d.]+)；请人工确认动作结构。$/,
