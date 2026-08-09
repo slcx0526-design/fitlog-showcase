@@ -16,6 +16,7 @@ export interface TrainingHistoryIndex {
   days: Record<string, DayLog>;
   descendingDates: string[];
   byExercise: ReadonlyMap<string, IndexedExerciseHistory[]>;
+  byDate: ReadonlyMap<string, IndexedExerciseHistory[]>;
 }
 
 function historyResult(row: IndexedExerciseHistory, kind: TrackHistoryResult["kind"]): TrackHistoryResult {
@@ -31,37 +32,110 @@ function historyResult(row: IndexedExerciseHistory, kind: TrackHistoryResult["ki
   };
 }
 
+function indexTrainingDay(date: string, day: DayLog): IndexedExerciseHistory[] {
+  const workout = day.workout;
+  if (!workout || workout.type === "rest") return [];
+  const indexedExerciseIds = new Set<string>();
+  const rows: IndexedExerciseHistory[] = [];
+  for (const [exerciseIndex, rawExercise] of workout.exercises.entries()) {
+    const sets = workingSets(rawExercise.sets);
+    if (!sets.length || indexedExerciseIds.has(rawExercise.id)) continue;
+    indexedExerciseIds.add(rawExercise.id);
+    const exercise = normalizeExercisePrescription(rawExercise);
+    rows.push({
+      date,
+      exercise,
+      sets,
+      trackId: exerciseTrackId(exercise),
+      kind: "other",
+      confirmed: workout.done !== false,
+      sessionDifficulty: workout.difficulty,
+      exercisePosition: exerciseIndex + 1,
+      exerciseCount: workout.exercises.length,
+      implicitCompletion: workout.done === false ? true : undefined,
+    });
+  }
+  return rows;
+}
+
 export function buildTrainingHistoryIndex(days: Record<string, DayLog>): TrainingHistoryIndex {
   const descendingDates = Object.keys(days).sort().reverse();
   const byExercise = new Map<string, IndexedExerciseHistory[]>();
+  const byDate = new Map<string, IndexedExerciseHistory[]>();
 
   for (const date of descendingDates) {
-    const workout = days[date].workout;
-    if (!workout || workout.type === "rest") continue;
-    const indexedExerciseIds = new Set<string>();
-    for (const [exerciseIndex, rawExercise] of workout.exercises.entries()) {
-      const sets = workingSets(rawExercise.sets);
-      if (!sets.length || indexedExerciseIds.has(rawExercise.id)) continue;
-      indexedExerciseIds.add(rawExercise.id);
-      const exercise = normalizeExercisePrescription(rawExercise);
-      const rows = byExercise.get(exercise.id) ?? [];
-      rows.push({
-        date,
-        exercise,
-        sets,
-        trackId: exerciseTrackId(exercise),
-        kind: "other",
-        confirmed: workout.done !== false,
-        sessionDifficulty: workout.difficulty,
-        exercisePosition: exerciseIndex + 1,
-        exerciseCount: workout.exercises.length,
-        implicitCompletion: workout.done === false ? true : undefined,
-      });
-      byExercise.set(exercise.id, rows);
+    const rows = indexTrainingDay(date, days[date]);
+    byDate.set(date, rows);
+    for (const row of rows) {
+      const exerciseRows = byExercise.get(row.exercise.id) ?? [];
+      exerciseRows.push(row);
+      byExercise.set(row.exercise.id, exerciseRows);
     }
   }
 
-  return { days, descendingDates, byExercise };
+  return { days, descendingDates, byExercise, byDate };
+}
+
+export function updateTrainingHistoryIndex(
+  previous: TrainingHistoryIndex,
+  days: Record<string, DayLog>,
+): TrainingHistoryIndex {
+  if (previous.days === days) return previous;
+
+  const previousDates = Object.keys(previous.days);
+  const nextDates = Object.keys(days);
+  const allDates = new Set([...previousDates, ...nextDates]);
+  const changedDates = [...allDates].filter((date) => previous.days[date] !== days[date]);
+  if (!changedDates.length) return { ...previous, days };
+
+  const totalDates = Math.max(previousDates.length, nextDates.length, 1);
+  if (changedDates.length > 64 && changedDates.length / totalDates > 0.2) {
+    return buildTrainingHistoryIndex(days);
+  }
+
+  const changed = new Set(changedDates);
+  const byDate = new Map(previous.byDate);
+  const affectedExerciseIds = new Set<string>();
+  for (const date of changedDates) {
+    for (const row of previous.byDate.get(date) ?? []) affectedExerciseIds.add(row.exercise.id);
+    const day = days[date];
+    if (!day) {
+      byDate.delete(date);
+      continue;
+    }
+    const rows = indexTrainingDay(date, day);
+    byDate.set(date, rows);
+    for (const row of rows) affectedExerciseIds.add(row.exercise.id);
+  }
+
+  const byExercise = new Map(previous.byExercise);
+  for (const exerciseId of affectedExerciseIds) {
+    const rows = [
+      ...(previous.byExercise.get(exerciseId) ?? []).filter((row) => !changed.has(row.date)),
+      ...changedDates.flatMap((date) => (byDate.get(date) ?? []).filter((row) => row.exercise.id === exerciseId)),
+    ].sort((left, right) => right.date.localeCompare(left.date));
+    if (rows.length) byExercise.set(exerciseId, rows);
+    else byExercise.delete(exerciseId);
+  }
+
+  const dateKeysChanged = previousDates.length !== nextDates.length
+    || previousDates.some((date) => !Object.prototype.hasOwnProperty.call(days, date));
+  return {
+    days,
+    descendingDates: dateKeysChanged ? nextDates.sort().reverse() : previous.descendingDates,
+    byExercise,
+    byDate,
+  };
+}
+
+export function createTrainingHistoryIndexCache() {
+  let current: TrainingHistoryIndex | null = null;
+  return (days: Record<string, DayLog>) => {
+    current = current
+      ? updateTrainingHistoryIndex(current, days)
+      : buildTrainingHistoryIndex(days);
+    return current;
+  };
 }
 
 export function findIndexedTrackHistories(

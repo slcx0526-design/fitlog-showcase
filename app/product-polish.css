@@ -964,6 +964,19 @@ body::after,
   min-width: 0;
 }
 
+.toast-layer,
+.app-update-layer {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 78px);
+}
+
+:root[data-update-waiting="true"] .toast-layer {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 134px);
+}
+
+:root[data-update-waiting="true"] .app-main {
+  padding-bottom: calc(8.05rem + env(safe-area-inset-bottom));
+}
+
 /* Persistence and semantic toast feedback */
 .persistence-alert {
   position: fixed;
@@ -1227,6 +1240,74 @@ body::after,
 .adaptive-day-picker button[aria-pressed="true"] {
   background: var(--fg);
   color: var(--bg);
+}
+
+@media (max-width: 359px) {
+  .set-row {
+    display: grid !important;
+    grid-template-columns: 1.25rem minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 0.25rem;
+  }
+
+  .set-row__index,
+  .set-row__weight,
+  .set-row__performance,
+  .set-row__actions {
+    grid-row: 1;
+  }
+
+  .set-row__index { grid-column: 1; }
+  .set-row__weight { grid-column: 2; }
+  .set-row__performance { grid-column: 3; }
+  .set-row__actions {
+    grid-column: 4;
+    margin-left: 0;
+  }
+
+  .set-row[data-records-weight="false"] .set-row__performance {
+    grid-column: 2 / 4;
+  }
+
+  .set-row__weight,
+  .set-row__performance {
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .set-row__unit {
+    display: none;
+  }
+
+  .set-row__tags {
+    grid-column: 2 / -1;
+  }
+
+  .set-row__details {
+    grid-column: 1 / -1;
+  }
+
+  .adaptive-day-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .adaptive-day-picker button {
+    min-height: 40px;
+  }
+
+  .training-level-grid {
+    gap: 0.25rem;
+  }
+
+  .training-level-option {
+    padding-inline: 0.25rem;
+  }
+
+  .training-level-option__label {
+    overflow-wrap: anywhere;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+  }
 }
 
 .adaptive-check {

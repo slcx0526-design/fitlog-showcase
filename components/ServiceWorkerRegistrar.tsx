@@ -117,14 +117,20 @@ export default function ServiceWorkerRegistrar() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (waiting) document.documentElement.dataset.updateWaiting = "true";
+    else delete document.documentElement.dataset.updateWaiting;
+    return () => {
+      delete document.documentElement.dataset.updateWaiting;
+    };
+  }, [waiting]);
+
   if (!waiting) return null;
 
   return (
-    <div
-      className="fixed inset-x-0 z-40 flex justify-center px-4"
-      style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
-    >
-      <div role="status" aria-live="polite" className="flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
+    <div className="app-update-layer pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4" data-app-update-layer>
+      <div role="status" aria-live="polite" className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-fg px-4 py-2 text-[13px] font-medium text-bg shadow-lg">
         <span>{tr("有新版本")}</span>
         <button type="button"
           onClick={() => waiting.postMessage("SKIP_WAITING")}

@@ -647,6 +647,123 @@ test("typing a two-digit final set never advances before explicit confirmation",
   await expect(bench.getByRole("button", { name: /下一项.*器械侧平举/ })).toBeVisible();
 });
 
+test("320px controls keep set actions, update feedback, and long labels contained", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-320", "This regression targets the narrowest supported viewport.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      profile: { trainingLevel: "intermediate" },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              recordModes: ["weight", "reps"],
+              prescription: {
+                progressionTrackId: "px_barbell_bench:hypertrophy:8-12:3:reps",
+                progressionTrackLabel: "增肌 · 8–12 次",
+                trainingIntent: "hypertrophy",
+                targetRepMin: 8,
+                targetRepMax: 12,
+                workingSets: 3,
+                loadIncrementKg: 2.5,
+                progressionRule: "doubleProgression",
+                performanceMode: "reps",
+              },
+              sets: [{ weight: 70, reps: 10, type: "working", completion: "completed" }],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  const setRow = page.locator("#exercise-px_barbell_bench .set-row").first();
+  await expect(setRow).toBeVisible();
+  const setGeometry = await setRow.evaluate((element) => {
+    const row = element as HTMLElement;
+    const weight = row.querySelector('[aria-label="第1组重量"]') as HTMLElement;
+    const reps = row.querySelector('[aria-label="第1组次数"]') as HTMLElement;
+    const options = row.querySelector('[aria-label="组设置"]') as HTMLElement;
+    const remove = row.querySelector('[aria-label="删除组"]') as HTMLElement;
+    const rects = [weight, reps, options, remove].map((item) => item.getBoundingClientRect());
+    return {
+      clientWidth: row.clientWidth,
+      scrollWidth: row.scrollWidth,
+      tops: rects.map((rect) => Math.round(rect.top)),
+      heights: rects.map((rect) => Math.round(rect.height)),
+    };
+  });
+  expect(setGeometry.scrollWidth).toBeLessThanOrEqual(setGeometry.clientWidth + 1);
+  expect(new Set(setGeometry.tops).size).toBe(1);
+  expect(setGeometry.heights.every((height) => height >= 40)).toBe(true);
+  await expect(setRow.locator(".set-row__unit").first()).toBeHidden();
+
+  const floatingGeometry = await page.evaluate(async () => {
+    document.documentElement.dataset.updateWaiting = "true";
+    const layer = document.createElement("div");
+    layer.className = "app-update-layer pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4";
+    const update = document.createElement("div");
+    update.style.width = "180px";
+    update.style.height = "44px";
+    layer.appendChild(update);
+    document.body.appendChild(layer);
+    const toastLayer = document.querySelector(".toast-layer") as HTMLElement;
+    const toast = document.createElement("div");
+    toast.style.width = "160px";
+    toast.style.height = "40px";
+    toastLayer.appendChild(toast);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const updateRect = update.getBoundingClientRect();
+    const toastRect = toast.getBoundingClientRect();
+    const navRect = (document.querySelector(".app-nav") as HTMLElement).getBoundingClientRect();
+    const mainPaddingBottom = Number.parseFloat(getComputedStyle(document.querySelector("main") as HTMLElement).paddingBottom);
+    layer.remove();
+    toast.remove();
+    delete document.documentElement.dataset.updateWaiting;
+    return {
+      updateBottom: Math.round(updateRect.bottom),
+      updateTop: Math.round(updateRect.top),
+      toastBottom: Math.round(toastRect.bottom),
+      navTop: Math.round(navRect.top),
+      mainPaddingBottom: Math.round(mainPaddingBottom),
+    };
+  });
+  expect(floatingGeometry.updateBottom).toBeLessThanOrEqual(floatingGeometry.navTop);
+  expect(floatingGeometry.toastBottom).toBeLessThanOrEqual(floatingGeometry.updateTop);
+  expect(floatingGeometry.mainPaddingBottom).toBeGreaterThanOrEqual(120);
+
+  await page.goto("/training-policy");
+  const daySizes = await page.locator(".adaptive-day-picker button").evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    return { width: Math.round(rect.width), height: Math.round(rect.height) };
+  }));
+  expect(daySizes).toHaveLength(7);
+  expect(daySizes.every(({ width, height }) => width >= 40 && height >= 40)).toBe(true);
+
+  await page.evaluate(() => localStorage.setItem("fitlog:locale", "en"));
+  await page.goto("/settings");
+  const intermediate = page.getByRole("button", { name: /Intermediate/ });
+  await expect(intermediate).toBeVisible();
+  const labelGeometry = await intermediate.locator(".training-level-option__label").evaluate((label) => ({
+    clientWidth: (label as HTMLElement).clientWidth,
+    scrollWidth: (label as HTMLElement).scrollWidth,
+  }));
+  expect(labelGeometry.scrollWidth).toBeLessThanOrEqual(labelGeometry.clientWidth + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(321);
+});
+
 test("exercise picker behaves as an accessible mobile sheet", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("fitlog:v1", JSON.stringify({

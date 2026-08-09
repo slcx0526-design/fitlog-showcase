@@ -1,1 +1,1 @@
-FitLog 13.0.0 stable training framework and interaction finalization
+FitLog 13.0.1 training correctness and narrow-screen reliability

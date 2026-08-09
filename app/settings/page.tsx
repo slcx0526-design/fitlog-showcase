@@ -136,10 +136,10 @@ function TrainingLevelSection() {
   return <section className="mb-6">
     <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{tr("训练水平")}</h2>
     <div className="control-card p-3">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="training-level-grid grid grid-cols-3 gap-2">
         {LEVELS.map((item) => {
           const selected = level === item.value;
-          return <button type="button" key={item.value} onClick={() => setProfile({ trainingLevel: item.value })} className={`choice-chip press border px-2 py-2.5 text-center ${selected ? "border-accent bg-accent-soft" : "border-border bg-surface-2"}`}><p className={`text-[14px] font-bold ${selected ? "text-accent" : "text-fg"}`}>{tr(item.label)}</p><p className="mt-0.5 text-[10px] text-faint">{tr(item.years)}</p></button>;
+          return <button type="button" key={item.value} onClick={() => setProfile({ trainingLevel: item.value })} className={`training-level-option choice-chip press min-w-0 border px-2 py-2.5 text-center ${selected ? "border-accent bg-accent-soft" : "border-border bg-surface-2"}`}><p className={`training-level-option__label text-[14px] font-bold ${selected ? "text-accent" : "text-fg"}`}>{tr(item.label)}</p><p className="mt-0.5 text-[10px] text-faint">{tr(item.years)}</p></button>;
         })}
       </div>
       {target && current ? <div className="control-strip mt-2.5 rounded-xl px-3 py-2.5"><p className="tnum text-[13px] text-fg">{tr("每周每肌群目标")} <b className="text-accent">{target.low}–{target.high}</b> {tr("组")}</p><p className="mt-0.5 text-[11px] text-muted">{tr(current.blurb)}</p></div> : <p className="mt-2.5 text-[12px] text-muted">{tr("选择训练水平，系统给出适合你的每周容量目标（新手不必硬上大容量）。")}</p>}

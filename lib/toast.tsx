@@ -49,8 +49,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ show }}>
       {children}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 78px)" }}
+        className="toast-layer pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4"
         aria-live={toast?.tone === "error" ? "assertive" : "polite"}
       >
         {toast && (

@@ -143,6 +143,16 @@ const PATTERNS: Array<{
     ja: (minutes, sets) => `${minutes}分・${sets}セット以内に調整`,
   },
   {
+    pattern: /^(.+)：单次直接组上限 ([\d.]+)，(.+) -([\d.]+) 组$/,
+    en: (muscles, cap, exercise, sets) => `${muscles}: ${exercise} -${sets} sets to stay within the ${cap}-set direct-work cap`,
+    ja: (muscles, cap, exercise, sets) => `${muscles}：直接セット上限${cap}に収めるため、${exercise}を-${sets}セット`,
+  },
+  {
+    pattern: /^(.+) 的(.+)直接组仍为 ([\d.]+)，高于单次恢复上限 ([\d.]+)；请人工确认动作结构。$/,
+    en: (template, muscles, sets, cap) => `${template} still has ${sets} direct ${muscles} sets, above the ${cap}-set recovery cap; review the exercise structure.`,
+    ja: (template, muscles, sets, cap) => `${template}の${muscles}直接セットは${sets}で、回復上限${cap}を超えています。種目構成を確認してください。`,
+  },
+  {
     pattern: /^每周训练天数 (\d+) → (\d+)$/,
     en: (before, after) => `Weekly training days ${before} → ${after}`,
     ja: (before, after) => `週間トレーニング日数 ${before} → ${after}`,

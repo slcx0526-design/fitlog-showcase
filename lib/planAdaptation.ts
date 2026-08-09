@@ -236,6 +236,72 @@ function templateDirectSets(
     .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
 }
 
+function recoveryPriorityScore(
+  item: TemplateItem,
+  muscles: MuscleGroup[],
+  policy: TrainingPolicy,
+  presets: Map<string, Preset>,
+) {
+  const included = new Set(muscles);
+  const scores = directContributions(item, itemPreset(item, presets))
+    .filter((entry) => included.has(entry.muscle))
+    .map((entry) => {
+      const priority = policy.musclePriorities[entry.muscle];
+      if (priority === "specialize") return 4;
+      if (priority === "grow") return 3;
+      if (priority === "deprioritize") return 0;
+      if (priority === "maintain") return 1;
+      return 2;
+    });
+  return scores.length ? Math.max(...scores) : 2;
+}
+
+function enforceRecoveryCaps(
+  template: MutableTemplate,
+  policy: TrainingPolicy,
+  presets: Map<string, Preset>,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  warnings: string[],
+) {
+  for (const recovery of RECOVERY_GROUPS) {
+    const initial = templateDirectSets(template, recovery.muscles, presets);
+    if (initial <= recovery.sessionCap + 0.001) continue;
+    const reductions = new Map<string, number>();
+    let guard = 0;
+    while (templateDirectSets(template, recovery.muscles, presets) > recovery.sessionCap + 0.001 && guard < 80) {
+      guard += 1;
+      const candidates = template.items
+        .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
+        .filter(({ item }) => item.sets > 1 && directContributions(item, itemPreset(item, presets)).some((entry) => recovery.muscles.includes(entry.muscle)))
+        .sort((left, right) => {
+          const priorityDelta = recoveryPriorityScore(left.item, recovery.muscles, policy, presets)
+            - recoveryPriorityScore(right.item, recovery.muscles, policy, presets);
+          if (priorityDelta) return priorityDelta;
+          const leftMain = left.item.isMain ?? left.preset?.isMain ?? false;
+          const rightMain = right.item.isMain ?? right.preset?.isMain ?? false;
+          if (leftMain !== rightMain) return Number(leftMain) - Number(rightMain);
+          const preferenceDelta = exercisePreferenceScore(left.preset ?? { id: left.item.exerciseId }, constraints)
+            - exercisePreferenceScore(right.preset ?? { id: right.item.exerciseId }, constraints);
+          return preferenceDelta || right.item.sets - left.item.sets || right.index - left.index;
+        });
+      const candidate = candidates[0];
+      if (!candidate) break;
+      template.items[candidate.index] = withWorkingSets(candidate.item, candidate.item.sets - 1);
+      reductions.set(candidate.item.name, (reductions.get(candidate.item.name) ?? 0) + 1);
+    }
+
+    const groupLabel = recovery.muscles.map((muscle) => MUSCLE_LABELS[muscle]).join("/");
+    for (const [exerciseName, count] of reductions) {
+      template.reasons.add(`${groupLabel}：单次直接组上限 ${recovery.sessionCap}，${exerciseName} -${count} 组`);
+    }
+    const remaining = templateDirectSets(template, recovery.muscles, presets);
+    if (remaining > recovery.sessionCap + 0.001) {
+      const warning = `${template.source.name} 的${groupLabel}直接组仍为 ${Math.round(remaining * 10) / 10}，高于单次恢复上限 ${recovery.sessionCap}；请人工确认动作结构。`;
+      if (!warnings.includes(warning)) warnings.push(warning);
+    }
+  }
+}
+
 function canAddPrioritySet(
   template: MutableTemplate,
   itemIndex: number,
@@ -276,10 +342,10 @@ function adjustMusclePriorities(
         priority,
         desired: Math.max(1, Math.round(target.low * cycleScale * musclePriorityMultiplier(priority))),
         current: currentTotals[muscle] ?? 0,
-        touchedItems: new Set<string>(),
       };
     });
   const templateAdditions = new Map<string, number>();
+  const touchedItems = new Set<string>();
   const maxRounds = increases.some((state) => state.priority === "specialize") ? 2 : 1;
 
   // Give every requested muscle one conservative pass before a specialization
@@ -292,7 +358,7 @@ function adjustMusclePriorities(
       const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
         .filter(({ item }) => itemMuscleWeight(item, state.muscle, presets) > 0)
         .filter(({ item }) => !constraints.avoidedExerciseIds.has(item.exerciseId))
-        .filter(({ template, item }) => !state.touchedItems.has(`${template.source.id}:${item.exerciseId}`))
+        .filter(({ template, item }) => !touchedItems.has(`${template.source.id}:${item.exerciseId}`))
         .filter(({ template }) => (templateAdditions.get(template.source.id) ?? 0) < MAX_PRIORITY_ADDITIONS_PER_TEMPLATE)
         .filter(({ template, index }) => canAddPrioritySet(template, index, state.muscle, constraints, presets))
         .sort((a, b) => {
@@ -310,7 +376,7 @@ function adjustMusclePriorities(
       const nextSets = candidate.item.sets + 1;
       candidate.template.items[candidate.index] = withWorkingSets(candidate.item, nextSets);
       candidate.template.reasons.add(`${MUSCLE_LABELS[state.muscle]}：${state.priority === "specialize" ? "专项" : "增长"}，按 ${cycleDays} 天微周期增加 1 组`);
-      state.touchedItems.add(`${candidate.template.source.id}:${candidate.item.exerciseId}`);
+      touchedItems.add(`${candidate.template.source.id}:${candidate.item.exerciseId}`);
       templateAdditions.set(candidate.template.source.id, (templateAdditions.get(candidate.template.source.id) ?? 0) + 1);
       state.current += itemMuscleWeight(candidate.item, state.muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
     }
@@ -467,8 +533,12 @@ export function buildPlanAdaptation(
 
   const usage = templateUsage(data);
   const beforeMuscles = cycleMuscleSets(templates.map((template) => ({ ...template, items: cloneItems(template.source.items) })), usage, presets);
-  for (const template of templates) enforceSessionCaps(template, constraints, presets);
+  for (const template of templates) {
+    enforceRecoveryCaps(template, policy, presets, constraints, warnings);
+    enforceSessionCaps(template, constraints, presets);
+  }
   adjustMusclePriorities(data, policy, templates, usage, presets, constraints, warnings);
+  for (const template of templates) enforceRecoveryCaps(template, policy, presets, constraints, warnings);
   const afterMuscles = cycleMuscleSets(templates, usage, presets);
 
   const changes: TemplatePlanChange[] = templates.flatMap((template) => {

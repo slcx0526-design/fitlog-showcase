@@ -68,6 +68,22 @@ const row: ExercisePreset = {
   custom: true,
 };
 
+const chestAndSideDeltPress: ExercisePreset = {
+  id: "cx_chest_side_delt_press",
+  name: "胸肩复合推",
+  isMain: true,
+  type: "custom",
+  primaryMuscle: "chest",
+  secondaryMuscles: ["sideDelt"],
+  volumeContributions: [
+    { muscle: "chest", weight: 1, direct: true },
+    { muscle: "sideDelt", weight: 1, direct: true },
+  ],
+  equipment: "machine",
+  movementPattern: "horizontalPush",
+  custom: true,
+};
+
 const legTemplate: Template = {
   id: "tpl_legs",
   name: "腿部",
@@ -238,6 +254,91 @@ function data(): AppData {
   const result = parseTrainingPolicyText("上胸增长", data(), defaultTrainingPolicy());
   assert.equal(result.policy.musclePriorities.upperChest, "grow");
   assert.equal(result.policy.musclePriorities.chest, undefined, "A longer muscle alias must not leak into its parent muscle");
+}
+
+{
+  const current = data();
+  const sharedTemplate: Template = {
+    id: "tpl_shared_priority",
+    name: "胸肩共同优先",
+    type: "push",
+    items: [chestAndSideDeltPress, lateralRaise].map((exercise) => ({
+      exerciseId: exercise.id,
+      name: exercise.name,
+      sets: 3,
+      repsLow: 8,
+      repsHigh: 12,
+      isMain: exercise.isMain,
+      primaryMuscle: exercise.primaryMuscle,
+      secondaryMuscles: exercise.secondaryMuscles,
+      volumeContributions: exercise.volumeContributions,
+      equipment: exercise.equipment,
+      movementPattern: exercise.movementPattern,
+    })),
+  };
+  current.customExercises = [...current.customExercises, chestAndSideDeltPress];
+  current.templates = [sharedTemplate, pullTemplate, legTemplate];
+  current.schedule.microcycle = [
+    { id: "shared_1", type: "push", label: "推", templateId: sharedTemplate.id },
+    { id: "shared_2", type: "pull", label: "拉", templateId: pullTemplate.id },
+    { id: "shared_3", type: "legs", label: "腿", templateId: legTemplate.id },
+    { id: "shared_4", type: "rest", label: "休息" },
+  ];
+  current.muscleTargets = {
+    chest: { low: 20, high: 24 },
+    sideDelt: { low: 20, high: 24 },
+  };
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    musclePriorities: { chest: "grow", sideDelt: "grow" },
+  });
+  const proposal = buildPlanAdaptation(current, policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === sharedTemplate.id);
+  assert.ok(change);
+  const nextById = new Map(change.nextItems.map((item) => [item.exerciseId, item.sets]));
+  assert.equal(nextById.get(chestAndSideDeltPress.id), 4, "One shared exercise can receive at most one priority addition");
+  assert.equal(nextById.get(lateralRaise.id), 4, "The second priority must use another eligible exercise");
+}
+
+{
+  const current = data();
+  const presets = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
+  const ids = ["px_barbell_bench", "px_incline_press", "px_triceps_pushdown"];
+  const overCapTemplate: Template = {
+    id: "tpl_over_cap_push",
+    name: "胸部超量推日",
+    type: "push",
+    items: ids.map((id, index) => {
+      const exercise = presets.get(id)!;
+      return {
+        exerciseId: exercise.id,
+        name: exercise.name,
+        sets: index < 2 ? 5 : 3,
+        repsLow: 8,
+        repsHigh: 12,
+        isMain: exercise.isMain,
+        primaryMuscle: exercise.primaryMuscle,
+        secondaryMuscles: exercise.secondaryMuscles,
+        volumeContributions: exercise.volumeContributions,
+        equipment: exercise.equipment,
+        movementPattern: exercise.movementPattern,
+      };
+    }),
+  };
+  current.templates = [overCapTemplate, pullTemplate, legTemplate];
+  current.schedule.microcycle = [
+    { id: "cap_1", type: "push", label: "推", templateId: overCapTemplate.id },
+    { id: "cap_2", type: "pull", label: "拉", templateId: pullTemplate.id },
+    { id: "cap_3", type: "legs", label: "腿", templateId: legTemplate.id },
+    { id: "cap_4", type: "rest", label: "休息" },
+  ];
+  const proposal = buildPlanAdaptation(current, defaultTrainingPolicy(), TODAY);
+  const change = proposal.changes.find((item) => item.templateId === overCapTemplate.id);
+  assert.ok(change, "An existing session above a recovery-family cap must produce a correction proposal");
+  const chestFamilySets = change.nextItems.reduce((total, item) => total + (item.volumeContributions ?? [])
+    .filter((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest"))
+    .reduce((sum, entry) => sum + item.sets * entry.weight, 0), 0);
+  assert.ok(chestFamilySets <= 8, `Existing chest-family volume must be repaired to the 8-set cap, received ${chestFamilySets}`);
+  assert.equal(change.nextItems.find((item) => item.exerciseId === "px_triceps_pushdown")?.sets, 3, "Recovery repair must not remove unrelated direct triceps work");
 }
 
 {

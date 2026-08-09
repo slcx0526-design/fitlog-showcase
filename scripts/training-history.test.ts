@@ -3,6 +3,7 @@ import { inspectDataHealth } from "../lib/dataHealth";
 import { analyzeTrackTrend, findTrackHistories, type TrackHistoryResult } from "../lib/prescription";
 import {
   buildTrainingHistoryIndex,
+  createTrainingHistoryIndexCache,
   findIndexedLastNutrition,
   findIndexedLastWorkoutByType,
   findIndexedTrackHistories,
@@ -106,6 +107,44 @@ const nutritionIndex = buildTrainingHistoryIndex({
   "2026-07-05": { ...days["2026-07-05"], nutrition: { calories: 2200, protein: 170, carbs: 250, fat: 65 } },
 });
 assert.equal(findIndexedLastNutrition(nutritionIndex, "2026-07-06")?.calories, 2200);
+
+const cachedIndexFor = createTrainingHistoryIndexCache();
+const cachedInitial = cachedIndexFor(days);
+const daysWithNutrition = {
+  ...days,
+  "2026-07-06": { date: "2026-07-06", nutrition: { calories: 2100, protein: 160, carbs: 230, fat: 60 } },
+};
+const nutritionOnlyUpdate = cachedIndexFor(daysWithNutrition);
+assert.equal(
+  nutritionOnlyUpdate.byExercise.get("px_incline_barbell"),
+  cachedInitial.byExercise.get("px_incline_barbell"),
+  "A non-training day update must reuse unchanged exercise history rows",
+);
+assert.equal(findIndexedLastNutrition(nutritionOnlyUpdate, "2026-07-07")?.calories, 2100);
+
+const editedDays = {
+  ...daysWithNutrition,
+  "2026-07-03": workout("2026-07-03", strength, [
+    { weight: 85, reps: 6, type: "working" },
+    { weight: 85, reps: 5, type: "working" },
+  ]),
+};
+const editedIndex = cachedIndexFor(editedDays);
+assert.equal(findIndexedTrackHistories(editedIndex, "px_incline_barbell", "2026-07-07", strength.progressionTrackId).same[0]?.sets[0]?.weight, 85);
+assert.deepEqual(
+  findIndexedTrackHistories(editedIndex, "px_incline_barbell", "2026-07-07", strength.progressionTrackId, 6),
+  findTrackHistories(editedDays, "px_incline_barbell", "2026-07-07", strength.progressionTrackId, 6),
+  "Incremental history edits must match a full scan",
+);
+
+const deletedDays: Record<string, DayLog> = { ...editedDays };
+delete deletedDays["2026-07-03"];
+const deletedIndex = cachedIndexFor(deletedDays);
+assert.deepEqual(
+  findIndexedTrackHistories(deletedIndex, "px_incline_barbell", "2026-07-07", strength.progressionTrackId, 6),
+  findTrackHistories(deletedDays, "px_incline_barbell", "2026-07-07", strength.progressionTrackId, 6),
+  "Deleting a day incrementally must remove its history rows",
+);
 
 const archive = buildExerciseTrackArchive(days, "2026-07-06");
 assert.equal(archive.length, 3, "Strength, hypertrophy, and legacy tracks must remain separate");

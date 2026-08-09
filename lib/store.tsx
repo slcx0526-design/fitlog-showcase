@@ -103,7 +103,7 @@ import {
   type AppleHealthMergeSummary,
 } from "./appleHealth";
 import {
-  buildTrainingHistoryIndex,
+  createTrainingHistoryIndexCache,
   findIndexedLastNutrition,
   findIndexedLastWorkoutByType,
   findIndexedTrackHistories,
@@ -261,7 +261,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
   const remoteDataRef = useRef<AppData | null>(null);
-  const historyIndex = useMemo(() => buildTrainingHistoryIndex(data.days), [data.days]);
+  const [indexTrainingHistory] = useState(() => createTrainingHistoryIndexCache());
+  const historyIndex = useMemo(() => indexTrainingHistory(data.days), [data.days, indexTrainingHistory]);
 
   // 仅客户端：挂载后读取本地数据
   useEffect(() => {
