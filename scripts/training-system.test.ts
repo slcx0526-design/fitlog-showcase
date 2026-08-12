@@ -29,7 +29,7 @@ assert.deepEqual(trackHistory.same.map((item) => item.date), ["2026-07-02", "202
 assert.equal(estimatedOneRepMax({ weight: 80, reps: 6 }), 96);
 assert.equal(analyzeTrackTrend(trackHistory.same).status, "improving");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working" }] }).status, "addWeight");
-assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 0 }, { weight: 80, reps: 6, type: "working", rir: 1 }] }).status, "effortCheck", "A failure-level set must not trigger another load increase");
+assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 0 }, { weight: 80, reps: 6, type: "working", rir: 1 }] }).status, "addWeight", "Legacy per-set RIR is reference data and must not silently override the visible session-level effort input");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 1 }, { weight: 80, reps: 6, type: "working", rir: 2 }] }).status, "addWeight");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working" }], sessionDifficulty: "hard" }).status, "effortCheck");
 const threeSetSharedTrack = defaultTrackId("incline", "hypertrophy", 8, 12, 3, "reps");

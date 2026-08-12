@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
 import { mergeAppleHealthSnapshot, normalizeAppleHealthSnapshot } from "../lib/appleHealth";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
-import { exerciseTrackId, progressionSuggestion } from "../lib/prescription";
+import { defaultTrackId, exerciseTrackId, progressionSuggestion, templateScopedIndependentTrackId } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, parseBackupWithMeta, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
-import { moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
+import { canonicalizeLibraryTemplate, moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
 import {
   setCompletionCredit,
   setStimulusFactor,
@@ -423,6 +423,82 @@ assert.ok(inspectDataHealth({
   customExercises: [{ ...collisionData.customExercises[0], id: "px_barbell_bench" }],
 }).issues.some((issue) => issue.code === "customExerciseIdCollisions"));
 
+const sharedTemplateTrack = defaultTrackId("px_barbell_bench", "hypertrophy", 8, 12, 4, "reps");
+const sourceTemplateTrack = templateScopedIndependentTrackId(sharedTemplateTrack, "tpl_source");
+const copiedTemplate = canonicalizeLibraryTemplate({
+  id: "tpl_copy",
+  name: "复制模板",
+  type: "push",
+  items: [{
+    exerciseId: "px_barbell_bench",
+    name: "平板杠铃卧推",
+    sets: 4,
+    repsLow: 8,
+    repsHigh: 12,
+    prescription: {
+      progressionTrackId: sourceTemplateTrack,
+      progressionTrackLabel: "增肌 · 8–12 次 · 独立",
+      trainingIntent: "hypertrophy",
+      targetRepMin: 8,
+      targetRepMax: 12,
+      workingSets: 4,
+      loadIncrementKg: 2.5,
+      progressionRule: "doubleProgression",
+    },
+  }],
+});
+assert.equal(copiedTemplate.items[0].prescription?.progressionTrackId, templateScopedIndependentTrackId(sharedTemplateTrack, "tpl_copy"), "A copied template must own a fresh independent history track");
+
+const rawRecoveryTemplate: Template = {
+  id: "tpl_recovery_copy",
+  name: "误存恢复模板",
+  type: "push",
+  items: [{
+    exerciseId: "px_barbell_bench",
+    name: "平板杠铃卧推",
+    sets: 2,
+    repsLow: 8,
+    repsHigh: 12,
+    prescription: {
+      progressionTrackId: `${sourceTemplateTrack}:deload`,
+      progressionTrackLabel: "恢复 · 增肌 · 8–12 次 · 独立",
+      trainingIntent: "hypertrophy",
+      targetRepMin: 8,
+      targetRepMax: 12,
+      workingSets: 2,
+      loadIncrementKg: 2.5,
+      progressionRule: "custom",
+    },
+  }],
+};
+const recoveredLibraryTemplate = canonicalizeLibraryTemplate(rawRecoveryTemplate);
+assert.equal(recoveredLibraryTemplate.items[0].sets, 4, "A generated recovery prescription restores its original build set count in the library");
+assert.equal(recoveredLibraryTemplate.items[0].prescription?.progressionTrackId, templateScopedIndependentTrackId(sharedTemplateTrack, rawRecoveryTemplate.id));
+assert.equal(recoveredLibraryTemplate.items[0].prescription?.progressionRule, "doubleProgression");
+
+const normalizedTemplateLifecycle = normalizeData({
+  templates: [rawRecoveryTemplate],
+  days: {
+    "2026-07-25": {
+      date: "2026-07-25",
+      workout: {
+        type: "push",
+        done: true,
+        cyclePhase: "deload",
+        templateId: rawRecoveryTemplate.id,
+        templateSnapshot: rawRecoveryTemplate,
+        exercises: [],
+      },
+    },
+  },
+  bodyWeights: [],
+  waistEntries: [],
+  customExercises: [],
+  schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+});
+assert.equal(normalizedTemplateLifecycle.templates?.[0].items[0].prescription?.progressionTrackId.endsWith(":deload"), false, "Only reusable library prescriptions are repaired during normalization");
+assert.equal(normalizedTemplateLifecycle.days["2026-07-25"].workout?.templateSnapshot?.items[0].prescription?.progressionTrackId.endsWith(":deload"), true, "Historical recovery snapshots remain immutable");
+
 const strengthTemplateItem = {
   exerciseId: "px_barbell_bench",
   name: "平板杠铃卧推",
@@ -832,6 +908,65 @@ const acceptedPlanRoundTrip = normalizeData({
 assert.equal(acceptedPlanRoundTrip.days["2026-07-10"].workout?.completedAt, "2026-07-10T10:00:00.000Z");
 assert.equal(acceptedPlanRoundTrip.days["2026-07-10"].workout?.exercises[0].progressionPlan?.origin, "suggestion");
 assert.equal(toBackup(acceptedPlanRoundTrip).days["2026-07-10"].workout?.exercises[0].progressionPlan?.suggestionStatus, "addReps");
+
+const sharedPlanTrack3 = defaultTrackId("px_barbell_bench", "hypertrophy", 8, 12, 3, "reps");
+const sharedPlanTrack4 = defaultTrackId("px_barbell_bench", "hypertrophy", 8, 12, 4, "reps");
+const sharedPlanRoundTripInput = {
+  days: {
+    "2026-07-11": {
+      date: "2026-07-11",
+      workout: {
+        type: "push",
+        done: true,
+        exercises: [{
+          id: "px_barbell_bench",
+          name: "平板杠铃卧推",
+          isMain: true,
+          sets: [{ weight: 82.5, reps: 8 }, { weight: 82.5, reps: 8 }, { weight: 82.5, reps: 8 }, { weight: 82.5, reps: 8 }],
+          plannedLoadKg: 82.5,
+          prescription: {
+            progressionTrackId: sharedPlanTrack4,
+            progressionTrackLabel: "增肌 · 8–12 次",
+            trainingIntent: "hypertrophy",
+            targetRepMin: 8,
+            targetRepMax: 12,
+            workingSets: 4,
+            loadIncrementKg: 2.5,
+            progressionRule: "doubleProgression",
+          },
+          progressionPlan: {
+            origin: "suggestion",
+            acceptedAt: "2026-07-11T09:00:00.000Z",
+            progressionTrackId: sharedPlanTrack3,
+            plannedLoadKg: 82.5,
+            suggestionStatus: "addWeight",
+          },
+        }],
+      },
+    },
+  },
+};
+const sharedPlanRoundTrip = normalizeData(sharedPlanRoundTripInput);
+assert.equal(sharedPlanRoundTrip.days["2026-07-11"].workout?.exercises[0].progressionPlan?.progressionTrackId, sharedPlanTrack3, "Normalization preserves an accepted plan from the same generated track family");
+const changedPlanRoundTrip = normalizeData({
+  ...sharedPlanRoundTripInput,
+  days: {
+    "2026-07-11": {
+      ...sharedPlanRoundTripInput.days["2026-07-11"],
+      workout: {
+        ...sharedPlanRoundTripInput.days["2026-07-11"].workout,
+        exercises: [{
+          ...sharedPlanRoundTripInput.days["2026-07-11"].workout.exercises[0],
+          progressionPlan: {
+            ...sharedPlanRoundTripInput.days["2026-07-11"].workout.exercises[0].progressionPlan,
+            progressionTrackId: defaultTrackId("px_barbell_bench", "strength", 4, 6, 4, "reps"),
+          },
+        }],
+      },
+    },
+  },
+});
+assert.equal(changedPlanRoundTrip.days["2026-07-11"].workout?.exercises[0].progressionPlan, undefined, "Normalization still drops an accepted plan from a different intent track");
 
 assert.ok(DEFAULT_EXERCISES.length >= 70, "The built-in library should cover common gym movements");
 const builtInIds = new Set(DEFAULT_EXERCISES.map((preset) => preset.id));

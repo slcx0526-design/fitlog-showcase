@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
-import { useI18n } from "@/lib/i18n";
+import { localeText, useI18n } from "@/lib/i18n";
 import {
   EQUIPMENT_LABELS,
   MUSCLE_LABELS,
@@ -47,7 +47,7 @@ export default function CustomExerciseEditor({
   preset: ExercisePreset;
   onClose: () => void;
 }) {
-  const { tr } = useI18n();
+  const { tr, locale } = useI18n();
   const { updateCustomExercise, removeCustomExercise } = useStore();
   const toast = useToast();
 
@@ -147,13 +147,13 @@ export default function CustomExerciseEditor({
 
       {muscle && <div className="rounded-md border border-border bg-surface p-2.5">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[12px] font-semibold text-fg">容量贡献</p>
-          <span className="text-[10px] text-faint">每个有效工作组</span>
+          <p className="text-[12px] font-semibold text-fg">{localeText(locale, "容量贡献", "Volume contribution", "ボリューム寄与")}</p>
+          <span className="text-[10px] text-faint">{localeText(locale, "每个有效工作组", "Per effective working set", "有効ワーキングセットごと")}</span>
         </div>
         <div className="mt-2 flex items-center gap-2 rounded-md bg-surface-2 px-2 py-2 text-[11px]">
           <span className="min-w-0 flex-1 truncate font-medium text-fg">{tr(MUSCLE_LABELS[muscle])}</span>
           <span className="tnum text-muted">1.0</span>
-          <span className="rounded bg-accent-soft px-1.5 py-0.5 font-semibold text-accent">直接</span>
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 font-semibold text-accent">{localeText(locale, "直接", "Direct", "直接")}</span>
         </div>
 
         <div className="mt-1.5 space-y-1.5">
@@ -163,7 +163,7 @@ export default function CustomExerciseEditor({
               <select
                 value={item.weight}
                 onChange={(event) => setContributions((items) => items.map((candidate) => candidate.muscle === item.muscle ? { ...candidate, weight: Number(event.target.value) } : candidate))}
-                aria-label={`${tr(MUSCLE_LABELS[item.muscle])}贡献权重`}
+                aria-label={localeText(locale, `${tr(MUSCLE_LABELS[item.muscle])}贡献权重`, `${tr(MUSCLE_LABELS[item.muscle])} contribution weight`, `${tr(MUSCLE_LABELS[item.muscle])}の寄与率`)}
                 className="h-8 w-[58px] rounded-md border border-border bg-surface px-1 text-[11px] text-fg outline-none focus:border-accent"
               >
                 {[...new Set<number>([...CONTRIBUTION_WEIGHTS, item.weight])]
@@ -173,12 +173,12 @@ export default function CustomExerciseEditor({
               <button
                 type="button"
                 onClick={() => setContributions((items) => items.map((candidate) => candidate.muscle === item.muscle ? { ...candidate, direct: !candidate.direct } : candidate))}
-                aria-label={`${tr(MUSCLE_LABELS[item.muscle])}切换直接或连带贡献`}
+                aria-label={localeText(locale, `${tr(MUSCLE_LABELS[item.muscle])}切换直接或连带贡献`, `Toggle direct or indirect contribution for ${tr(MUSCLE_LABELS[item.muscle])}`, `${tr(MUSCLE_LABELS[item.muscle])}の直接・間接寄与を切り替え`)}
                 className={"press h-8 w-12 shrink-0 rounded-md text-[10px] font-semibold " + (item.direct ? "bg-accent-soft text-accent" : "bg-surface text-muted")}
               >
-                {item.direct ? "直接" : "连带"}
+                {item.direct ? localeText(locale, "直接", "Direct", "直接") : localeText(locale, "连带", "Indirect", "間接")}
               </button>
-              <button type="button" onClick={() => setContributions((items) => items.filter((candidate) => candidate.muscle !== item.muscle))} aria-label={`删除${tr(MUSCLE_LABELS[item.muscle])}贡献`} className="press h-8 w-8 shrink-0 rounded-md text-[15px] text-faint">×</button>
+              <button type="button" onClick={() => setContributions((items) => items.filter((candidate) => candidate.muscle !== item.muscle))} aria-label={localeText(locale, `删除${tr(MUSCLE_LABELS[item.muscle])}贡献`, `Remove ${tr(MUSCLE_LABELS[item.muscle])} contribution`, `${tr(MUSCLE_LABELS[item.muscle])}の寄与を削除`)} className="press h-8 w-8 shrink-0 rounded-md text-[15px] text-faint">×</button>
             </div>
           ))}
         </div>
@@ -189,13 +189,13 @@ export default function CustomExerciseEditor({
             const next = event.target.value as MuscleGroup;
             if (next) setContributions((items) => [...items, { muscle: next, weight: 0.5, direct: false }]);
           }}
-          aria-label="添加容量贡献肌群"
+          aria-label={localeText(locale, "添加容量贡献肌群", "Add a contributing muscle", "寄与する筋群を追加")}
           className="mt-2 h-9 w-full rounded-md border border-dashed border-border bg-surface px-2 text-[12px] text-muted outline-none focus:border-accent"
         >
-          <option value="">添加次级肌群…</option>
+          <option value="">{localeText(locale, "添加次级肌群…", "Add secondary muscle…", "補助筋を追加…")}</option>
           {MUSCLE_ORDER.filter((item) => item !== muscle && !contributions.some((candidate) => candidate.muscle === item)).map((item) => <option key={item} value={item}>{tr(MUSCLE_LABELS[item])}</option>)}
         </select>
-        <p className="mt-2 text-[10px] leading-relaxed text-faint">直接贡献进入该肌群目标；连带贡献只用于总刺激和恢复判断。</p>
+        <p className="mt-2 text-[10px] leading-relaxed text-faint">{localeText(locale, "直接贡献进入该肌群目标；连带贡献只用于总刺激和恢复判断。", "Direct contribution counts toward the muscle target; indirect contribution informs total stimulus and recovery only.", "直接寄与は筋群目標に計上し、間接寄与は総刺激と回復判定にのみ使用します。")}</p>
       </div>}
 
       <div className="flex items-center gap-2">

@@ -11,7 +11,7 @@ import { useToday } from "@/lib/hooks";
 import { useI18n } from "@/lib/i18n";
 import { currentMicrocycleProgress, microcycleStepHref } from "@/lib/microcycle";
 import { typeLabel } from "@/lib/exercises";
-import { workingSets } from "@/lib/trainingMetrics";
+import { summarizeSessionExecution } from "@/lib/trainingExecution";
 import type { TrainingType } from "@/lib/types";
 import MorningCheckIn from "./MorningCheckIn";
 import DailyOverview from "./DailyOverview";
@@ -28,7 +28,7 @@ export default function TodayHome() {
   const today = useToday();
   const day = getDay(today);
   const workout = day?.workout;
-  const setCount = workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
+  const setCount = summarizeSessionExecution(workout).completionCredits;
   const cycleProgress = useMemo(() => currentMicrocycleProgress(data, today), [data, today]);
   const nextCycleStep = workout ? null : cycleProgress.next;
   const scheduled = nextCycleStep?.type ?? null;

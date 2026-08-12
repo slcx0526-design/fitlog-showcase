@@ -110,8 +110,13 @@ export function defaultTrackId(
 interface GeneratedSharedTrackDefinition {
   performanceMode: PerformanceMode;
   trainingIntent: TrainingIntent;
+  workingSets: number;
   targetRepMin: number;
   targetRepMax: number;
+}
+
+interface GeneratedTemplateTrackDefinition extends GeneratedSharedTrackDefinition {
+  sharedTrackId: string;
 }
 
 function generatedSharedTrackDefinition(
@@ -128,9 +133,31 @@ function generatedSharedTrackDefinition(
   return {
     performanceMode: (match[1] ?? "reps") as PerformanceMode,
     trainingIntent: match[2] as TrainingIntent,
+    workingSets: Number(match[3]),
     targetRepMin: Number(match[4]),
     targetRepMax: Number(match[5]),
   };
+}
+
+function generatedTemplateScopedTrackDefinition(
+  trackId: string,
+  exerciseId: string,
+): GeneratedTemplateTrackDefinition | null {
+  if (trackId.endsWith(":deload")) return null;
+  const exerciseKey = cleanId(exerciseId);
+  const prefix = `${exerciseKey}-`;
+  if (!exerciseKey || !trackId.startsWith(prefix)) return null;
+  const match = trackId.slice(prefix.length).match(
+    /^((?:(?:duration|distance)-)?(?:strength|hypertrophy|endurance|custom)-(?:\d+)x(?:\d+(?:\.\d+)?)-(?:\d+(?:\.\d+)?))-ind-(.+)$/,
+  );
+  if (!match?.[2]) return null;
+  const sharedTrackId = `${prefix}${match[1]}`;
+  const definition = generatedSharedTrackDefinition(sharedTrackId, exerciseId);
+  return definition ? { ...definition, sharedTrackId } : null;
+}
+
+function templateTrackScopeId(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
 /** Generated shared tracks keep one history family when only working-set count changes. */
@@ -166,6 +193,56 @@ export function isGeneratedSharedTrackId(
       && definition.targetRepMin === repsLow
       && definition.targetRepMax === repsHigh,
   );
+}
+
+export function templateScopedIndependentTrackId(sharedTrackId: string, templateId: string) {
+  return `${sharedTrackId}-ind-${templateTrackScopeId(templateId)}`;
+}
+
+export function isGeneratedTemplateScopedTrackId(
+  trackId: string,
+  exerciseId: string,
+  intent: TrainingIntent,
+  repsLow: number,
+  repsHigh: number,
+  performanceMode: PerformanceMode = "reps",
+) {
+  const definition = generatedTemplateScopedTrackDefinition(trackId, exerciseId);
+  return Boolean(
+    definition
+      && definition.performanceMode === performanceMode
+      && definition.trainingIntent === intent
+      && definition.targetRepMin === repsLow
+      && definition.targetRepMax === repsHigh,
+  );
+}
+
+/** Generated independent tracks always belong to the template that contains them. */
+export function retargetTemplateScopedTrackId(
+  trackId: string,
+  exerciseId: string,
+  intent: TrainingIntent,
+  repsLow: number,
+  repsHigh: number,
+  templateId: string,
+  performanceMode: PerformanceMode = "reps",
+) {
+  const definition = generatedTemplateScopedTrackDefinition(trackId, exerciseId);
+  if (
+    !definition
+    || definition.performanceMode !== performanceMode
+    || definition.trainingIntent !== intent
+    || definition.targetRepMin !== repsLow
+    || definition.targetRepMax !== repsHigh
+  ) return trackId;
+  return templateScopedIndependentTrackId(definition.sharedTrackId, templateId);
+}
+
+export function generatedTrackWorkingSets(trackId: string, exerciseId: string) {
+  return (
+    generatedSharedTrackDefinition(trackId, exerciseId)
+    ?? generatedTemplateScopedTrackDefinition(trackId, exerciseId)
+  )?.workingSets;
 }
 
 export function performanceModeFor(recordModes: ExercisePreset["recordModes"] | Exercise["recordModes"]): PerformanceMode {
@@ -621,8 +698,6 @@ export function progressionSuggestion(
   const values = counted.map((set) => performanceValue(set, mode));
   const allAtTop = counted.length > 0 && values.every((value) => value >= prescription.targetRepMax);
   const belowBottom = values.some((value) => value < prescription.targetRepMin);
-  const rirBelowTarget = typeof prescription.targetRirMin === "number"
-    && counted.some((set) => typeof set.rir === "number" && set.rir < prescription.targetRirMin!);
   const roundedWeights = counted.map((set) => Math.round(set.weight * 100) / 100);
   const positiveWeights = roundedWeights.filter((weight) => weight > 0);
   const consistentWeight = positiveWeights.length === counted.length && new Set(positiveWeights).size === 1
@@ -678,14 +753,12 @@ export function progressionSuggestion(
     };
   }
   const baseWeight = consistentWeight;
-  if (allAtTop && (history.sessionDifficulty === "hard" || rirBelowTarget)) {
+  if (allAtTop && history.sessionDifficulty === "hard") {
     return {
       nextWeight: baseWeight,
       status: "effortCheck",
-      message: rirBelowTarget ? "次数已达标，但保留次数低于目标" : "次数已达标，但上次整体偏吃力",
-      condition: typeof prescription.targetRirMin === "number"
-        ? `先用相同重量完成，并保留至少 ${prescription.targetRirMin} RIR`
-        : "先用相同重量稳定完成，再决定加重",
+      message: "次数已达标，但上次整体偏吃力",
+      condition: "先用相同重量稳定完成，且整体不吃力",
     };
   }
   if (allAtTop && prescription.loadIncrementKg > 0) {
@@ -693,7 +766,7 @@ export function progressionSuggestion(
       nextWeight: +(baseWeight + prescription.loadIncrementKg).toFixed(2),
       status: "addWeight",
       message: `下次建议加 ${prescription.loadIncrementKg}kg`,
-      condition: `工作组达到 ${prescription.targetRepMax} 次${typeof prescription.targetRirMin === "number" ? `，并保留至少 ${prescription.targetRirMin} RIR` : ""}`,
+      condition: `工作组达到 ${prescription.targetRepMax} 次，且整体不吃力`,
     };
   }
   if (belowBottom) {

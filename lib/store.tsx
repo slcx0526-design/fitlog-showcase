@@ -52,6 +52,7 @@ import { emitPersistenceStatus } from "./persistence";
 import { DEFAULT_EXERCISES } from "./exercises";
 import { todayKey } from "./date";
 import {
+  canonicalizeLibraryTemplate,
   MAX_TEMPLATES_PER_TYPE,
   moveTemplateWithinType,
   updateCustomExerciseTemplateReferences,
@@ -753,11 +754,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (list.filter((t) => t.type === source.type).length >= MAX_TEMPLATES_PER_TYPE) {
         return prev;
       }
-      const copy = cloneTemplate({
+      const copy = canonicalizeLibraryTemplate(cloneTemplate({
         ...source,
         id: nextId,
         name: `${source.name.trim() || "模板"} 副本`,
-      });
+      }));
       const sourceIndex = list.findIndex((t) => t.id === id);
       const next = [...list];
       next.splice(sourceIndex + 1, 0, copy);
@@ -791,7 +792,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))
       );
       const templates = (prev.templates ?? []).map((template) =>
-        template.id === id ? { ...template, items: canonicalItems } : template
+        template.id === id
+          ? canonicalizeLibraryTemplate({ ...template, items: canonicalItems })
+          : template
       );
       return {
         ...prev,

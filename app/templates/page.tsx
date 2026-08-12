@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "@/lib/exercises";
-import { defaultTrackId, inferIntent, intentLabel, isGeneratedSharedTrackId, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem } from "@/lib/prescription";
+import { defaultTrackId, inferIntent, intentLabel, isGeneratedSharedTrackId, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem, templateScopedIndependentTrackId } from "@/lib/prescription";
 import {
   TEMPLATE_TYPES,
   TYPE_LABEL,
@@ -345,7 +345,7 @@ function TemplateCard({
         const nextSharedId = defaultTrackId(next.exerciseId, nextPrescription.trainingIntent, next.repsLow, next.repsHigh, next.sets, nextPrescription.performanceMode);
         next.prescription = {
           ...nextPrescription,
-          progressionTrackId: `${nextSharedId}-ind-${tpl.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+          progressionTrackId: templateScopedIndependentTrackId(nextSharedId, tpl.id),
           progressionTrackLabel: `${nextPrescription.progressionTrackLabel.replace(/\s*·\s*独立$/, "")} · 独立`,
         };
       }
@@ -391,7 +391,7 @@ function TemplateCard({
       progressionTrackLabel: undefined,
       prescription: {
         ...prescription,
-        progressionTrackId: mode === "shared" ? sharedId : `${sharedId}-ind-${tpl.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+        progressionTrackId: mode === "shared" ? sharedId : templateScopedIndependentTrackId(sharedId, tpl.id),
         progressionTrackLabel: mode === "shared" ? sharedLabel : `${sharedLabel} · 独立`,
       },
     });

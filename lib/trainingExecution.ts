@@ -7,7 +7,7 @@ import type {
   SetRecord,
   WorkoutSession,
 } from "./types";
-import { exercisePrescription, performanceValue } from "./prescription";
+import { exercisePrescription, performanceValue, progressionTrackIdsMatch } from "./prescription";
 import {
   hasSetPerformance,
   plannedWorkingSets,
@@ -245,7 +245,9 @@ export function evaluateProgressionOutcome(
   if (plan.origin === "manual") return empty("manualPlan");
   if (plan.origin === "reference") return empty("referencePlan");
   if (workout?.done !== true) return empty("workoutOpen");
-  if (plan.progressionTrackId !== prescription.progressionTrackId) return empty("trackChanged");
+  if (!progressionTrackIdsMatch(plan.progressionTrackId, prescription.progressionTrackId, exercise.id)) {
+    return empty("trackChanged");
+  }
   if ((prescription.performanceMode ?? "reps") !== "reps" || workout.cyclePhase === "deload") {
     return empty("unsupportedMode");
   }
@@ -257,9 +259,7 @@ export function evaluateProgressionOutcome(
   const values = counted.map((set) => performanceValue(set, "reps"));
   const setsAtTargetFloor = values.filter((value) => value >= prescription.targetRepMin).length;
   const performanceAchieved = counted.length >= requiredSets && setsAtTargetFloor >= requiredSets;
-  const rirBelowTarget = typeof prescription.targetRirMin === "number"
-    && counted.some((set) => typeof set.rir === "number" && set.rir < prescription.targetRirMin!);
-  const effortExceeded = workout?.difficulty === "hard" || rirBelowTarget;
+  const effortExceeded = workout?.difficulty === "hard";
   const achieved = performanceAchieved && !effortExceeded;
   const allAtTargetTop = achieved && values.every((value) => value >= prescription.targetRepMax);
   const status: ProgressionOutcomeStatus = achieved

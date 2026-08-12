@@ -101,8 +101,49 @@ const effortExceededOutcome = evaluateProgressionOutcome({
     { weight: 82.5, reps: 8, rir: 1 },
   ],
 }, { done: true, difficulty: "onTarget", cyclePhase: "build" });
-assert.equal(effortExceededOutcome.status, "partial");
-assert.equal(effortExceededOutcome.reason, "effortExceeded", "Accepted progressions at excessive effort must not train the model as achieved");
+assert.equal(effortExceededOutcome.status, "achieved");
+assert.equal(effortExceededOutcome.reason, "achieved", "Hidden legacy per-set RIR must not override the current session-level effort input");
+
+const hardSessionOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  sets: [
+    { weight: 82.5, reps: 8 },
+    { weight: 82.5, reps: 9 },
+    { weight: 82.5, reps: 8 },
+  ],
+}, { done: true, difficulty: "hard", cyclePhase: "build" });
+assert.equal(hardSessionOutcome.status, "partial");
+assert.equal(hardSessionOutcome.reason, "effortExceeded", "The visible session-level effort input remains the progression guardrail");
+
+const evolvedSharedTrackOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  prescription: {
+    ...acceptedSuggestion.prescription!,
+    progressionTrackId: "accepted-hypertrophy-4x8-12",
+    workingSets: 4,
+  },
+  sets: [
+    { weight: 82.5, reps: 8 },
+    { weight: 82.5, reps: 9 },
+    { weight: 82.5, reps: 8 },
+    { weight: 82.5, reps: 8 },
+  ],
+}, { done: true, difficulty: "onTarget", cyclePhase: "build" });
+assert.equal(evolvedSharedTrackOutcome.status, "achieved", "Accepted plans survive set-count-only changes inside the same generated shared track family");
+
+const changedTrackOutcome = evaluateProgressionOutcome({
+  ...acceptedSuggestion,
+  prescription: {
+    ...acceptedSuggestion.prescription!,
+    progressionTrackId: "accepted-strength-4x4-6",
+    progressionTrackLabel: "力量 · 4–6 次",
+    trainingIntent: "strength",
+    targetRepMin: 4,
+    targetRepMax: 6,
+    workingSets: 4,
+  },
+}, { done: true, difficulty: "onTarget", cyclePhase: "build" });
+assert.equal(changedTrackOutcome.reason, "trackChanged", "A distinct intent track must still invalidate an accepted plan");
 
 const partialOutcome = evaluateProgressionOutcome({
   ...acceptedSuggestion,

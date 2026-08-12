@@ -34,7 +34,8 @@ import { assignHistoricalMicrocycles, defaultMesocycle, defaultMicrocycle, ensur
 import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
 import type { Equipment } from "./muscles";
 import { DEFAULT_EXERCISES } from "./exercises";
-import { normalizeExercisePrescription, normalizeTemplateItemPrescription } from "./prescription";
+import { normalizeExercisePrescription, normalizeTemplateItemPrescription, progressionTrackIdsMatch } from "./prescription";
+import { canonicalizeLibraryTemplate } from "./templates";
 import { hasSetPerformance } from "./trainingMetrics";
 import {
   exportTrainingPolicyBackup,
@@ -315,12 +316,12 @@ function parsePrescription(input: unknown): ProgressionPrescription | undefined 
   };
 }
 
-function parseProgressionPlan(input: unknown, plannedLoadKg?: number, expectedTrackId?: string): ProgressionPlanSnapshot | undefined {
+function parseProgressionPlan(input: unknown, exerciseId: string, plannedLoadKg?: number, expectedTrackId?: string): ProgressionPlanSnapshot | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
   if (value.origin !== "suggestion" && value.origin !== "reference" && value.origin !== "manual") return undefined;
   const progressionTrackId = typeof value.progressionTrackId === "string" ? value.progressionTrackId.trim() : "";
-  if (!progressionTrackId || (expectedTrackId && progressionTrackId !== expectedTrackId)) return undefined;
+  if (!progressionTrackId || (expectedTrackId && !progressionTrackIdsMatch(progressionTrackId, expectedTrackId, exerciseId))) return undefined;
   if (typeof value.acceptedAt !== "string" || !value.acceptedAt) return undefined;
   if (typeof value.plannedLoadKg !== "number" || !Number.isFinite(value.plannedLoadKg) || value.plannedLoadKg <= 0 || value.plannedLoadKg > 5_000) return undefined;
   const load = Math.min(5_000, Math.round(value.plannedLoadKg * 100) / 100);
@@ -910,7 +911,7 @@ export function normalizeData(input: unknown): AppData {
                 ...(plannedLoadKg != null ? { plannedLoadKg } : {}),
               };
               const normalized = normalizeExercisePrescription(candidate);
-              const progressionPlan = parseProgressionPlan(exercise.progressionPlan, plannedLoadKg, normalized.prescription?.progressionTrackId);
+              const progressionPlan = parseProgressionPlan(exercise.progressionPlan, exerciseId, plannedLoadKg, normalized.prescription?.progressionTrackId);
               return [{ ...normalized, ...(progressionPlan ? { progressionPlan } : {}) }];
             })
           : [];
@@ -1142,7 +1143,7 @@ export function normalizeData(input: unknown): AppData {
       if (value.type !== "push" && value.type !== "pull" && value.type !== "legs") continue;
       const templateId = templateIdentity.assignedIdForRaw(rawTemplate);
       if (!templateId) continue;
-      templates.push({ id: templateId, name: typeof value.name === "string" ? value.name.trim() : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] });
+      templates.push(canonicalizeLibraryTemplate({ id: templateId, name: typeof value.name === "string" ? value.name.trim() : "", type: value.type, items: Array.isArray(value.items) ? value.items.map(parseItem).filter((item): item is TemplateItem => !!item) : [] }));
     }
     if (templates.length) out.templates = templates;
   } else if (obj.templates && typeof obj.templates === "object") {
@@ -1151,7 +1152,7 @@ export function normalizeData(input: unknown): AppData {
     const templates = (Object.keys(meta) as TemplateSlot[]).flatMap((slot) => {
       const source = rawTemplates[slot];
       const items = Array.isArray(source) ? source.map(parseItem).filter((item): item is TemplateItem => !!item) : [];
-      return items.length ? [{ id: `tpl_legacy_${slot}`, name: meta[slot].name, type: meta[slot].type, items }] : [];
+      return items.length ? [canonicalizeLibraryTemplate({ id: `tpl_legacy_${slot}`, name: meta[slot].name, type: meta[slot].type, items })] : [];
     });
     if (templates.length) out.templates = templates;
   }

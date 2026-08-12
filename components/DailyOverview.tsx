@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
-import { workingSets } from "@/lib/trainingMetrics";
+import { summarizeSessionExecution } from "@/lib/trainingExecution";
 
 type DailyItem = {
   id: "body" | "nutrition" | "activity";
@@ -29,10 +29,7 @@ export default function DailyOverview() {
     const body = data.bodyWeights.find((entry) => entry.date === today)
       ?? data.waistEntries.find((entry) => entry.date === today);
     const calories = day?.nutrition?.calories ?? 0;
-    const completedSets = day?.workout?.exercises.reduce(
-      (sum, exercise) => sum + workingSets(exercise.sets).length,
-      0,
-    ) ?? 0;
+    const completedSets = summarizeSessionExecution(day?.workout).completionCredits;
     const cardioMinutes = (day?.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
     const activityDone = Boolean(day?.workout?.done || completedSets > 0 || cardioMinutes > 0);
 

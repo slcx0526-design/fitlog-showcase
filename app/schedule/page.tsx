@@ -23,7 +23,7 @@ import {
   type MuscleGroup,
 } from "@/lib/muscles";
 import { computeVolumeSummary } from "@/lib/volume";
-import { workingSets } from "@/lib/trainingMetrics";
+import { summarizeSessionExecution } from "@/lib/trainingExecution";
 import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
 import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
@@ -273,7 +273,7 @@ function DayStatus({ date }: { date: string }) {
   const { data } = useStore();
   const day = data.days[date];
   const workout = day?.workout;
-  const sets = workout?.exercises.reduce((sum, exercise) => sum + workingSets(exercise.sets).length, 0) ?? 0;
+  const sets = summarizeSessionExecution(workout).completionCredits;
   if (workout?.type === "rest") return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">{tr("休息")}</span>;
   if (workout?.done && sets > 0) return <span className="ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("已完成")}</span>;
   if (sets > 0) return <span className="tnum ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("{n} 组", { n: sets })}</span>;

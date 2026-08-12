@@ -122,6 +122,48 @@ test("home and training entry follow the next microcycle step instead of the wee
   }, date)).toEqual(["push", "cycle_push"]);
 });
 
+test("partial working sets use one completion-credit value across home, schedule, and training", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Completion-credit consistency needs one focused mobile regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            cyclePhase: "deload",
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              sets: [{ weight: 80, reps: 6, type: "working", completion: "partial" }],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/");
+  await expect(page.locator(".primary-workout-panel")).toContainText("已完成 0.5 组，随时继续。");
+  await expect(page.locator("[data-daily-overview]")).toContainText("0.5 组");
+
+  await page.goto("/schedule");
+  await expect(page.getByText("0.5 组", { exact: true })).toBeVisible();
+
+  await page.goto("/train");
+  await expect(page.getByRole("button", { name: "用本次有效工作组存为模板" })).toHaveCount(0);
+});
+
 for (const visualMode of ["lite", "pulse", "midnight", "survival"]) {
 test(`active product routes meet the WCAG AA baseline in ${visualMode}`, async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Accessibility is audited once at the primary mobile viewport.");
@@ -395,6 +437,13 @@ test("set-count edits keep generated shared progression history connected", asyn
     const item = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.[0]?.items?.[0];
     return [item?.sets, item?.rpe, item?.prescription?.progressionTrackId];
   })).toEqual([6, 8, independentTrackId]);
+  await page.getByRole("button", { name: "复制为新模板" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const templates = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates ?? [];
+    const copy = templates[1];
+    return templates.length === 2
+      && copy?.items?.[0]?.prescription?.progressionTrackId === `px_barbell_bench-hypertrophy-5x8-12-ind-${copy?.id}`;
+  })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 });
 
