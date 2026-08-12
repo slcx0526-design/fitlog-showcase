@@ -332,7 +332,15 @@ function TemplateCard({
           : {}),
         ...(changesEffort ? { prescription: undefined, targetRirMin: undefined, targetRirMax: undefined } : {}),
       };
-      if ((changesTrack || changesEffort) && wasIndependent) {
+      if (changesEffort && !changesTrack) {
+        const nextPrescription = prescriptionFromTemplateItem(next, preset);
+        next.prescription = {
+          ...nextPrescription,
+          progressionTrackId: currentPrescription.progressionTrackId,
+          progressionTrackLabel: currentPrescription.progressionTrackLabel,
+        };
+      }
+      if (changesTrack && wasIndependent) {
         const nextPrescription = prescriptionFromTemplateItem(next, preset);
         const nextSharedId = defaultTrackId(next.exerciseId, nextPrescription.trainingIntent, next.repsLow, next.repsHigh, next.sets, nextPrescription.performanceMode);
         next.prescription = {
@@ -367,6 +375,15 @@ function TemplateCard({
     const item = items[index];
     const preset = [...DEFAULT_EXERCISES, ...data.customExercises].find((candidate) => candidate.id === item.exerciseId);
     const prescription = prescriptionFromTemplateItem(item, preset);
+    const currentlyShared = isGeneratedSharedTrackId(
+      prescription.progressionTrackId,
+      item.exerciseId,
+      prescription.trainingIntent,
+      item.repsLow,
+      item.repsHigh,
+      prescription.performanceMode,
+    );
+    if ((mode === "shared") === currentlyShared) return;
     const sharedId = defaultTrackId(item.exerciseId, prescription.trainingIntent, item.repsLow, item.repsHigh, item.sets, prescription.performanceMode);
     const sharedLabel = prescription.progressionTrackLabel.replace(/\s*·\s*独立$/, "");
     update(index, {
@@ -602,8 +619,14 @@ function TemplateCard({
                   {(() => {
                     const preset = pool.find((candidate) => candidate.id === it.exerciseId);
                     const prescription = prescriptionFromTemplateItem(it, preset);
-                    const sharedId = defaultTrackId(it.exerciseId, prescription.trainingIntent, it.repsLow, it.repsHigh, it.sets, prescription.performanceMode);
-                    const independent = prescription.progressionTrackId !== sharedId;
+                    const independent = !isGeneratedSharedTrackId(
+                      prescription.progressionTrackId,
+                      it.exerciseId,
+                      prescription.trainingIntent,
+                      it.repsLow,
+                      it.repsHigh,
+                      prescription.performanceMode,
+                    );
                     return <div className="control-strip grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-lg p-1" role="group" aria-label={tr("训练轨道")}>
                       <button type="button" onClick={() => setTrackMode(idx, "shared")} aria-pressed={!independent} className={"choice-chip press h-8 min-w-0 text-[11px] font-semibold " + (!independent ? "bg-fg text-bg" : "text-muted")}>{tr("共享")}</button>
                       <button type="button" onClick={() => setTrackMode(idx, "independent")} aria-pressed={independent} className={"choice-chip press h-8 min-w-0 text-[11px] font-semibold " + (independent ? "bg-fg text-bg" : "text-muted")}>{tr("独立")}</button>

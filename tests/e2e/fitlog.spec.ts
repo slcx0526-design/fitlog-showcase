@@ -330,6 +330,180 @@ test("planning controls stay reachable without floating overlap", async ({ page 
   await expect(page.getByRole("button", { name: "复制全部计划" })).toBeVisible();
 });
 
+test("set-count edits keep generated shared progression history connected", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Shared-track continuity needs one focused mobile regression.");
+  await page.addInitScript(() => {
+    const progressionTrackId = "px_barbell_bench-hypertrophy-3x8-12";
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{
+        id: "tpl_shared_track",
+        name: "组数延续测试",
+        type: "push",
+        items: [{
+          exerciseId: "px_barbell_bench",
+          name: "平板杠铃卧推",
+          sets: 4,
+          repsLow: 8,
+          repsHigh: 12,
+          progressionTrackId,
+          prescription: {
+            progressionTrackId,
+            progressionTrackLabel: "增肌 · 8–12 次",
+            trainingIntent: "hypertrophy",
+            targetRepMin: 8,
+            targetRepMax: 12,
+            targetRirMin: 1,
+            targetRirMax: 2,
+            workingSets: 3,
+            loadIncrementKg: 2.5,
+            progressionRule: "doubleProgression",
+            performanceMode: "reps",
+          },
+        }],
+      }],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+  });
+
+  await page.goto("/templates");
+  await page.getByRole("button", { name: /组数延续测试/ }).click();
+  const shared = page.getByRole("button", { name: "共享", exact: true });
+  const independent = page.getByRole("button", { name: "独立", exact: true });
+  await expect(shared).toHaveAttribute("aria-pressed", "true");
+  await expect(independent).toHaveAttribute("aria-pressed", "false");
+  await shared.click();
+  await page.getByRole("button", { name: "组数 · 增加" }).click();
+  await expect(shared).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => {
+    const item = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.[0]?.items?.[0];
+    return [item?.sets, item?.prescription?.workingSets, item?.prescription?.progressionTrackId];
+  })).toEqual([5, 5, "px_barbell_bench-hypertrophy-3x8-12"]);
+  await independent.click();
+  await expect(independent).toHaveAttribute("aria-pressed", "true");
+  const independentTrackId = "px_barbell_bench-hypertrophy-5x8-12-ind-tpl_shared_track";
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.[0]?.items?.[0]?.prescription?.progressionTrackId)).toBe(independentTrackId);
+  await page.getByRole("button", { name: "组数 · 增加" }).click();
+  await page.getByRole("button", { name: "RPE", exact: true }).click();
+  await expect(independent).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => {
+    const item = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.[0]?.items?.[0];
+    return [item?.sets, item?.rpe, item?.prescription?.progressionTrackId];
+  })).toEqual([6, 8, independentTrackId]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+});
+
+test("adaptive outcomes render actual dose evidence across every visual mode", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Adaptive outcome visuals need one focused mobile regression.");
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.addInitScript(() => {
+    const exercise = (completedSets: number) => ({
+      id: "px_barbell_bench",
+      name: "平板杠铃卧推",
+      isMain: true,
+      primaryMuscle: "chest",
+      volumeContributions: [{ muscle: "chest", weight: 1, direct: true }],
+      prescription: {
+        progressionTrackId: "px_barbell_bench-hypertrophy-4x8-12",
+        progressionTrackLabel: "增肌 · 8–12 次",
+        trainingIntent: "hypertrophy",
+        targetRepMin: 8,
+        targetRepMax: 12,
+        targetRirMin: 1,
+        targetRirMax: 2,
+        workingSets: 4,
+        loadIncrementKg: 2.5,
+        progressionRule: "doubleProgression",
+        performanceMode: "reps",
+      },
+      sets: Array.from({ length: completedSets }, () => ({ weight: 70, reps: 10, type: "working", completion: "completed" })),
+    });
+    const trainingDay = (date: string, microcycleId: string, cycleNumber: number, stepId: string, completedSets: number, difficulty: string, recoveryRating: number) => ({
+      date,
+      recovery: {
+        sleepQuality: recoveryRating,
+        energy: recoveryRating,
+        soreness: 6 - recoveryRating,
+        stress: 6 - recoveryRating,
+      },
+      workout: {
+        type: "push",
+        done: true,
+        completedAt: `${date}T12:00:00.000Z`,
+        microcycleId,
+        microcycleStepId: stepId,
+        mesocycleId: "meso_visual",
+        mesocycleCycleNumber: cycleNumber,
+        cyclePhase: "build",
+        difficulty,
+        exercises: [exercise(completedSets)],
+      },
+    });
+    const restDay = (date: string, microcycleId: string, cycleNumber: number) => ({
+      date,
+      workout: {
+        type: "rest",
+        done: true,
+        completedAt: `${date}T12:00:00.000Z`,
+        microcycleId,
+        microcycleStepId: `${microcycleId}_rest`,
+        mesocycleId: "meso_visual",
+        mesocycleCycleNumber: cycleNumber,
+        cyclePhase: "build",
+        exercises: [],
+      },
+    });
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        "2026-08-01": trainingDay("2026-08-01", "mc_visual_1", 1, "mc_visual_1_push_1", 4, "hard", 2),
+        "2026-08-02": trainingDay("2026-08-02", "mc_visual_1", 1, "mc_visual_1_push_2", 4, "hard", 2),
+        "2026-08-03": restDay("2026-08-03", "mc_visual_1", 1),
+        "2026-08-05": trainingDay("2026-08-05", "mc_visual_2", 2, "mc_visual_2_push_1", 5, "onTarget", 4),
+        "2026-08-06": trainingDay("2026-08-06", "mc_visual_2", 2, "mc_visual_2_push_2", 5, "onTarget", 4),
+        "2026-08-07": restDay("2026-08-07", "mc_visual_2", 2),
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "push", "rest"], microcycle: [
+        { id: "future_push_1", type: "push", label: "推 1" },
+        { id: "future_push_2", type: "push", label: "推 2" },
+        { id: "future_rest", type: "rest", label: "休息" },
+      ] },
+      microcycle: {
+        currentId: "mc_visual_future",
+        startedAt: "2026-08-09",
+        index: 3,
+        mesocycleId: "meso_visual",
+        mesocycleCycleNumber: 3,
+      },
+    }));
+  });
+
+  for (const mode of ["lite", "pulse", "midnight", "survival"]) {
+    await page.goto("/adaptive-outcomes");
+    await page.evaluate((nextMode) => localStorage.setItem("fitlog:uiMode", nextMode), mode);
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-mode", mode);
+    await expect(page.getByText("7 日实际", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("实际训练量 125%", { exact: true })).toBeVisible();
+    await expect(page.getByText("3 项结果证据", { exact: true })).toBeVisible();
+    const width = await page.evaluate(() => ({ viewport: innerWidth, page: document.documentElement.scrollWidth }));
+    expect(width.page, `${mode} adaptive outcome overflow`).toBeLessThanOrEqual(width.viewport + 1);
+  }
+  expect(consoleErrors).toEqual([]);
+});
+
 test("existing daily and review surfaces remain fully localized", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Locale copy is a focused mobile regression.");
   const date = localDateKey();

@@ -132,6 +132,26 @@ assert.equal(chestCalibration?.typicalDirectSets, 8);
 assert.equal(chestCalibration?.improvingTracks, 1);
 assert.equal(chestCalibration?.action, "personalize");
 
+const activePressureData = structuredClone(calibrationData);
+activePressureData.microcycle = {
+  ...activePressureData.microcycle!,
+  steps: [
+    { id: "active_push_1", type: "push", label: "推 1" },
+    { id: "active_push_2", type: "push", label: "推 2" },
+    { id: "active_push_3", type: "push", label: "推 3" },
+    { id: "active_rest", type: "rest", label: "休息" },
+  ],
+};
+for (const [index, date] of ["2026-07-22", "2026-07-23", "2026-07-24"].entries()) {
+  const day = withCycleContext(cycleDay(date, "mc_current", 50 - index * 2.5, true), "meso_calibration", 4);
+  day.workout = { ...day.workout!, microcycleStepId: `active_push_${index + 1}`, difficulty: "hard" };
+  activePressureData.days[date] = day;
+}
+const activePressureChest = buildPersonalCalibration(activePressureData, "2026-07-26").find((row) => row.muscle === "chest");
+assert.equal(activePressureChest?.difficultySamples, 3, "An unfinished active cycle must not enter long-term calibration difficulty evidence");
+assert.equal(activePressureChest?.improvingTracks, 1, "An unfinished active cycle must not alter finalized track trends");
+assert.equal(activePressureChest?.action, "personalize");
+
 const variableCycleCalibrationData: AppData = {
   ...emptyData(),
   profile: { trainingLevel: "beginner" },
@@ -182,6 +202,8 @@ const resetAwareData: AppData = {
 };
 const resetAwareChest = buildPersonalCalibration(resetAwareData, "2026-07-26").find((row) => row.muscle === "chest");
 assert.equal(resetAwareChest?.sampledCycles, 1, "An abandoned reset at the same mesocycle position must not become calibration evidence");
+assert.equal(resetAwareChest?.difficultySamples, 1, "Abandoned sessions must not enter finalized-cycle difficulty evidence");
+assert.equal(resetAwareChest?.improvingTracks, 0, "Abandoned performance must not create a calibration trend");
 
 const importedTemplate: Template = {
   id: "tpl_imported",

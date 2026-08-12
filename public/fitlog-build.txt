@@ -1,1 +1,1 @@
-FitLog 14.0.0 trustworthy progression and finalized-cycle evidence
+FitLog 15.0.0 continuous tracks and actual-dose evidence

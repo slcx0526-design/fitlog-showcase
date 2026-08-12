@@ -1,7 +1,7 @@
 import { scoreRecoveryCheckIn } from "./recovery";
 import { collectFinalizedMicrocycleSamples } from "./cycleSamples";
 import { evaluateProgressionOutcome } from "./trainingExecution";
-import { summarizeWorkoutWork } from "./trainingMetrics";
+import { summarizeExerciseWork, summarizeWorkoutWork } from "./trainingMetrics";
 import type { AppData, TrainingCyclePhase } from "./types";
 
 export type AdaptiveResponseConfidence = "low" | "building" | "ready";
@@ -16,7 +16,8 @@ export interface AdaptiveCycleResponse {
   sessions: number;
   plannedSets: number;
   completedSets: number;
-  completionPct: number;
+  planCredits: number;
+  completionPct: number | null;
   hardRatio: number | null;
   progressionPct: number | null;
   recoveryAverage: number | null;
@@ -33,13 +34,14 @@ export interface AdaptiveCycleTransition {
   fromMicrocycleId: string;
   toMicrocycleId: string;
   loadRatio: number;
+  evidenceSignals: number;
   score: number;
   outcome: AdaptiveTransitionOutcome;
   reasons: string[];
 }
 
 export interface AdaptiveResponseModel {
-  version: 2;
+  version: 3;
   generatedAt: string;
   confidence: AdaptiveResponseConfidence;
   tolerance: AdaptiveVolumeTolerance;
@@ -67,6 +69,7 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
     .map((sample) => {
       let sessions = 0;
       let plannedSets = 0;
+      let planCredits = 0;
       let completedSets = 0;
       let difficultySamples = 0;
       let hardSessions = 0;
@@ -79,10 +82,15 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
         const workout = day.workout;
         if (!workout || workout.type === "rest") continue;
         const work = summarizeWorkoutWork(workout);
-        if (work.plannedSets <= 0) continue;
+        const actualCredits = workout.exercises.reduce(
+          (sum, exercise) => sum + summarizeExerciseWork(exercise).completionCredits,
+          0,
+        );
+        if (actualCredits <= 0) continue;
         sessions += 1;
         plannedSets += work.plannedSets;
-        completedSets += work.completionCredits;
+        planCredits += work.completionCredits;
+        completedSets += actualCredits;
         if (workout.difficulty) {
           difficultySamples += 1;
           if (workout.difficulty === "hard") hardSessions += 1;
@@ -96,7 +104,7 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
         const recovery = scoreRecoveryCheckIn(day.recovery, day.date);
         if (recovery && recovery.signalCount >= 2) recoveryScores.push(recovery.score);
         adaptiveScales.push(workout.adaptiveSnapshot?.volumeScale ?? 1);
-        normalSets += workout.adaptiveSnapshot?.normalWorkingSets ?? work.plannedSets;
+        normalSets += workout.adaptiveSnapshot?.normalWorkingSets ?? (work.plannedSets || actualCredits);
       }
       const cycleSteps = Math.max(sample.completedSteps, sessions, 1);
       const sessionDivisor = Math.max(1, sessions);
@@ -107,8 +115,9 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
         phase: sample.phase,
         sessions,
         plannedSets: Math.round(plannedSets),
+        planCredits: round(planCredits),
         completedSets: round(completedSets),
-        completionPct: plannedSets ? Math.round(Math.min(100, completedSets / plannedSets * 100)) : 0,
+        completionPct: plannedSets ? Math.round(Math.min(100, planCredits / plannedSets * 100)) : null,
         hardRatio: difficultySamples ? round(hardSessions / difficultySamples, 2) : null,
         progressionPct: progressionTotal ? Math.round(progressionCredits / progressionTotal * 100) : null,
         recoveryAverage: average(recoveryScores) == null ? null : Math.round(average(recoveryScores)!),
@@ -121,22 +130,27 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
         normalSetsPer7Days: round(normalSets * 7 / cycleSteps),
       };
     })
-    .filter((cycle) => cycle.sessions >= 2 && cycle.plannedSets > 0)
+    .filter((cycle) => cycle.sessions >= 2 && cycle.completedSets > 0)
     .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
 function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleResponse): AdaptiveCycleTransition {
   let score = 0;
+  let evidenceSignals = 0;
   const reasons: string[] = [];
-  const completionDelta = next.completionPct - previous.completionPct;
-  if (completionDelta >= 5) {
-    score += 1;
-    reasons.push(`完成率提高 ${completionDelta} 个百分点`);
-  } else if (completionDelta <= -8) {
-    score -= 1;
-    reasons.push(`完成率下降 ${Math.abs(completionDelta)} 个百分点`);
+  if (previous.completionPct != null && next.completionPct != null) {
+    evidenceSignals += 1;
+    const completionDelta = next.completionPct - previous.completionPct;
+    if (completionDelta >= 5) {
+      score += 1;
+      reasons.push(`完成率提高 ${completionDelta} 个百分点`);
+    } else if (completionDelta <= -8) {
+      score -= 1;
+      reasons.push(`完成率下降 ${Math.abs(completionDelta)} 个百分点`);
+    }
   }
   if (previous.hardRatio != null && next.hardRatio != null) {
+    evidenceSignals += 1;
     const delta = next.hardRatio - previous.hardRatio;
     if (delta <= -0.15) {
       score += 1;
@@ -147,6 +161,7 @@ function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleRespo
     }
   }
   if (previous.progressionPct != null && next.progressionPct != null) {
+    evidenceSignals += 1;
     const delta = next.progressionPct - previous.progressionPct;
     if (delta >= 10) {
       score += 1;
@@ -157,6 +172,7 @@ function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleRespo
     }
   }
   if (previous.recoveryAverage != null && next.recoveryAverage != null) {
+    evidenceSignals += 1;
     const delta = next.recoveryAverage - previous.recoveryAverage;
     if (delta >= 7) {
       score += 1;
@@ -166,13 +182,14 @@ function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleRespo
       reasons.push("恢复评分下降");
     }
   }
-  const loadRatio = previous.prescribedSetsPer7Days > 0
-    ? round(next.prescribedSetsPer7Days / previous.prescribedSetsPer7Days, 2)
+  const loadRatio = previous.completedSetsPer7Days > 0
+    ? round(next.completedSetsPer7Days / previous.completedSetsPer7Days, 2)
     : 1;
   return {
     fromMicrocycleId: previous.microcycleId,
     toMicrocycleId: next.microcycleId,
     loadRatio,
+    evidenceSignals,
     score,
     outcome: score >= 2 ? "positive" : score <= -2 ? "negative" : "neutral",
     reasons: reasons.length ? reasons : ["主要结果指标保持稳定"],
@@ -183,7 +200,10 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
   const generatedAt = new Date().toISOString();
   const cycles = finalizedCycles(data, today);
   const buildCycles = cycles.filter((cycle) => cycle.phase === "build");
-  const transitions = buildCycles.slice(1).map((cycle, index) => compareCycles(buildCycles[index], cycle));
+  const transitions = buildCycles
+    .slice(1)
+    .map((cycle, index) => compareCycles(buildCycles[index], cycle))
+    .filter((transition) => transition.evidenceSignals >= 2);
   const confidence: AdaptiveResponseConfidence = buildCycles.length >= 4 && transitions.length >= 3
     ? "ready"
     : buildCycles.length >= 2 && transitions.length >= 1
@@ -197,7 +217,7 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
 
   let tolerance: AdaptiveVolumeTolerance = "unknown";
   if (confidence !== "low") {
-    if (higherNegative + stableNegative >= 2 || lowerPositive >= 2) tolerance = "low";
+    if (higherNegative + lowerPositive + stableNegative >= 2) tolerance = "low";
     else if (higherPositive >= 2 && higherNegative === 0) tolerance = "high";
     else tolerance = "balanced";
   }
@@ -219,7 +239,7 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
   ];
 
   return {
-    version: 2,
+    version: 3,
     generatedAt,
     confidence,
     tolerance,

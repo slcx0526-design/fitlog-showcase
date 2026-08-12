@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
-import { analyzeTrackTrend, findTrackHistories, type TrackHistoryResult } from "../lib/prescription";
+import { analyzeTrackTrend, defaultTrackId, findTrackHistories, summarizeExerciseTrackTrends, type TrackHistoryResult } from "../lib/prescription";
 import {
   buildTrainingHistoryIndex,
   createTrainingHistoryIndexCache,
@@ -107,6 +107,34 @@ const nutritionIndex = buildTrainingHistoryIndex({
   "2026-07-05": { ...days["2026-07-05"], nutrition: { calories: 2200, protein: 170, carbs: 250, fat: 65 } },
 });
 assert.equal(findIndexedLastNutrition(nutritionIndex, "2026-07-06")?.calories, 2200);
+
+const sharedThreeSetPrescription: ProgressionPrescription = {
+  ...hypertrophy,
+  progressionTrackId: defaultTrackId("px_incline_barbell", "hypertrophy", 8, 12, 3),
+  workingSets: 3,
+};
+const sharedFourSetPrescription: ProgressionPrescription = {
+  ...hypertrophy,
+  progressionTrackId: defaultTrackId("px_incline_barbell", "hypertrophy", 8, 12, 4),
+  workingSets: 4,
+};
+const setCountHistoryDays: Record<string, DayLog> = {
+  "2026-07-08": workout("2026-07-08", sharedThreeSetPrescription, Array.from({ length: 3 }, () => ({ weight: 65, reps: 10, type: "working" }))),
+  "2026-07-10": workout("2026-07-10", sharedFourSetPrescription, Array.from({ length: 4 }, () => ({ weight: 67.5, reps: 10, type: "working" }))),
+};
+const setCountHistory = findTrackHistories(setCountHistoryDays, "px_incline_barbell", "2026-07-12", sharedFourSetPrescription.progressionTrackId);
+assert.deepEqual(setCountHistory.same.map((row) => row.date), ["2026-07-10", "2026-07-08"]);
+assert.equal(setCountHistory.other.length, 0);
+assert.deepEqual(
+  findIndexedTrackHistories(buildTrainingHistoryIndex(setCountHistoryDays), "px_incline_barbell", "2026-07-12", sharedFourSetPrescription.progressionTrackId),
+  setCountHistory,
+  "Indexed and direct history queries must share set-count track-family semantics",
+);
+const setCountArchive = buildExerciseTrackArchive(setCountHistoryDays, "2026-07-12");
+assert.equal(setCountArchive.length, 1, "Archive grouping must keep set-count edits in one shared track");
+assert.equal(setCountArchive[0].sessionCount, 2);
+assert.equal(summarizeExerciseTrackTrends(setCountHistoryDays, "2026-07-12").length, 1, "Trend summaries must not split on working-set count");
+assert.equal(summarizeTrainingWindow(setCountHistoryDays, "2026-07-08", "2026-07-10").trackedExercises, 1);
 
 const cachedIndexFor = createTrainingHistoryIndexCache();
 const cachedInitial = cachedIndexFor(days);

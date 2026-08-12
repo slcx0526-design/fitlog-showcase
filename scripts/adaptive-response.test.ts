@@ -184,15 +184,70 @@ function addPositionedCycle(
 {
   const data = baseData();
   addCycle(data, "low_1", 1, 8, 8, ["onTarget", "onTarget"], 5);
-  addCycle(data, "low_2", 5, 9, 7, ["hard", "hard"], 3);
-  addCycle(data, "low_3", 9, 10, 6, ["hard", "hard"], 2);
-  addCycle(data, "low_4", 13, 11, 5, ["hard", "hard"], 1);
+  addCycle(data, "low_2", 5, 12, 9, ["hard", "hard"], 3);
+  addCycle(data, "low_3", 9, 15, 10, ["hard", "hard"], 2);
+  addCycle(data, "low_4", 13, 22, 11, ["hard", "hard"], 1);
   const model = buildAdaptiveResponseModel(data, "2026-07-20");
   assert.equal(model.confidence, "ready");
   assert.equal(model.tolerance, "low");
   assert.equal(model.volumeBias, -0.1);
   assert.equal(model.trainingDayDelta, -1);
   assert.ok(model.transitions.filter((transition) => transition.outcome === "negative").length >= 2);
+}
+
+{
+  const data = baseData();
+  addCycle(data, "mixed_1", 1, 8, 8, ["onTarget", "onTarget"], 5);
+  addCycle(data, "mixed_2", 5, 9, 9, ["hard", "hard"], 2);
+  addCycle(data, "mixed_3", 9, 8, 8, ["onTarget", "onTarget"], 5);
+  addCycle(data, "mixed_4", 13, 8, 8, ["onTarget", "onTarget"], 5);
+  const model = buildAdaptiveResponseModel(data, "2026-07-20");
+  assert.equal(model.confidence, "ready");
+  assert.equal(model.tolerance, "low", "A higher-dose decline plus a lower-dose improvement are two aligned low-tolerance signals");
+}
+
+{
+  const data = baseData();
+  addCycle(data, "extra_work", 1, 4, 6, ["onTarget", "onTarget"], 4);
+  const cycle = buildAdaptiveResponseModel(data, "2026-07-10").cycles[0];
+  assert.equal(cycle.completedSets, 12, "Actual dose must include valid work beyond the prescription cap");
+  assert.equal(cycle.planCredits, 8);
+  assert.equal(cycle.completionPct, 100);
+  assert.equal(cycle.completedSetsPer7Days, 28);
+}
+
+{
+  const data = baseData();
+  addCycle(data, "actual_base", 1, 4, 4, ["onTarget", "onTarget"], 4);
+  addCycle(data, "actual_higher", 5, 4, 5, ["onTarget", "onTarget"], 4);
+  const model = buildAdaptiveResponseModel(data, "2026-07-10");
+  assert.equal(model.transitions[0]?.loadRatio, 1.25, "Dose comparison must use actual completed work rather than an unchanged prescription");
+}
+
+{
+  const data = baseData();
+  for (const [index, startDay] of [1, 5, 9, 13].entries()) {
+    addCycle(data, `weak_${index + 1}`, startDay, 8, 8, ["onTarget", "onTarget"], 4);
+  }
+  for (const day of Object.values(data.days)) {
+    if (day.workout?.type !== "rest") delete day.workout?.difficulty;
+    delete day.recovery;
+  }
+  const model = buildAdaptiveResponseModel(data, "2026-07-20");
+  assert.equal(model.evaluatedCycles, 4);
+  assert.equal(model.comparableTransitions, 0, "One outcome signal cannot establish a comparable transition");
+  assert.equal(model.confidence, "low", "Cycle count alone must not create false confidence");
+}
+
+{
+  const data = baseData();
+  addCycle(data, "manual_1", 1, 0, 4, ["onTarget", "onTarget"], 4);
+  addCycle(data, "manual_2", 5, 0, 5, ["easy", "onTarget"], 5);
+  const model = buildAdaptiveResponseModel(data, "2026-07-10");
+  assert.equal(model.evaluatedCycles, 2, "Valid manual work must remain eligible without a prescription");
+  assert.equal(model.cycles[0]?.completionPct, null);
+  assert.equal(model.comparableTransitions, 1, "Difficulty and recovery can compare manual cycles without inventing adherence");
+  assert.equal(model.transitions[0]?.evidenceSignals, 2);
 }
 
 {

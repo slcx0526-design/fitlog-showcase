@@ -107,6 +107,49 @@ export function defaultTrackId(
   return `${cleanId(exerciseId)}-${suffix}`;
 }
 
+interface GeneratedSharedTrackDefinition {
+  performanceMode: PerformanceMode;
+  trainingIntent: TrainingIntent;
+  targetRepMin: number;
+  targetRepMax: number;
+}
+
+function generatedSharedTrackDefinition(
+  trackId: string,
+  exerciseId: string,
+): GeneratedSharedTrackDefinition | null {
+  const exerciseKey = cleanId(exerciseId);
+  const prefix = `${exerciseKey}-`;
+  if (!exerciseKey || !trackId.startsWith(prefix)) return null;
+  const match = trackId.slice(prefix.length).match(
+    /^(?:(duration|distance)-)?(strength|hypertrophy|endurance|custom)-(\d+)x(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/,
+  );
+  if (!match) return null;
+  return {
+    performanceMode: (match[1] ?? "reps") as PerformanceMode,
+    trainingIntent: match[2] as TrainingIntent,
+    targetRepMin: Number(match[4]),
+    targetRepMax: Number(match[5]),
+  };
+}
+
+/** Generated shared tracks keep one history family when only working-set count changes. */
+export function progressionTrackGroupId(trackId: string, exerciseId: string) {
+  const definition = generatedSharedTrackDefinition(trackId, exerciseId);
+  return definition
+    ? `shared:${cleanId(exerciseId)}:${definition.performanceMode}:${definition.trainingIntent}:${definition.targetRepMin}-${definition.targetRepMax}`
+    : `track:${trackId}`;
+}
+
+export function progressionTrackIdsMatch(
+  left: string | undefined,
+  right: string | undefined,
+  exerciseId: string,
+) {
+  if (!left || !right || left === right) return left === right;
+  return progressionTrackGroupId(left, exerciseId) === progressionTrackGroupId(right, exerciseId);
+}
+
 export function isGeneratedSharedTrackId(
   trackId: string,
   exerciseId: string,
@@ -115,11 +158,14 @@ export function isGeneratedSharedTrackId(
   repsHigh: number,
   performanceMode: PerformanceMode = "reps",
 ) {
-  const modePrefix = performanceMode === "reps" ? "" : `${performanceMode}-`;
-  const prefix = `${cleanId(exerciseId)}-${modePrefix}${intent}-`;
-  if (!trackId.startsWith(prefix) || !trackId.endsWith(`x${repsLow}-${repsHigh}`)) return false;
-  const setCount = trackId.slice(prefix.length, -`x${repsLow}-${repsHigh}`.length);
-  return /^\d+$/.test(setCount);
+  const definition = generatedSharedTrackDefinition(trackId, exerciseId);
+  return Boolean(
+    definition
+      && definition.performanceMode === performanceMode
+      && definition.trainingIntent === intent
+      && definition.targetRepMin === repsLow
+      && definition.targetRepMax === repsHigh,
+  );
 }
 
 export function performanceModeFor(recordModes: ExercisePreset["recordModes"] | Exercise["recordModes"]): PerformanceMode {
@@ -148,7 +194,6 @@ export function prescriptionFromTemplateItem(
   const nestedDefinitionChanged = Boolean(item.prescription && (
     item.prescription.targetRepMin !== item.repsLow ||
     item.prescription.targetRepMax !== item.repsHigh ||
-    item.prescription.workingSets !== item.sets ||
     item.prescription.trainingIntent !== intent ||
     (item.prescription.performanceMode ?? "reps") !== performanceMode
   ));
@@ -378,7 +423,7 @@ export function findTrackHistories(
       exerciseCount: workout.exercises.length,
       implicitCompletion: workout.done === false ? true : undefined,
     };
-    if (progressionTrackId && track === progressionTrackId) {
+    if (progressionTrackId && progressionTrackIdsMatch(track, progressionTrackId, exerciseId)) {
       if (target.same.length < limit) target.same.push({ ...row, kind: "same" });
     } else if (track?.startsWith("legacy:")) {
       if (target.legacy.length < limit) target.legacy.push({ ...row, kind: "legacy" });
@@ -492,7 +537,7 @@ export function summarizeExerciseTrackTrends(
       if (!sets.length) continue;
       const exercise = normalizeExercisePrescription(rawExercise);
       const trackId = exerciseTrackId(exercise);
-      const key = `${exercise.id}::${trackId}`;
+      const key = `${exercise.id}::${progressionTrackGroupId(trackId, exercise.id)}`;
       const group = groups.get(key) ?? {
         exerciseId: exercise.id,
         exerciseName: exercise.name,

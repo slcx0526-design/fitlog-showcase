@@ -58,12 +58,15 @@ function completedHistoricalCycles(data: AppData, today: string) {
 
 export function buildPersonalCalibration(data: AppData, today: string): MuscleCalibration[] {
   const cycles = completedHistoricalCycles(data, today);
+  const evidenceDays = Object.fromEntries(
+    cycles.flatMap((cycle) => cycle.days.map((day) => [day.date, day] as const)),
+  );
   const cycleVolumes = cycles.map((cycle) => ({
     summary: computeVolumeSummary(cycle.days),
     scaleToSevenDays: 7 / Math.max(1, cycle.completedSteps),
   }));
   const start = shiftDate(today, -83);
-  const archive = buildExerciseTrackArchive(data.days, shiftDate(today, 1), today)
+  const archive = buildExerciseTrackArchive(evidenceDays, shiftDate(today, 1), today)
     .filter((row) => !row.legacy && row.latestDate >= start);
 
   return MUSCLE_ORDER.map((muscle) => {
@@ -74,9 +77,8 @@ export function buildPersonalCalibration(data: AppData, today: string): MuscleCa
       ))
       .filter((sets) => sets > 0);
     const typicalDirectSets = median(cycleSets);
-    const relevantDays = Object.entries(data.days)
-      .filter(([date, day]) => date >= start && date <= today && day.workout?.done === true && directlyTrains(day, muscle))
-      .map(([, day]) => day);
+    const relevantDays = Object.values(evidenceDays)
+      .filter((day) => day.date >= start && day.date <= today && directlyTrains(day, muscle));
     const difficulty = relevantDays
       .map((day) => day.workout?.difficulty)
       .filter((value): value is NonNullable<typeof value> => Boolean(value));

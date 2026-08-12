@@ -5,6 +5,7 @@ import {
   exerciseTrackId,
   exerciseTrackLabel,
   normalizeExercisePrescription,
+  progressionTrackGroupId,
   trackPerformanceMetric,
   type TrackHistoryResult,
   type TrackPerformanceMetric,
@@ -150,7 +151,7 @@ export function buildExerciseTrackArchive(
       if (!sets.length) continue;
       const exercise = normalizeExercisePrescription(rawExercise);
       const trackId = exerciseTrackId(exercise);
-      const key = `${exercise.id}::${trackId}`;
+      const key = `${exercise.id}::${progressionTrackGroupId(trackId, exercise.id)}`;
       const history: TrackHistoryResult = {
         date,
         exercise,
@@ -237,7 +238,10 @@ export function summarizeTrainingWindow(days: Record<string, DayLog>, startDate:
     plannedSets += execution.plannedSets;
     mechanicalVolume += work.mechanicalVolume;
     for (const exercise of workout.exercises) {
-      if (workingSets(exercise.sets).length) tracks.add(`${exercise.id}::${exerciseTrackId(exercise)}`);
+      if (workingSets(exercise.sets).length) {
+        const trackId = exerciseTrackId(exercise);
+        tracks.add(`${exercise.id}::${progressionTrackGroupId(trackId, exercise.id)}`);
+      }
     }
   }
   return {

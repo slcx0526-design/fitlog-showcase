@@ -1,6 +1,7 @@
 import {
   exerciseTrackId,
   normalizeExercisePrescription,
+  progressionTrackIdsMatch,
   type TrackHistoryCollection,
   type TrackHistoryResult,
 } from "./prescription";
@@ -151,7 +152,7 @@ export function findIndexedTrackHistories(
   for (const row of index.byExercise.get(exerciseId) ?? []) {
     if (row.date >= beforeDate) continue;
     const target = row.confirmed ? confirmed : fallback;
-    if (progressionTrackId && row.trackId === progressionTrackId) {
+    if (progressionTrackId && progressionTrackIdsMatch(row.trackId, progressionTrackId, exerciseId)) {
       if (target.same.length < limit) target.same.push(historyResult(row, "same"));
     } else if (row.trackId.startsWith("legacy:")) {
       if (target.legacy.length < limit) target.legacy.push(historyResult(row, "legacy"));

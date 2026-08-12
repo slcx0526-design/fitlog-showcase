@@ -91,12 +91,12 @@ export default function AdaptiveOutcomesPage() {
                       <span className="adaptive-scale tnum">{Math.round(cycle.averageAdaptiveScale * 100)}%</span>
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-2">
-                      <MiniFact label={t("完成率", "Completion", "完了率")} value={`${cycle.completionPct}%`} />
+                      <MiniFact label={t("完成率", "Completion", "完了率")} value={cycle.completionPct == null ? t("样本不足", "Insufficient", "データ不足") : `${cycle.completionPct}%`} />
                       <MiniFact label={t("困难占比", "Hard sessions", "高難度比率")} value={cycle.hardRatio == null ? t("未知", "Unknown", "不明") : `${Math.round(cycle.hardRatio * 100)}%`} />
                       <MiniFact label={t("进阶兑现", "Progression", "進行達成")} value={cycle.progressionPct == null ? t("样本不足", "Insufficient", "データ不足") : `${cycle.progressionPct}%`} />
                       <MiniFact label={t("恢复均值", "Recovery", "平均回復")} value={cycle.recoveryAverage == null ? t("样本不足", "Insufficient", "データ不足") : String(cycle.recoveryAverage)} />
                       <MiniFact label={t("7 日处方", "7-day dose", "7日処方量")} value={t(`${cycle.prescribedSetsPer7Days} 组`, `${cycle.prescribedSetsPer7Days} sets`, `${cycle.prescribedSetsPer7Days} セット`)} />
-                      <MiniFact label={t("7 日完成", "7-day completed", "7日完了量")} value={t(`${cycle.completedSetsPer7Days} 组`, `${cycle.completedSetsPer7Days} sets`, `${cycle.completedSetsPer7Days} セット`)} />
+                      <MiniFact label={t("7 日实际", "7-day actual", "7日実績")} value={t(`${cycle.completedSetsPer7Days} 组`, `${cycle.completedSetsPer7Days} sets`, `${cycle.completedSetsPer7Days} セット`)} />
                     </div>
                   </div>
                 ))}
@@ -118,8 +118,11 @@ export default function AdaptiveOutcomesPage() {
               <div className="space-y-2">
                 {model.transitions.map((transition) => (
                   <div key={`${transition.fromMicrocycleId}:${transition.toMicrocycleId}`} className="control-strip rounded-md px-3 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-[12px] font-semibold text-fg">{t("训练量", "Training load", "トレーニング量")} {Math.round(transition.loadRatio * 100)}%</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-fg">{t("实际训练量", "Actual training load", "実績トレーニング量")} {Math.round(transition.loadRatio * 100)}%</p>
+                        <p className="mt-0.5 text-[10px] text-faint">{t(`${transition.evidenceSignals} 项结果证据`, `${transition.evidenceSignals} outcome signals`, `結果指標 ${transition.evidenceSignals} 件`)}</p>
+                      </div>
                       <span className="adaptive-outcome" data-outcome={transition.outcome}>{transition.outcome === "positive" ? t("改善", "Improved", "改善") : transition.outcome === "negative" ? t("恶化", "Declined", "悪化") : t("稳定", "Stable", "安定")}</span>
                     </div>
                     <div className="mt-2 space-y-1">{transition.reasons.map((reason) => <p key={reason} className="text-[11px] text-muted">{adaptiveText(locale, reason)}</p>)}</div>

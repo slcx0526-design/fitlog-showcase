@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { analyzeTrackTrend, defaultTrackId, estimatedOneRepMax, findTrackHistories, findTrackHistory, isGeneratedSharedTrackId, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, workingSets } from "../lib/prescription";
+import { analyzeTrackTrend, defaultTrackId, estimatedOneRepMax, findTrackHistories, findTrackHistory, isGeneratedSharedTrackId, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, progressionTrackGroupId, progressionTrackIdsMatch, workingSets } from "../lib/prescription";
 import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";
 import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, defaultMicrocycle, microcycleAssignmentForNewWorkout, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle, templateForWorkout } from "../lib/microcycle";
 import { normalizeData, parseBackup, toBackup, type AppData } from "../lib/storage";
@@ -33,8 +33,48 @@ assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same",
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working", rir: 1 }, { weight: 80, reps: 6, type: "working", rir: 2 }] }).status, "addWeight");
 assert.equal(progressionSuggestion(strength, { date: "2026-07-01", kind: "same", exercise: bench(80, 6), sets: [{ weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working" }], sessionDifficulty: "hard" }).status, "effortCheck");
 const threeSetSharedTrack = defaultTrackId("incline", "hypertrophy", 8, 12, 3, "reps");
+const fourSetSharedTrack = defaultTrackId("incline", "hypertrophy", 8, 12, 4, "reps");
 assert.equal(isGeneratedSharedTrackId(threeSetSharedTrack, "incline", "hypertrophy", 8, 12, "reps"), true);
 assert.equal(isGeneratedSharedTrackId(`${threeSetSharedTrack}-ind-template`, "incline", "hypertrophy", 8, 12, "reps"), false);
+assert.equal(progressionTrackGroupId(threeSetSharedTrack, "incline"), progressionTrackGroupId(fourSetSharedTrack, "incline"));
+assert.equal(progressionTrackIdsMatch(threeSetSharedTrack, fourSetSharedTrack, "incline"), true, "Changing only working-set count keeps one generated shared track family");
+assert.equal(progressionTrackIdsMatch(`${threeSetSharedTrack}-ind-template`, fourSetSharedTrack, "incline"), false, "Independent tracks never merge into the shared family");
+assert.equal(progressionTrackIdsMatch(`${threeSetSharedTrack}:deload`, threeSetSharedTrack, "incline"), false, "Deload history stays separate from build history");
+const preservedSetCountTrack = prescriptionFromTemplateItem({
+  exerciseId: "incline",
+  name: "上斜杠铃卧推",
+  sets: 4,
+  repsLow: 8,
+  repsHigh: 12,
+  progressionTrackId: threeSetSharedTrack,
+  prescription: {
+    progressionTrackId: threeSetSharedTrack,
+    progressionTrackLabel: "增肌 · 8–12 次",
+    trainingIntent: "hypertrophy",
+    targetRepMin: 8,
+    targetRepMax: 12,
+    workingSets: 3,
+    loadIncrementKg: 2.5,
+    progressionRule: "doubleProgression",
+  },
+});
+assert.equal(preservedSetCountTrack.progressionTrackId, threeSetSharedTrack, "A nested set-count mismatch must not fork existing history");
+assert.equal(preservedSetCountTrack.workingSets, 4);
+const independentSetCountTrack = prescriptionFromTemplateItem({
+  exerciseId: "incline",
+  name: "上斜杠铃卧推",
+  sets: 5,
+  repsLow: 8,
+  repsHigh: 12,
+  prescription: {
+    ...preservedSetCountTrack,
+    progressionTrackId: `${threeSetSharedTrack}-ind-template`,
+    progressionTrackLabel: "增肌 · 8–12 次 · 独立",
+    workingSets: 4,
+  },
+});
+assert.equal(independentSetCountTrack.progressionTrackId, `${threeSetSharedTrack}-ind-template`, "Set-count edits must preserve independent track identity too");
+assert.equal(independentSetCountTrack.workingSets, 5);
 assert.equal(workingSets([{ weight: 40, reps: 10, type: "warmup" }, { weight: 80, reps: 6, type: "working" }, { weight: 80, reps: 6, type: "working", completion: "skipped" }]).length, 1);
 assert.equal(workingSets([{ weight: 82.5, reps: 0, type: "working" }]).length, 0);
 assert.equal(workingSets([{ weight: 0, reps: 0, durationSeconds: 45, type: "working" }]).length, 1);
