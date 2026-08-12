@@ -216,7 +216,7 @@ interface StoreApi {
   setMesocycleTargetCycles: (cycles: number) => void;
   startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => void;
   applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => boolean;
-  completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => void;
+  completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => boolean;
   dismissSetup: () => void;
   setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
   importAppleHealthSnapshot: (snapshot: unknown) => AppleHealthMergeSummary;
@@ -1194,9 +1194,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         starterPlan: options.starterPlan,
       },
     };
-    if (!saveData(next)) return;
+    if (!saveData(next)) return false;
     dataRef.current = next;
     setData(next);
+    return true;
   }, [setData]);
 
   const dismissSetup = useCallback(() => {

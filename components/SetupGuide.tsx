@@ -33,7 +33,10 @@ export default function SetupGuide() {
     };
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    completeSetup({ starterPlan: planId, profile, date });
+    if (!completeSetup({ starterPlan: planId, profile, date })) {
+      toast.show(tx(locale, "起始计划未能保存，请检查浏览器存储", "Starter plan could not be saved. Check browser storage.", "開始プランを保存できませんでした。ブラウザのストレージを確認してください"), { tone: "error" });
+      return;
+    }
     toast.show(tx(locale, "起始计划已建立", "Starter plan created", "開始プランを作成しました"));
   }
 

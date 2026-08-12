@@ -1,1 +1,1 @@
-FitLog 15.1.5 guarded cycle transitions and chronological volume
+FitLog 15.1.6 honest template starts and setup persistence

@@ -10,7 +10,7 @@ import { formatDisplay, validPastOrToday } from "@/lib/date";
 import { usePersona } from "@/lib/copy";
 import { localeText, useI18n } from "@/lib/i18n";
 import { requiresCycleReviewBeforeWorkout } from "@/lib/cyclePlanning";
-import { currentMicrocycleProgress } from "@/lib/microcycle";
+import { currentMicrocycleProgress, templateForMicrocycleStep } from "@/lib/microcycle";
 import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import TrainingModuleStable from "@/components/TrainingModuleStable";
@@ -52,8 +52,10 @@ function TrainInner() {
     const cycleStep = requestedStepId
       ? data.microcycle?.steps?.find((step) => step.id === requestedStepId && step.type === requestedType)
       : undefined;
-    const liveTemplate = requestedTemplate ? data.templates?.find((item) => item.id === requestedTemplate && item.type === requestedType) : undefined;
-    if (requestedTemplate && (liveTemplate || cycleStep?.templateId === requestedTemplate)) {
+    const requestedTemplateData = requestedTemplate
+      ? templateForMicrocycleStep({ microcycle: data.microcycle, templates: data.templates }, cycleStep?.id, requestedTemplate)
+      : undefined;
+    if (requestedTemplate && requestedTemplateData?.type === requestedType && requestedTemplateData.items.length > 0) {
       applyTemplate(requestedTemplate, date, { microcycleStepId: cycleStep?.id });
       return;
     }

@@ -163,7 +163,7 @@ export default function MicrocycleEditor() {
                       className="h-10 w-full min-w-0 rounded-md border border-border bg-surface px-2 text-[16px] text-muted outline-none focus:border-accent sm:text-[12px]"
                     >
                       <option value="">{tx(locale, "不绑定模板，仅按类型完成", "No template binding; match workout type", "テンプレート未指定・種別のみで判定")}</option>
-                      {templatesFor(step.type).map((template) => <option key={template.id} value={template.id}>{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}</option>)}
+                      {templatesFor(step.type).map((template) => <option key={template.id} value={template.id}>{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}{template.items.length ? "" : ` · ${tx(locale, "空模板", "Empty", "空")}`}</option>)}
                     </select> : <span className="truncate px-2 text-[11px] text-faint">{tx(locale, "恢复日无需模板", "No template for rest", "休息日はテンプレート不要")}</span>}
                     <button type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label={tx(locale, `上移第 ${index + 1} 步`, `Move step ${index + 1} up`, `ステップ ${index + 1} を上へ`)} className="press grid h-10 w-10 place-items-center rounded-md bg-surface text-[14px] text-muted disabled:opacity-20">↑</button>
                     <button type="button" onClick={() => move(index, 1)} disabled={index === steps.length - 1} aria-label={tx(locale, `下移第 ${index + 1} 步`, `Move step ${index + 1} down`, `ステップ ${index + 1} を下へ`)} className="press grid h-10 w-10 place-items-center rounded-md bg-surface text-[14px] text-muted disabled:opacity-20">↓</button>

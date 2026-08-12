@@ -128,6 +128,68 @@ test("home and training entry follow the next microcycle step instead of the wee
   }, date)).toEqual(["push", "cycle_push"]);
 });
 
+test("empty cycle templates start a blank workout without a false apply action", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Empty-template behavior needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const template = { id: "tpl_empty_push", name: "空推模板", type: "push", items: [] };
+    const step = { id: "step_empty_push", type: "push", label: "空模板训练", templateId: template.id };
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [template],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""], microcycle: [step] },
+      microcycle: {
+        currentId: "mc_empty_template",
+        startedAt: dateKey,
+        index: 1,
+        phase: "build",
+        steps: [step],
+      },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train?start=push&cycleStep=step_empty_push&template=tpl_empty_push");
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return [workout?.type, workout?.microcycleStepId, workout?.templateId ?? null, workout?.exercises?.length];
+  }, date)).toEqual(["push", "step_empty_push", null, 0]);
+  await expect(page.getByRole("button", { name: "空推模板" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "编辑模板" })).toBeVisible();
+  await expect(page.getByText("模板为空，先添加动作", { exact: true })).toBeVisible();
+  await expect(page.getByText("模板动作已经都在本次训练中", { exact: true })).toHaveCount(0);
+
+  await page.goto("/schedule");
+  await page.locator("[data-microcycle-editor] summary").click();
+  await expect(page.getByRole("combobox", { name: "第 1 步训练模板" }).locator("option:checked")).toHaveText("空推模板 · 空模板");
+});
+
+test("starter setup never reports success when its local write fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Persistence feedback needs one focused browser regression.");
+  await page.addInitScript(() => localStorage.clear());
+  await page.goto("/");
+  await page.getByRole("button", { name: "继续" }).click();
+  await page.getByRole("button", { name: "继续" }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "建立第一轮" }).click();
+
+  await expect(page.locator("[data-setup-guide]")).toBeVisible();
+  await expect(page.getByText("起始计划未能保存，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("起始计划已建立", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-persistence-state="error"]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("fitlog:v1"))).toBeNull();
+});
+
 test("partial working sets use one completion-credit value across home, schedule, and training", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Completion-credit consistency needs one focused mobile regression.");
   const date = localDateKey();
@@ -964,7 +1026,8 @@ test("existing daily and review surfaces remain fully localized", async ({ page 
   await expect(page.getByText("肌群容量处方", { exact: true })).toHaveCount(0);
   await page.goto("/train");
   await expect(page.getByText("Hypertrophy · 8–12 reps", { exact: true })).toBeVisible();
-  await expect(page.getByText("Push · Strength", { exact: true })).toBeVisible();
+  await expect(page.getByText("Template is empty; add exercises first", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Push · Strength", exact: true })).toHaveCount(0);
   await expect(page.getByText("增肌 · 8–12 次", { exact: true })).toHaveCount(0);
   await page.goto("/schedule");
   await expect(page.getByText("Push strength", { exact: true }).first()).toBeVisible();

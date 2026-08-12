@@ -137,6 +137,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   }
 
   const templates = (data.templates ?? []).filter((template) => template.type === type);
+  const applicableTemplates = templates.filter((template) => template.items.length > 0);
   return <section>
     <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">{tx(locale, "训练", "Training", "トレーニング")}</h2>
     <CutTrainingNotice />
@@ -155,7 +156,12 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
     {!editingLocked && nextType && <div className="mt-2 rounded-xl border border-warn/30 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `切换到${typeName(locale, nextType)}？`, `Switch to ${typeName(locale, nextType)}?`, `${typeName(locale, nextType)}に切り替えますか？`)}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "已有输入和已完成组不会删除，但同一场训练最好保持一个类型。", "Existing inputs and completed sets stay, but one workout should normally keep one type.", "入力済み内容と完了セットは残りますが、1回のトレーニングは通常1つの種別に保ちます。")}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setNextType(null)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={confirmSwitch} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "确认切换", "Confirm switch", "切り替える")}</button></div></div>}
     {type === "rest" && <div className="control-card mt-3 p-3.5"><p className="text-[14px] font-semibold text-fg">{tx(locale, "今天记录为休息日", "Today is logged as rest", "今日は休息日として記録されます")}</p><p className="mt-1 text-[11px] text-muted">{tx(locale, "无需用训练组数补偿。保持饮食计划，按恢复状态做轻松活动即可。", "Do not compensate with extra sets. Keep nutrition on plan and do light activity based on recovery.", "トレーニングセットで補う必要はありません。食事計画を保ち、回復状態に合わせて軽い活動を行ってください。")}</p></div>}
     {type && type !== "rest" && <div className="mt-3 space-y-2.5">
-      {!editingLocked && templates.length > 0 && <div className="flex flex-wrap gap-2">{templates.map((template) => <button key={template.id} type="button" onClick={() => applySelectedTemplate(template.id, template.name)} className="choice-chip press min-w-0 flex-1 rounded-lg border border-accent/30 bg-accent-soft px-2 py-2 text-[12px] font-semibold text-accent"><span className="truncate">{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}</span></button>)}<Link href="/templates" className="press grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>✎</Link></div>}
+      {!editingLocked && templates.length > 0 && <div className="flex flex-wrap gap-2">
+        {applicableTemplates.map((template) => <button key={template.id} type="button" onClick={() => applySelectedTemplate(template.id, template.name)} className="choice-chip press min-w-0 flex-1 rounded-lg border border-accent/30 bg-accent-soft px-2 py-2 text-[12px] font-semibold text-accent"><span className="truncate">{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}</span></button>)}
+        {applicableTemplates.length > 0
+          ? <Link href="/templates" className="press grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>✎</Link>
+          : <Link href="/templates" className="choice-chip press flex min-h-10 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-3 text-[12px] font-semibold text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>{tx(locale, "模板为空，先添加动作", "Template is empty; add exercises first", "テンプレートは空です。先に種目を追加")}</Link>}
+      </div>}
       {exercises.map((exercise, index) => <ExerciseCard
         key={exercise.id}
         date={date}
