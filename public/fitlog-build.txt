@@ -1,1 +1,1 @@
-FitLog 15.1.4 coherent cycle assignment and volume forecasts
+FitLog 15.1.5 guarded cycle transitions and chronological volume

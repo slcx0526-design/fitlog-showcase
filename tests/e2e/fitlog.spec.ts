@@ -289,6 +289,124 @@ test("the first historical backfill cannot redefine the active microcycle", asyn
   });
 });
 
+test("a post-cycle backfill reviews the cycle before entering the next one", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The post-cycle backfill gate needs one focused mobile regression.");
+  const completedDate = offsetLocalDateKey(-2);
+  const backfillDate = offsetLocalDateKey(-1);
+  await page.addInitScript(({ completedKey }) => {
+    const step = { id: "cycle_push", type: "push", label: "推力量" };
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [completedKey]: {
+          date: completedKey,
+          workout: {
+            type: "push",
+            done: true,
+            completedAt: `${completedKey}T10:00:00.000Z`,
+            microcycleId: "mc_completed_backfill",
+            microcycleStepId: step.id,
+            mesocycleId: "meso_completed_backfill",
+            mesocycleCycleNumber: 1,
+            cyclePhase: "build",
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              sets: [{ weight: 80, reps: 6, type: "working" }],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"], microcycle: [step] },
+      microcycle: {
+        currentId: "mc_completed_backfill",
+        startedAt: completedKey,
+        index: 1,
+        phase: "build",
+        mesocycleId: "meso_completed_backfill",
+        mesocycleCycleNumber: 1,
+        steps: [step],
+      },
+      mesocycle: {
+        currentId: "meso_completed_backfill",
+        startedAt: completedKey,
+        index: 1,
+        targetBuildCycles: 4,
+        currentBuildCycle: 1,
+      },
+    }));
+  }, { completedKey: completedDate });
+
+  await page.goto(`/train?date=${backfillDate}`);
+  await expect(page.getByRole("heading", { name: "补记训练" })).toBeVisible();
+  await expect(page.getByText("先完成本轮复盘", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-workout-type-picker]")).toHaveCount(0);
+  const layout = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }));
+  expect(layout.width).toBeLessThanOrEqual(layout.viewport + 1);
+
+  await page.getByRole("button", { name: "应用本轮复盘并开始下一周期" }).click();
+  await page.getByRole("button", { name: "确认并开始" }).click();
+  await expect(page.locator("[data-workout-type-picker]")).toBeVisible();
+  await page.getByRole("button", { name: "推", exact: true }).click();
+
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      startedAt: data.microcycle?.startedAt,
+      sameCycle: data.days?.[dateKey]?.workout?.microcycleId === data.microcycle?.currentId,
+      reviewedCycle: data.lastCycleReview?.sourceMicrocycleId,
+    };
+  }, backfillDate)).toEqual({
+    startedAt: backfillDate,
+    sameCycle: true,
+    reviewedCycle: "mc_completed_backfill",
+  });
+});
+
+test("an unconfirmed workout blocks manual microcycle reset", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The reset guard needs one focused mobile regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const steps = [{ id: "cycle_push", type: "push", label: "推" }, { id: "cycle_pull", type: "pull", label: "拉" }];
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            microcycleId: "mc_active_reset_guard",
+            microcycleStepId: "cycle_push",
+            exercises: [],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"], microcycle: steps },
+      microcycle: { currentId: "mc_active_reset_guard", startedAt: dateKey, index: 1, steps },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/progress?tab=training");
+  const resetControl = page.locator("[data-cycle-reset-control]");
+  await expect(resetControl).toHaveText("先确认训练");
+  await expect(page.getByRole("button", { name: "手动重置" })).toHaveCount(0);
+  await resetControl.click();
+  await expect(page).toHaveURL(/\/train$/);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").microcycle?.currentId)).toBe("mc_active_reset_guard");
+});
+
 test("microcycle muscle advice uses the remaining-plan forecast", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "The cycle forecast needs one focused mobile regression.");
   const date = localDateKey();

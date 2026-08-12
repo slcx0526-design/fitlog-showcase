@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildTrainingAnalysis, recentPlanAdherence } from "../lib/trainingAnalysis";
+import { buildTrainingAnalysis, pendingWorkoutForPlanChange, recentPlanAdherence } from "../lib/trainingAnalysis";
 import { buildTrainingDecision } from "../lib/trainingDecision";
 import { buildTemplateAdjustmentProposal } from "../lib/templateAdjustment";
 import type { AppData } from "../lib/storage";
@@ -132,8 +132,14 @@ const unclosedDays = {
 };
 const unclosedData = app(unclosedDays, adherenceSteps, [long, short]);
 assert.equal(recentPlanAdherence(unclosedData, TODAY).sessions, 4, "Unclosed fallback must not enter plan adherence");
+assert.equal(pendingWorkoutForPlanChange(unclosedData, TODAY)?.date, "2026-07-20", "A past unclosed workout must block cycle-changing actions");
 const unclosedDecision = buildTrainingDecision(unclosedData, TODAY);
 assert.deepEqual(unclosedDecision.actions.map((action) => action.kind), ["reviewUnclosed"], "Unclosed work must be confirmed before plan-changing advice");
+
+const activeTodayData = app({
+  [TODAY]: { date: TODAY, workout: { type: "push", done: false, exercises: [] } },
+}, adherenceSteps, [long, short]);
+assert.deepEqual(pendingWorkoutForPlanChange(activeTodayData, TODAY), { date: TODAY, setCount: 0 }, "An active empty workout shell must still block a cycle reset");
 
 const first = template("tpl_first", 4);
 const remaining = template("tpl_remaining", 8);

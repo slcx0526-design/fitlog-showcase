@@ -109,6 +109,7 @@ import {
   findIndexedLastWorkoutByType,
   findIndexedTrackHistories,
 } from "./historyIndex";
+import { pendingWorkoutForPlanChange } from "./trainingAnalysis";
 
 interface StoreApi {
   loaded: boolean;
@@ -1238,6 +1239,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
     setData((prev) => {
+      if (pendingWorkoutForPlanChange(prev, date)) return prev;
       const advanced = advanceTrainingCycle(prev, date, phase);
       return { ...prev, microcycle: advanced.microcycle, mesocycle: advanced.mesocycle };
     });

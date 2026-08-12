@@ -43,7 +43,7 @@ function TrainInner() {
   const requestedType = !isPast && requested && START_TYPES.includes(requested as TrainingType) ? requested as TrainingType : null;
   const requestedTemplate = !isPast ? params.get("template") : null;
   const requestedStepId = !isPast ? params.get("cycleStep") : null;
-  const cycleReviewRequired = !isPast && !workout && requiresCycleReviewBeforeWorkout(data, date);
+  const cycleReviewRequired = !workout && requiresCycleReviewBeforeWorkout(data, date);
   const scheduledStep = isPast || cycleReviewRequired ? null : currentMicrocycleProgress(data, today).next;
   const scheduled = scheduledStep?.type ?? null;
 
@@ -85,9 +85,11 @@ function TrainInner() {
     {cycleReviewRequired ? <div className="space-y-3">
       <div className="control-card px-3.5 py-3">
         <p className="text-[14px] font-semibold text-fg">{t("先完成本轮复盘", "Review the completed cycle first", "完了した周期を先にレビュー")}</p>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-muted">{t("确认下一周期类型和模板调整后，再开始新的训练记录。", "Confirm the next cycle type and template changes before starting another workout.", "次周期の種類とテンプレート変更を確認してから、新しい記録を開始します。")}</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-muted">{isPast
+          ? t("该日期位于已完成周期之后。先确认周期复盘，补记训练会进入正确的下一轮。", "This date follows a completed cycle. Review it first so the backfilled workout enters the correct next cycle.", "この日付は完了した周期の後です。先にレビューすると、追加入力が正しい次周期に入ります。")
+          : t("确认下一周期类型和模板调整后，再开始新的训练记录。", "Confirm the next cycle type and template changes before starting another workout.", "次周期の種類とテンプレート変更を確認してから、新しい記録を開始します。")}</p>
       </div>
-      <CycleReviewPanel />
+      <CycleReviewPanel reviewDate={date} />
     </div> : <>
       {!isPast && !workout && <IntegratedCoachBrief compact showAction={false} />}
       {!isPast && <SessionGuide workout={workout} />}

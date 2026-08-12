@@ -8,6 +8,7 @@ import { summarizeExerciseTrackTrends, type ExerciseTrackTrendSummary } from "./
 import {
   isDecisionEligibleWorkout,
   isPastUnclosedWorkout,
+  isWorkoutSessionClosed,
   setStimulusFactor,
   summarizeWorkoutWork,
   workingSets,
@@ -350,6 +351,14 @@ function latestUnclosed(data: AppData, today: string): UnclosedWorkoutEvidence |
     .sort(([a], [b]) => b.localeCompare(a))[0];
   if (!match) return null;
   return { date: match[0], setCount: summarizeWorkoutWork(match[1].workout).workingSets };
+}
+
+export function pendingWorkoutForPlanChange(data: AppData, today: string): UnclosedWorkoutEvidence | null {
+  const todayWorkout = data.days[today]?.workout;
+  if (todayWorkout && todayWorkout.type !== "rest" && !isWorkoutSessionClosed(todayWorkout)) {
+    return { date: today, setCount: summarizeWorkoutWork(todayWorkout).workingSets };
+  }
+  return latestUnclosed(data, today);
 }
 
 function recoveryConstraint(

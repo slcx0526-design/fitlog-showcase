@@ -12,13 +12,14 @@ import type { TrainingCyclePhase } from "@/lib/types";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
-export default function CycleReviewPanel() {
+export default function CycleReviewPanel({ reviewDate }: { reviewDate?: string }) {
   const { data, applyCycleReview } = useStore();
   const today = useToday();
+  const effectiveDate = reviewDate ?? today;
   const toast = useToast();
   const { locale, tr } = useI18n();
-  const review = useMemo(() => buildCycleReview(data, today), [data, today]);
-  const progress = useMemo(() => currentMicrocycleProgress(data, today), [data, today]);
+  const review = useMemo(() => buildCycleReview(data, effectiveDate), [data, effectiveDate]);
+  const progress = useMemo(() => currentMicrocycleProgress(data, effectiveDate), [data, effectiveDate]);
   const [phase, setPhase] = useState<TrainingCyclePhase>(review.recommendedPhase);
   const [confirm, setConfirm] = useState(false);
 
@@ -32,7 +33,7 @@ export default function CycleReviewPanel() {
   const blockingDate = review.blockingWorkoutDate;
 
   function apply() {
-    const applied = applyCycleReview(review, today, phase);
+    const applied = applyCycleReview(review, effectiveDate, phase);
     if (!applied) {
       toast.show(tx(locale, "复盘已过期，请按当前数据重新查看", "The review is stale. Reopen it from the current data.", "レビューが古くなっています。最新データで再確認してください"), { tone: "warning" });
       setConfirm(false);

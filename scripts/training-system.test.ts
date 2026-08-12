@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { analyzeTrackTrend, defaultTrackId, estimatedOneRepMax, findTrackHistories, findTrackHistory, isGeneratedSharedTrackId, legacyTrackId, prescriptionForPreset, prescriptionFromTemplateItem, progressionSuggestion, progressionTrackGroupId, progressionTrackIdsMatch, workingSets } from "../lib/prescription";
-import { computeVolumeSummary, microcycleDays, volumeTargetScale } from "../lib/volume";
+import { computeVolumeSummary, microcycleDays, volumeScopeDays, volumeTargetScale } from "../lib/volume";
 import { activeMicrocyclePattern, assignHistoricalMicrocycles, completedStep, currentMicrocycleProgress, defaultMicrocycle, microcycleAssignmentForNewWorkout, microcycleForNewWorkout, microcycleForScheduleEdit, microcyclePatternFor, microcycleStepHref, microcycleStepMatchesWorkout, nextMicrocycle, shouldAdvanceMicrocycle, templateForWorkout } from "../lib/microcycle";
 import { normalizeData, parseBackup, toBackup, type AppData } from "../lib/storage";
 import { weightForWaistDate } from "../lib/bodyfat";
@@ -113,6 +113,7 @@ const skippedData: AppData = { ...microData, days: { ...microData.days, "2026-07
 assert.equal(shouldAdvanceMicrocycle(skippedData, "2026-07-07"), false);
 assert.equal(nextMicrocycle(microData.microcycle, "2026-07-08").index, 2);
 assert.equal(microcycleDays(microData).length, 7);
+assert.deepEqual(volumeScopeDays(microData, "microcycle", "2026-07-05").map((day) => day?.date), ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"], "Future imported records must not enter the current-cycle volume view early");
 const unfinishedPast = { ...step("push", "2026-07-01"), workout: { ...step("push", "2026-07-01").workout, done: false } };
 assert.equal(completedStep(unfinishedPast, "2026-07-02"), false);
 assert.equal(currentMicrocycleProgress({ ...microData, days: { "2026-07-01": unfinishedPast } }, "2026-07-02").completed, 0);

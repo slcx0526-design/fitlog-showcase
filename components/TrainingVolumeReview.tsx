@@ -56,7 +56,8 @@ export default function TrainingVolumeReview() {
   const [showAllMuscles, setShowAllMuscles] = useState(false);
   const integrated = useMemo(() => buildIntegratedCoachAnalysis(data, today), [data, today]);
   const decision = useMemo(() => buildTrainingDecision(data, today, "review", integrated), [data, integrated, today]);
-  const pendingSessionConfirmation = decision.actions.some((action) => action.kind === "continueSession" || action.kind === "reviewUnclosed");
+  const pendingAction = decision.actions.find((action) => action.kind === "continueSession" || action.kind === "reviewUnclosed");
+  const pendingSessionConfirmation = Boolean(pendingAction);
   const cutActive = isCutModeActive(data.cutPlan);
   const cutScale = data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE;
   const cycleScale = data.microcycle?.phase === "deload" ? 0.6 : 1;
@@ -105,11 +106,13 @@ export default function TrainingVolumeReview() {
         </div>
         <div className="grid shrink-0 grid-cols-2 gap-2">
           <Link href="/schedule" className="press flex min-h-10 items-center rounded-lg bg-surface-2 px-3 text-[11px] font-semibold text-muted">{tx(locale, "编辑轮次", "Edit cycle", "周期を編集")}</Link>
-          <button type="button" onClick={() => setConfirmNewCycle(true)} className="press min-h-10 rounded-lg bg-surface-2 px-3 text-[11px] font-semibold text-accent">{cycleComplete ? tx(locale, "跳过复盘", "Skip review", "レビューをスキップ") : tx(locale, "手动重置", "Manual reset", "手動リセット")}</button>
+          {pendingAction
+            ? <Link href={pendingAction.href} data-cycle-reset-control className="press flex min-h-10 items-center justify-center rounded-lg bg-surface-2 px-3 text-center text-[11px] font-semibold text-warn">{tx(locale, "先确认训练", "Confirm workout", "記録を先に確認")}</Link>
+            : <button type="button" onClick={() => setConfirmNewCycle(true)} data-cycle-reset-control className="press min-h-10 rounded-lg bg-surface-2 px-3 text-[11px] font-semibold text-accent">{cycleComplete ? tx(locale, "跳过复盘", "Skip review", "レビューをスキップ") : tx(locale, "手动重置", "Manual reset", "手動リセット")}</button>}
         </div>
       </div>
 
-      {confirmNewCycle && <div className="mt-3 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2.5">
+      {confirmNewCycle && !pendingAction && <div className="mt-3 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2.5">
         <p className="text-[12px] font-semibold text-warn">{cycleComplete ? tx(locale, "跳过复盘并开始普通周期？", "Skip review and start a normal cycle?", "レビューを飛ばして通常周期を開始しますか？") : tx(locale, "手动重置当前微周期？", "Reset the current microcycle manually?", "現在のマイクロサイクルを手動でリセットしますか？")}</p>
         <p className="mt-1 text-[10px] leading-relaxed text-muted">{cycleComplete ? tx(locale, "不会应用上方模板调整或恢复周期建议；本轮记录仍完整保留。", "Template changes and recovery-cycle suggestions above will not be applied. This cycle's records remain intact.", "上のテンプレート調整や回復周期の提案は適用されません。現周期の記録は保持されます。") : tx(locale, "本轮已有训练会保留在原周期；未完成周期不会计入已完成建设周期。", "Existing workouts stay in the current cycle. An incomplete cycle will not count as a completed build cycle.", "既存のトレーニングは現在の周期に残り、未完了周期は構築周期の完了数に入りません。")}</p>
         <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmNewCycle(false)} className="press h-10 rounded-lg border border-border bg-surface text-[12px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={() => { startNewMicrocycle(today); setConfirmNewCycle(false); }} className="press h-10 rounded-lg bg-warn text-[12px] font-semibold text-white">{tx(locale, "确认开始", "Confirm start", "開始を確定")}</button></div>
