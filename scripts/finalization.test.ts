@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { existsSync, readFileSync } from "node:fs";
 import { mergeAppData, estimateDataFootprint } from "../lib/dataMerge";
 import { calculatePlateLoad } from "../lib/plateCalculator";
 import { buildPersonalCalibration } from "../lib/personalization";
@@ -6,6 +7,28 @@ import { defaultTrackId } from "../lib/prescription";
 import { needsStarterSetup, STARTER_PLANS } from "../lib/starterPlans";
 import { emptyData, normalizeData, parseBackup, SCHEMA_VERSION, toBackup } from "../lib/storage";
 import type { AppData, DayLog, Exercise, Schedule, Template } from "../lib/types";
+
+const packageManifest = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
+const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8")) as { version?: string; packages?: Record<string, { version?: string }> };
+const releaseVersion = packageManifest.version;
+assert.equal(packageLock.version, releaseVersion, "package-lock root version must match package.json");
+assert.equal(packageLock.packages?.[""].version, releaseVersion, "package-lock workspace version must match package.json");
+const synchronizedReleaseMarkers = [
+  ["app/layout.tsx", `FitLog ${releaseVersion}`],
+  ["public/fitlog-build.txt", `FitLog ${releaseVersion}`],
+  ["public/sw.js", `fitlog-runtime-v${releaseVersion.replaceAll(".", "-")}`],
+  ["native/ios/project.yml", `MARKETING_VERSION: "${releaseVersion}"`],
+  ["native/ios/FitLog.xcodeproj/project.pbxproj", `MARKETING_VERSION = ${releaseVersion};`],
+] as const;
+const repositoryOwnedReleaseMarkers = existsSync("scripts/publish-showcase.sh")
+  ? ([
+      ["CHANGELOG.md", `## [${releaseVersion}]`],
+      ["README.md", `Current version: **${releaseVersion}**`],
+    ] as const)
+  : [];
+for (const [path, marker] of [...synchronizedReleaseMarkers, ...repositoryOwnedReleaseMarkers]) {
+  assert.ok(readFileSync(path, "utf8").includes(marker), `${path} must expose release ${releaseVersion}`);
+}
 
 assert.equal(STARTER_PLANS.length, 3);
 assert.deepEqual(STARTER_PLANS.map((plan) => plan.trainingDays), [3, 5, 6]);

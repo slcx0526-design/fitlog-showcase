@@ -1,7 +1,7 @@
 // FitLog Service Worker —— 不可变资源缓存优先 + 其余网络优先 + 缓存兜底
 // 目的：地铁 / 没信号 / 弱网也能开 app；带哈希的 JS/CSS 分块命中缓存即秒开，
 //       不再因弱网下分块请求失败而白屏；HTML 等仍网络优先，线上不偏离最新代码
-const CACHE = "fitlog-runtime-v15-1-6";
+const CACHE = "fitlog-runtime-v15-1-7";
 
 self.addEventListener("install", (event) => {
   // 新版本直接接管，避免已安装 PWA 长期停留在旧处方逻辑。

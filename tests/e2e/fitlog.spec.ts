@@ -190,6 +190,80 @@ test("starter setup never reports success when its local write fails", async ({ 
   await expect.poll(() => page.evaluate(() => localStorage.getItem("fitlog:v1"))).toBeNull();
 });
 
+test("skipping starter setup stays visible when its local write fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Persistence feedback needs one focused browser regression.");
+  await page.addInitScript(() => localStorage.clear());
+  await page.goto("/");
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "暂时跳过" }).click();
+
+  await expect(page.locator("[data-setup-guide]")).toBeVisible();
+  await expect(page.getByText("跳过状态未能保存，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("已跳过，可在设置中自行配置", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-persistence-state="error"]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("fitlog:v1"))).toBeNull();
+});
+
+test("workout completion stays editable when its local write fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Workout persistence needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { [dateKey]: { date: dateKey, workout: { type: "push", done: false, exercises: [{ id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true, sets: [{ weight: 80, reps: 6, type: "working" }] }] } } },
+      bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+  await page.goto("/train");
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: /结束训练 · 完成 1 组/ }).click();
+
+  await expect(page.getByText("训练完成状态未能保存，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("训练已完成", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#exercise-px_barbell_bench")).toHaveAttribute("data-read-only", "false");
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return [workout?.done, Object.prototype.hasOwnProperty.call(workout ?? {}, "difficulty")];
+  }, date)).toEqual([false, false]);
+});
+
+test("rehab-only work can close as a log without becoming training volume", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Rehab completion needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: { [dateKey]: { date: dateKey, workout: { type: "custom", done: false, microcycleId: "mc_rehab", exercises: [{ id: "rehab_only", name: "康复记录", isMain: false, sets: [{ weight: 0, reps: 12, type: "working", technique: "rehab" }], planned: { sets: 1, repsLow: 10, repsHigh: 15 } }] } } },
+      bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+      microcycle: { currentId: "mc_rehab", startedAt: dateKey, index: 1, steps: [{ id: "rehab_step", type: "custom", label: "康复记录" }] },
+    }));
+  }, { dateKey: date });
+  await page.goto("/train");
+
+  await expect(page.getByRole("button", { name: "收尾" })).toBeVisible();
+  await expect(page.getByText("本次整体感受", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /结束训练记录 · 康复 1 组/ }).click();
+  await page.getByRole("button", { name: "仍然结束" }).click();
+  await expect.poll(() => page.evaluate((dateKey) => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout?.done, date)).toBe(true);
+  await expect(page.getByRole("button", { name: "继续训练记录" })).toBeVisible();
+});
+
 test("partial working sets use one completion-credit value across home, schedule, and training", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Completion-credit consistency needs one focused mobile regression.");
   const date = localDateKey();

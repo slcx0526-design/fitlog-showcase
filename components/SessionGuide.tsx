@@ -5,7 +5,7 @@ import type { WorkoutSession } from "@/lib/types";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import { formatRestTime, useRestTimer } from "@/lib/restTimer";
-import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
+import { isWorkoutSessionClosed, summarizeWorkoutWork } from "@/lib/trainingMetrics";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) =>
   locale === "en" ? en : locale === "ja" ? ja : zh;
@@ -14,6 +14,7 @@ export default function SessionGuide({ workout }: { workout: WorkoutSession | un
   const { locale, tr } = useI18n();
   const rest = useRestTimer();
   const session = useMemo(() => summarizeSessionExecution(workout), [workout]);
+  const recordedSets = useMemo(() => summarizeWorkoutWork(workout).recordedSets, [workout]);
 
   if (!workout || workout.type === "rest" || isWorkoutSessionClosed(workout)) return null;
 
@@ -98,7 +99,7 @@ export default function SessionGuide({ workout }: { workout: WorkoutSession | un
             ))}
           </>
         )}
-        {session.completionCredits > 0 && (
+        {recordedSets > 0 && (
           <button type="button" onClick={reviewSession} className="press session-guide__finish">
             {tx(locale, "收尾", "Finish", "終了")}
           </button>

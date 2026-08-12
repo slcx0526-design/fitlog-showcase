@@ -1,1 +1,1 @@
-FitLog 15.1.6 honest template starts and setup persistence
+FitLog 15.1.7 durable session completion and rehab closure

@@ -119,7 +119,7 @@ interface StoreApi {
 
   // 训练
   setWorkoutType: (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => void;
-  setWorkoutDone: (date: string, done: boolean) => void;
+  setWorkoutDone: (date: string, done: boolean, difficulty?: SessionDifficulty) => boolean;
   setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => void;
   addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => void;
   removeExercise: (date: string, exerciseId: string) => void;
@@ -217,7 +217,7 @@ interface StoreApi {
   startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => void;
   applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => boolean;
   completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => boolean;
-  dismissSetup: () => void;
+  dismissSetup: () => boolean;
   setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
   importAppleHealthSnapshot: (snapshot: unknown) => AppleHealthMergeSummary;
 
@@ -472,25 +472,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setWorkoutDone = useCallback(
-    (date: string, done: boolean) => {
-      setData((prev) => {
-        const day = prev.days[date];
-        if (!day?.workout) return prev;
-        return {
-          ...prev,
-          days: {
-            ...prev.days,
-            [date]: {
-              ...day,
-              workout: {
-                ...day.workout,
-                done,
-                completedAt: done ? new Date().toISOString() : undefined,
-              },
+    (date: string, done: boolean, difficulty?: SessionDifficulty) => {
+      const prev = dataRef.current;
+      const day = prev.days[date];
+      if (!day?.workout) return false;
+      const next: AppData = {
+        ...prev,
+        days: {
+          ...prev.days,
+          [date]: {
+            ...day,
+            workout: {
+              ...day.workout,
+              ...(difficulty ? { difficulty } : {}),
+              done,
+              completedAt: done ? new Date().toISOString() : undefined,
             },
           },
-        };
-      });
+        },
+      };
+      if (!saveData(next)) return false;
+      dataRef.current = next;
+      setData(next);
+      return true;
     },
     [setData]
   );
@@ -1201,10 +1205,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setData]);
 
   const dismissSetup = useCallback(() => {
-    setData((prev) => ({
+    const prev = dataRef.current;
+    const next: AppData = {
       ...prev,
       onboarding: { ...prev.onboarding, dismissedAt: new Date().toISOString() },
-    }));
+    };
+    if (!saveData(next)) return false;
+    dataRef.current = next;
+    setData(next);
+    return true;
   }, [setData]);
 
   const setTrainingPreferences = useCallback((patch: Partial<TrainingPreferences>) => {

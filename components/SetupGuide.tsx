@@ -57,7 +57,10 @@ export default function SetupGuide() {
           <button
             type="button"
             onClick={() => {
-              dismissSetup();
+              if (!dismissSetup()) {
+                toast.show(tx(locale, "跳过状态未能保存，请检查浏览器存储", "Skip preference could not be saved. Check browser storage.", "スキップ状態を保存できませんでした。ブラウザのストレージを確認してください"), { tone: "error" });
+                return;
+              }
               toast.show(tx(locale, "已跳过，可在设置中自行配置", "Skipped; configure it later in Settings", "スキップしました。設定から構成できます"));
             }}
             className="press shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-faint"

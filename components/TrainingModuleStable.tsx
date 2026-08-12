@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { typeHasExercises } from "@/lib/exercises";
-import { hasSetPerformance, isWorkoutEditingLocked, workingSets } from "@/lib/trainingMetrics";
+import { hasSetPerformance, isWorkoutEditingLocked, summarizeWorkoutWork, workingSets } from "@/lib/trainingMetrics";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import { templateItemsFromCompletedWork } from "@/lib/templates";
 import { useRestTimerControls } from "@/lib/restTimer";
@@ -48,6 +48,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const activeDateRef = useRef(date);
   const finishConfirmationRef = useRef<HTMLDivElement>(null);
   const execution = useMemo(() => summarizeSessionExecution(workout), [workout]);
+  const workSummary = useMemo(() => summarizeWorkoutWork(workout), [workout]);
   const reusableTemplateItems = useMemo(() => templateItemsFromCompletedWork(exercises), [exercises]);
   const effectiveSets = execution.workingSets;
   const completedSets = execution.completionCredits;
@@ -105,9 +106,12 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   }
   function confirmSwitch() { if (!nextType) return; if (nextType === "rest") rest.stop(); setWorkoutType(date, nextType); setNextType(null); setTypePickerOpen(false); setConfirmFinish(false); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
   function finishWorkout() {
-    if (!workout?.difficulty) setWorkoutDifficulty(date, "onTarget");
+    const finishDifficulty = workout?.difficulty ?? (effectiveSets > 0 ? "onTarget" : undefined);
+    if (!setWorkoutDone(date, true, finishDifficulty)) {
+      toast.show(tx(locale, "训练完成状态未能保存，请检查浏览器存储", "Workout completion could not be saved. Check browser storage.", "トレーニング完了状態を保存できませんでした。ブラウザのストレージを確認してください"), { tone: "error" });
+      return;
+    }
     rest.stop(true);
-    setWorkoutDone(date, true);
     setNextType(null);
     setTypePickerOpen(false);
     setConfirmFinish(false);
@@ -187,10 +191,10 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       {effectiveSets > 0 && <div className="control-card p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[12px] font-semibold text-fg">{tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}</p><p className="mt-0.5 text-[10px] text-faint">{tx(locale, "只影响下次建议，不改动已填数据", "Used only for the next suggestion; your entries stay unchanged", "次回提案にのみ使用し、入力データは変更しません")}</p></div>{editingLocked && !workout?.difficulty && <span className="shrink-0 text-[11px] font-semibold text-faint">{tx(locale, "未记录", "Not logged", "未記録")}</span>}</div>{(!editingLocked || workout?.difficulty) && <div className="control-strip mt-2 grid grid-cols-3 gap-1 rounded-xl p-1" role="group" aria-label={tx(locale, "本次整体感受", "Overall session effort", "今回の全体的な感覚")}>{(["easy", "onTarget", "hard"] as const).map((value) => <button key={value} type="button" disabled={editingLocked} onClick={() => setWorkoutDifficulty(date, value)} aria-pressed={difficulty === value} className={"choice-chip press h-9 text-[12px] font-semibold disabled:cursor-default " + (difficulty === value ? "bg-fg text-bg" : "text-muted")}>{value === "easy" ? tx(locale, "轻松", "Easy", "余裕") : value === "hard" ? tx(locale, "吃力", "Hard", "きつい") : tx(locale, "合适", "On target", "適正")}</button>)}</div>}</div>}
       {templateType(type) && cyclePhase !== "deload" && reusableTemplateItems.length > 0 && <button type="button" onClick={saveTemplate} className="press flex h-10 w-full items-center justify-center rounded-xl border border-border bg-surface text-[13px] font-semibold text-accent">{tx(locale, "用本次完整工作组存为模板", "Save completed work sets as template", "完了ワーキングセットをテンプレートに保存")}</button>}
       {editingLocked
-        ? <button type="button" onClick={() => { setWorkoutDone(date, false); setConfirmFinish(false); }} className="press flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface text-[14px] font-semibold text-muted">{tx(locale, `继续训练 · 已完成 ${formatSetCredit(completedSets)} 组`, `Resume workout · ${formatSetCredit(completedSets)} sets`, `トレーニングを続ける · ${formatSetCredit(completedSets)}セット完了`)}</button>
-        : effectiveSets > 0 && (confirmFinish
+        ? <button type="button" onClick={() => { if (setWorkoutDone(date, false)) setConfirmFinish(false); else toast.show(tx(locale, "继续训练状态未能保存，请检查浏览器存储", "Workout resume state could not be saved. Check browser storage.", "トレーニング再開状態を保存できませんでした。ブラウザのストレージを確認してください"), { tone: "error" }); }} className="press flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface text-[14px] font-semibold text-muted">{completedSets > 0 ? tx(locale, `继续训练 · 已完成 ${formatSetCredit(completedSets)} 组`, `Resume workout · ${formatSetCredit(completedSets)} sets`, `トレーニングを続ける · ${formatSetCredit(completedSets)}セット完了`) : tx(locale, "继续训练记录", "Resume workout log", "トレーニング記録を再開")}</button>
+        : recordEntries && (confirmFinish
           ? <div ref={finishConfirmationRef} className="mb-20 scroll-mb-24 rounded-xl border border-warn/40 bg-warn-soft p-3"><p className="text-[13px] font-semibold text-warn">{tx(locale, `计划还差 ${formatSetCredit(execution.remainingSets)} 组，仍然结束？`, `${formatSetCredit(execution.remainingSets)} planned sets remain. Finish anyway?`, `予定まであと ${formatSetCredit(execution.remainingSets)} セットです。終了しますか？`)}</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmFinish(false)} className="press h-10 rounded-lg border border-border bg-surface text-[13px] font-semibold text-fg">{tx(locale, "继续记录", "Keep logging", "記録を続ける")}</button><button type="button" onClick={finishWorkout} className="press h-10 rounded-lg bg-warn text-[13px] font-semibold text-white">{tx(locale, "仍然结束", "Finish anyway", "終了する")}</button></div></div>
-          : <button type="button" onClick={() => execution.needsFinishConfirmation ? setConfirmFinish(true) : finishWorkout()} className="press flex h-12 w-full items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{tx(locale, `结束训练 · 完成 ${formatSetCredit(completedSets)} 组`, `Finish workout · ${formatSetCredit(completedSets)} sets complete`, `トレーニングを終了 · ${formatSetCredit(completedSets)}セット完了`)}</button>)}
+          : <button type="button" onClick={() => execution.needsFinishConfirmation ? setConfirmFinish(true) : finishWorkout()} className="press flex h-12 w-full items-center justify-center rounded-xl bg-fg text-[15px] font-semibold text-bg">{completedSets > 0 ? tx(locale, `结束训练 · 完成 ${formatSetCredit(completedSets)} 组`, `Finish workout · ${formatSetCredit(completedSets)} sets complete`, `トレーニングを終了 · ${formatSetCredit(completedSets)}セット完了`) : workSummary.rehabSets > 0 ? tx(locale, `结束训练记录 · 康复 ${workSummary.rehabSets} 组`, `Finish workout log · ${workSummary.rehabSets} rehab sets`, `トレーニング記録を終了 · リハビリ${workSummary.rehabSets}セット`) : tx(locale, "结束训练记录", "Finish workout log", "トレーニング記録を終了")}</button>)}
       </div>
     </div>}
   </section>;

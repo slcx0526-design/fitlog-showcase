@@ -111,6 +111,8 @@ assert.equal(microData.microcycle?.currentId, "mc_1");
 assert.equal(microcycleForNewWorkout(microData, "2026-07-08").index, 2);
 const skippedData: AppData = { ...microData, days: { ...microData.days, "2026-07-01": { date: "2026-07-01", workout: { type: "push", done: true, microcycleId: "mc_1", exercises: [{ id: "push_skip", name: "push", isMain: true, sets: [{ weight: 80, reps: 8, type: "working", completion: "skipped" }] }] } } } };
 assert.equal(shouldAdvanceMicrocycle(skippedData, "2026-07-07"), false);
+const rehabOnlyDay: DayLog = { date: "2026-07-01", workout: { type: "push", done: true, microcycleId: "mc_1", exercises: [{ id: "rehab_only", name: "康复记录", isMain: false, sets: [{ weight: 0, reps: 12, type: "working", technique: "rehab" }] }] } };
+assert.equal(completedStep(rehabOnlyDay, "2026-07-01"), false, "Closing a rehab-only log must not advance the training microcycle");
 assert.equal(nextMicrocycle(microData.microcycle, "2026-07-08").index, 2);
 assert.equal(microcycleDays(microData).length, 7);
 assert.deepEqual(volumeScopeDays(microData, "microcycle", "2026-07-05").map((day) => day?.date), ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"], "Future imported records must not enter the current-cycle volume view early");
