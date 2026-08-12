@@ -1,1 +1,1 @@
-FitLog 15.1.7 durable session completion and rehab closure
+FitLog 15.2.0 durable training commands and honest feedback

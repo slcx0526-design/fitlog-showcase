@@ -68,14 +68,17 @@ export default function CustomExerciseEditor({
     const n = name.trim();
     if (!n || !muscle) return;
     const muscleChanged = muscle !== preset.primaryMuscle;
-    updateCustomExercise(preset.id, {
+    if (!updateCustomExercise(preset.id, {
       name: n,
       primaryMuscle: muscle,
       secondaryMuscles: contributions.filter((item) => item.muscle !== muscle).map((item) => item.muscle),
       volumeContributions: contributions.filter((item) => item.muscle !== muscle),
       equipment: equip || undefined,
       recordModes: modesFor(recordKind),
-    });
+    })) {
+      toast.show(localeText(locale, "动作修改未能保存，请检查浏览器存储", "The exercise changes could not be saved. Check browser storage.", "種目の変更を保存できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     if (muscleChanged) {
       toast.show(tr("已移到 {m}", { m: tr(MUSCLE_LABELS[muscle]) }));
     } else {
@@ -85,7 +88,10 @@ export default function CustomExerciseEditor({
   }
 
   function del() {
-    removeCustomExercise(preset.id);
+    if (!removeCustomExercise(preset.id)) {
+      toast.show(localeText(locale, "动作未能删除，请检查浏览器存储", "The exercise could not be deleted. Check browser storage.", "種目を削除できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     toast.show(tr("已删除"));
     onClose();
   }

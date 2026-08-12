@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { useI18n } from "@/lib/i18n";
+import { localeText, useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
+import { PERSISTENCE_EVENT, type PersistenceEventDetail } from "@/lib/persistence";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "@/lib/exercises";
 import { defaultTrackId, inferIntent, intentLabel, isGeneratedSharedTrackId, performanceModeFor, prescriptionForPreset, prescriptionFromTemplateItem, templateScopedIndependentTrackId } from "@/lib/prescription";
 import {
@@ -103,28 +104,22 @@ export default function TemplatesPage() {
   const { data, loaded } = useStore();
   const [openId, setOpenId] = useState<string | null>(null);
 
-  // 自动保存反馈：模板数据一变就短暂亮"已保存"，1.5s 淡出
+  // Only acknowledge the browser write, never an in-memory template change.
   const [showSaved, setShowSaved] = useState(false);
-  const tplRef = useRef<typeof data.templates>(undefined);
-  const initedRef = useRef(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    if (!loaded) return;
-    if (!initedRef.current) {
-      initedRef.current = true;
-      tplRef.current = data.templates;
-      return;
-    }
-    if (data.templates !== tplRef.current) {
-      tplRef.current = data.templates;
+    const onPersistence = (event: Event) => {
+      const detail = (event as CustomEvent<PersistenceEventDetail>).detail;
+      if (detail.status !== "saved") return;
       setShowSaved(true);
       if (hideTimer.current) clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => setShowSaved(false), 1500);
-    }
-  }, [data.templates, loaded]);
-
-  useEffect(() => () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+    window.addEventListener(PERSISTENCE_EVENT, onPersistence);
+    return () => {
+      window.removeEventListener(PERSISTENCE_EVENT, onPersistence);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
   }, []);
 
   if (!loaded) {
@@ -229,14 +224,19 @@ function TypeSection({
   openId: string | null;
   setOpenId: (id: string | null) => void;
 }) {
-  const { tr } = useI18n();
+  const { locale, tr } = useI18n();
+  const toast = useToast();
   const { createTemplate } = useStore();
   const full = templates.length >= MAX_TEMPLATES_PER_TYPE;
 
   function add() {
     const name = `${tr(TYPE_LABEL[type])} ${templates.length + 1}`;
     const id = createTemplate(type, name);
-    if (id) setOpenId(id);
+    if (id) {
+      setOpenId(id);
+      return;
+    }
+    toast.show(localeText(locale, "模板未能创建，请检查浏览器存储", "The template could not be created. Check browser storage.", "テンプレートを作成できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
   }
 
   return (
@@ -300,7 +300,7 @@ function TemplateCard({
   canMoveUp: boolean;
   canMoveDown: boolean;
 }) {
-  const { tr } = useI18n();
+  const { locale, tr } = useI18n();
   const toast = useToast();
   const { data, setTemplateItems, renameTemplate, duplicateTemplate, moveTemplate, deleteTemplate } = useStore();
   const items = tpl.items;
@@ -474,7 +474,10 @@ function TemplateCard({
                   toast.show(tr("已复制模板"));
                   return;
                 }
-                toast.show(tr("该类型模板已达上限"), { tone: "warning" });
+                const atLimit = (data.templates ?? []).filter((template) => template.type === tpl.type).length >= MAX_TEMPLATES_PER_TYPE;
+                toast.show(atLimit
+                  ? tr("该类型模板已达上限")
+                  : localeText(locale, "模板副本未能保存，请检查浏览器存储", "The template copy could not be saved. Check browser storage.", "テンプレートのコピーを保存できませんでした。ブラウザ容量を確認してください"), { tone: atLimit ? "warning" : "error" });
               }}
               aria-label={tr("复制为新模板")}
               className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-accent"
@@ -502,7 +505,13 @@ function TemplateCard({
             </button>
             {confirmDel ? (
               <button type="button"
-                onClick={() => deleteTemplate(tpl.id)}
+                onClick={() => {
+                  if (deleteTemplate(tpl.id)) {
+                    toast.show(localeText(locale, "模板已删除", "Template deleted", "テンプレートを削除しました"));
+                    return;
+                  }
+                  toast.show(localeText(locale, "模板未能删除，请检查浏览器存储", "The template could not be deleted. Check browser storage.", "テンプレートを削除できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+                }}
                 className="press h-10 shrink-0 rounded-lg border border-warn/60 bg-warn/10 px-3 text-[13px] font-semibold text-warn"
               >
                 {tr("确认删除")}

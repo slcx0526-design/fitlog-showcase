@@ -23,6 +23,7 @@ import { currentMicrocycleProgress } from "@/lib/microcycle";
 import { isHistoryEligibleWorkout } from "@/lib/trainingMetrics";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
+import { useToast } from "@/lib/toast";
 import NumberField from "./NumberField";
 import ExerciseTrendReview from "./ExerciseTrendReview";
 import ExerciseHistoryArchive from "./ExerciseHistoryArchive";
@@ -49,6 +50,7 @@ function scopeOptionLabel(scope: VolumeScope, locale: Locale) {
 export default function TrainingVolumeReview() {
   const { data, setMuscleTarget, resetMuscleTarget, startNewMicrocycle } = useStore();
   const { locale, tr } = useI18n();
+  const toast = useToast();
   const today = useToday();
   const [scope, setScope] = useState<VolumeScope>("microcycle");
   const [expandedMuscle, setExpandedMuscle] = useState<MuscleGroup | null>(null);
@@ -84,6 +86,20 @@ export default function TrainingVolumeReview() {
     .sort(([a], [b]) => b.localeCompare(a))
     .slice(0, 8);
 
+  function beginNewCycle() {
+    const status = startNewMicrocycle(today);
+    if (status === "blocked") {
+      toast.show(tx(locale, "仍有训练记录待确认，暂时不能开始新周期", "A workout still needs confirmation before a new cycle can start.", "未確認のトレーニングがあるため、新しい周期を開始できません"), { tone: "warning" });
+      return;
+    }
+    if (status === "persistence") {
+      toast.show(tx(locale, "新周期未能保存，请检查浏览器存储后重试", "The new cycle could not be saved. Check browser storage and retry.", "新しい周期を保存できませんでした。ブラウザ容量を確認して再試行してください"), { tone: "error" });
+      return;
+    }
+    setConfirmNewCycle(false);
+    toast.show(tx(locale, "新周期已开始", "New cycle started", "新しい周期を開始しました"));
+  }
+
   return <div className="space-y-4">
     <TrainingDecisionBrief decision={decision} />
 
@@ -115,7 +131,7 @@ export default function TrainingVolumeReview() {
       {confirmNewCycle && !pendingAction && <div className="mt-3 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2.5">
         <p className="text-[12px] font-semibold text-warn">{cycleComplete ? tx(locale, "跳过复盘并开始普通周期？", "Skip review and start a normal cycle?", "レビューを飛ばして通常周期を開始しますか？") : tx(locale, "手动重置当前微周期？", "Reset the current microcycle manually?", "現在のマイクロサイクルを手動でリセットしますか？")}</p>
         <p className="mt-1 text-[10px] leading-relaxed text-muted">{cycleComplete ? tx(locale, "不会应用上方模板调整或恢复周期建议；本轮记录仍完整保留。", "Template changes and recovery-cycle suggestions above will not be applied. This cycle's records remain intact.", "上のテンプレート調整や回復周期の提案は適用されません。現周期の記録は保持されます。") : tx(locale, "本轮已有训练会保留在原周期；未完成周期不会计入已完成建设周期。", "Existing workouts stay in the current cycle. An incomplete cycle will not count as a completed build cycle.", "既存のトレーニングは現在の周期に残り、未完了周期は構築周期の完了数に入りません。")}</p>
-        <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmNewCycle(false)} className="press h-10 rounded-lg border border-border bg-surface text-[12px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={() => { startNewMicrocycle(today); setConfirmNewCycle(false); }} className="press h-10 rounded-lg bg-warn text-[12px] font-semibold text-white">{tx(locale, "确认开始", "Confirm start", "開始を確定")}</button></div>
+        <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmNewCycle(false)} className="press h-10 rounded-lg border border-border bg-surface text-[12px] font-semibold text-fg">{tx(locale, "取消", "Cancel", "キャンセル")}</button><button type="button" onClick={beginNewCycle} className="press h-10 rounded-lg bg-warn text-[12px] font-semibold text-white">{tx(locale, "确认开始", "Confirm start", "開始を確定")}</button></div>
       </div>}
 
       {cutActive && <div className="mt-3 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5">

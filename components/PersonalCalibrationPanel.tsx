@@ -11,7 +11,7 @@ import { useI18n, type Locale } from "@/lib/i18n";
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
 
 export default function PersonalCalibrationPanel() {
-  const { data, setMuscleTarget } = useStore();
+  const { data, commitMuscleTarget } = useStore();
   const { locale, tr } = useI18n();
   const toast = useToast();
   const today = useToday();
@@ -85,7 +85,10 @@ export default function PersonalCalibrationPanel() {
                         <button
                           type="button"
                           onClick={() => {
-                            setMuscleTarget(row.muscle, row.suggestedTarget.low, row.suggestedTarget.high);
+                            if (!commitMuscleTarget(row.muscle, row.suggestedTarget.low, row.suggestedTarget.high)) {
+                              toast.show(tx(locale, "容量目标未能保存，请检查浏览器存储", "The volume target could not be saved. Check browser storage.", "ボリューム目標を保存できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+                              return;
+                            }
                             toast.show(tx(locale, `${muscleLabel}目标已采用 ${row.suggestedTarget.low}–${row.suggestedTarget.high}`, `${muscleLabel} target set to ${row.suggestedTarget.low}–${row.suggestedTarget.high}`, `${muscleLabel}の目標を ${row.suggestedTarget.low}–${row.suggestedTarget.high} に設定しました`));
                           }}
                           className="press mt-2 h-9 w-full rounded-lg bg-fg text-[11px] font-semibold text-bg"

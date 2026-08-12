@@ -9,7 +9,7 @@ import { useI18n, type Locale } from "@/lib/i18n";
 import { typeHasExercises } from "@/lib/exercises";
 import { hasSetPerformance, isWorkoutEditingLocked, summarizeWorkoutWork, workingSets } from "@/lib/trainingMetrics";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
-import { templateItemsFromCompletedWork } from "@/lib/templates";
+import { MAX_TEMPLATES_PER_TYPE, templateItemsFromCompletedWork } from "@/lib/templates";
 import { useRestTimerControls } from "@/lib/restTimer";
 import { haptic } from "@/lib/feedback";
 import ExerciseCard from "./ExerciseCard";
@@ -31,7 +31,7 @@ function typeName(locale: Locale, type: TrainingType) {
 }
 
 export default function TrainingModuleStable({ date, suggestedType }: { date: string; suggestedType?: TrainingType | null }) {
-  const { getDay, data, setWorkoutType, setWorkoutDone, setWorkoutDifficulty, createTemplate, setTemplateItems, applyTemplate, removeExercise } = useStore();
+  const { getDay, data, setWorkoutType, setWorkoutDone, setWorkoutDifficulty, createTemplate, applyTemplate } = useStore();
   const { locale, tr } = useI18n();
   const toast = useToast();
   const rest = useRestTimerControls();
@@ -53,7 +53,6 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   const effectiveSets = execution.workingSets;
   const completedSets = execution.completionCredits;
   const recordEntries = exercises.some((exercise) => hasEntry(exercise.sets));
-  const draftIds = exercises.filter((exercise) => !hasEntry(exercise.sets)).map((exercise) => exercise.id);
   const addedIds = useMemo(() => new Set(exercises.map((exercise) => exercise.id)), [exercises]);
   const lockedIds = useMemo(() => new Set(exercises.filter((exercise) => hasEntry(exercise.sets)).map((exercise) => exercise.id)), [exercises]);
   const plannedSets = execution.plannedSets;
@@ -98,13 +97,26 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       return;
     }
     if (recordEntries) { setNextType(next); setTypePickerOpen(false); return; }
-    draftIds.forEach((id) => removeExercise(date, id));
+    if (!setWorkoutType(date, next)) {
+      toast.show(tx(locale, "训练类型未能保存，请检查训练状态和浏览器存储", "Workout type could not be saved. Check the session state and browser storage.", "トレーニング種別を保存できませんでした。記録状態とブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     if (next === "rest") rest.stop(true);
-    setWorkoutType(date, next);
     setTypePickerOpen(false);
     haptic(8);
   }
-  function confirmSwitch() { if (!nextType) return; if (nextType === "rest") rest.stop(); setWorkoutType(date, nextType); setNextType(null); setTypePickerOpen(false); setConfirmFinish(false); toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます")); }
+  function confirmSwitch() {
+    if (!nextType) return;
+    if (!setWorkoutType(date, nextType)) {
+      toast.show(tx(locale, "训练类型未能保存，请检查训练状态和浏览器存储", "Workout type could not be saved. Check the session state and browser storage.", "トレーニング種別を保存できませんでした。記録状態とブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
+    if (nextType === "rest") rest.stop();
+    setNextType(null);
+    setTypePickerOpen(false);
+    setConfirmFinish(false);
+    toast.show(tx(locale, "训练类型已更改；已有记录已保留", "Workout type changed; existing records were kept", "トレーニング種別を変更しました。既存の記録は保持されます"));
+  }
   function finishWorkout() {
     const finishDifficulty = workout?.difficulty ?? (effectiveSets > 0 ? "onTarget" : undefined);
     if (!setWorkoutDone(date, true, finishDifficulty)) {
@@ -121,16 +133,23 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
   function saveTemplate() {
     if (!templateType(type) || cyclePhase === "deload") return;
     if (!reusableTemplateItems.length) return;
-    const id = createTemplate(type, `${typeName(locale, type)} ${date}`);
-    if (!id) { toast.show(tx(locale, "该类型模板已达上限", "Template limit reached for this type", "この種別のテンプレート数が上限です"), { tone: "warning" }); return; }
-    setTemplateItems(id, reusableTemplateItems);
+    if ((data.templates ?? []).filter((template) => template.type === type).length >= MAX_TEMPLATES_PER_TYPE) {
+      toast.show(tx(locale, "该类型模板已达上限", "Template limit reached for this type", "この種別のテンプレート数が上限です"), { tone: "warning" });
+      return;
+    }
+    const id = createTemplate(type, `${typeName(locale, type)} ${date}`, reusableTemplateItems);
+    if (!id) {
+      toast.show(tx(locale, "模板未能保存，请检查浏览器存储", "The template could not be saved. Check browser storage.", "テンプレートを保存できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     toast.show(tx(locale, "已用完整工作组保存为模板", "Saved complete work sets as a template", "完了ワーキングセットをテンプレートとして保存しました"));
   }
   function applySelectedTemplate(templateId: string, templateName: string) {
-    // Functional store updates are queued in order: unfinished 0×0 drafts leave first,
-    // then the template can fully replace the unrecorded session shell.
-    draftIds.forEach((id) => removeExercise(date, id));
     const added = applyTemplate(templateId, date);
+    if (added === null) {
+      toast.show(tx(locale, "模板未能套用，请检查训练状态和浏览器存储", "The template could not be applied. Check the session state and browser storage.", "テンプレートを適用できませんでした。記録状態とブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     const localizedTemplateName = tr(templateName || tx(locale, "模板", "template", "テンプレート"));
     toast.show(
       added

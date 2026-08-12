@@ -19,7 +19,7 @@ import type { TrackDiagnosis } from "@/lib/trackDiagnosis";
 const tx = (locale: Locale, zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
 
 export default function TrainingDecisionBrief({ compact = false, decision: providedDecision }: { compact?: boolean; decision?: TrainingDecision }) {
-  const { data, setTemplateItems } = useStore();
+  const { data, commitTemplateItems } = useStore();
   const { locale, tr } = useI18n();
   const toast = useToast();
   const today = useToday();
@@ -52,7 +52,10 @@ export default function TrainingDecisionBrief({ compact = false, decision: provi
     return <div key={`${action.kind}-${index}`} className="soft-divider border-t first:border-t-0">
       {proposal ? <button type="button" onClick={() => setPreviewKind((current) => current === action.kind ? null : action.kind)} aria-expanded={previewKind === action.kind} className="press flex w-full items-center gap-3 px-3.5 py-3 text-left">{content}</button> : summarizedInReview ? <div className="flex items-center gap-3 px-3.5 py-3">{content}</div> : <Link href={action.href} className="press flex items-center gap-3 px-3.5 py-3">{content}</Link>}
       {proposal && previewKind === action.kind ? <ProposalPreview proposal={proposal} locale={locale} tr={tr} onCancel={() => setPreviewKind(null)} onApply={() => {
-        setTemplateItems(proposal.templateId, proposal.nextItems);
+        if (!commitTemplateItems(proposal.templateId, proposal.nextItems)) {
+          toast.show(tx(locale, "模板调整未能保存，请检查浏览器存储", "The template change could not be saved. Check browser storage.", "テンプレート変更を保存できませんでした。ブラウザ容量を確認してください"), { tone: "error" });
+          return;
+        }
         setUndo({ templateId: proposal.templateId, templateName: proposal.templateName, items: proposal.previousItems });
         setPreviewKind(null);
         toast.show(tx(locale, "模板已按建议调整", "Template adjusted", "提案どおりテンプレートを調整しました"));
@@ -79,7 +82,7 @@ export default function TrainingDecisionBrief({ compact = false, decision: provi
         <div className="soft-divider border-t">{actions.slice(1).map((action, index) => renderAction(action, index + 1))}</div>
       </details> : null}
     </div>
-    {!compact && undo && <div className="soft-divider flex items-center gap-2 border-t px-3.5 py-2.5"><p className="min-w-0 flex-1 truncate text-[11px] text-muted">{tx(locale, `已调整「${tr(undo.templateName || "未命名模板")}」`, `Adjusted “${tr(undo.templateName || "Untitled template")}”`, `「${tr(undo.templateName || "無題のテンプレート")}」を調整済み`)}</p><button type="button" onClick={() => { setTemplateItems(undo.templateId, undo.items); setUndo(null); toast.show(tx(locale, "已撤销模板调整", "Template change undone", "テンプレート変更を取り消しました")); }} className="press shrink-0 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] font-semibold text-accent">{tx(locale, "撤销", "Undo", "元に戻す")}</button></div>}
+    {!compact && undo && <div className="soft-divider flex items-center gap-2 border-t px-3.5 py-2.5"><p className="min-w-0 flex-1 truncate text-[11px] text-muted">{tx(locale, `已调整「${tr(undo.templateName || "未命名模板")}」`, `Adjusted “${tr(undo.templateName || "Untitled template")}”`, `「${tr(undo.templateName || "無題のテンプレート")}」を調整済み`)}</p><button type="button" onClick={() => { if (!commitTemplateItems(undo.templateId, undo.items)) { toast.show(tx(locale, "撤销未能保存，请检查浏览器存储", "The undo could not be saved. Check browser storage.", "取り消しを保存できませんでした。ブラウザ容量を確認してください"), { tone: "error" }); return; } setUndo(null); toast.show(tx(locale, "已撤销模板调整", "Template change undone", "テンプレート変更を取り消しました")); }} className="press shrink-0 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] font-semibold text-accent">{tx(locale, "撤销", "Undo", "元に戻す")}</button></div>}
     {!compact && <DecisionEvidence decision={decision} locale={locale} />}
   </section>;
 }

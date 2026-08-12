@@ -33,10 +33,14 @@ export default function CycleReviewPanel({ reviewDate }: { reviewDate?: string }
   const blockingDate = review.blockingWorkoutDate;
 
   function apply() {
-    const applied = applyCycleReview(review, effectiveDate, phase);
-    if (!applied) {
+    const status = applyCycleReview(review, effectiveDate, phase);
+    if (status === "stale") {
       toast.show(tx(locale, "复盘已过期，请按当前数据重新查看", "The review is stale. Reopen it from the current data.", "レビューが古くなっています。最新データで再確認してください"), { tone: "warning" });
       setConfirm(false);
+      return;
+    }
+    if (status === "persistence") {
+      toast.show(tx(locale, "周期调整未能保存，请检查浏览器存储后重试", "Cycle changes could not be saved. Check browser storage and retry.", "周期の変更を保存できませんでした。ブラウザ容量を確認して再試行してください"), { tone: "error" });
       return;
     }
     toast.show(phase === "deload"

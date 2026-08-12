@@ -27,7 +27,6 @@ import type {
   SessionDifficulty,
   SetRecord,
   StarterPlanPreset,
-  Template,
   TemplateItem,
   TrainingPreferences,
   TrainingIntent,
@@ -111,6 +110,37 @@ import {
 } from "./historyIndex";
 import { pendingWorkoutForPlanChange } from "./trainingAnalysis";
 
+type MicrocycleStartStatus = "started" | "blocked" | "persistence";
+type CycleReviewCommitStatus = "applied" | "stale" | "persistence";
+
+function withTemplateItems(prev: AppData, id: string, items: TemplateItem[]): AppData {
+  if (!(prev.templates ?? []).some((template) => template.id === id)) return prev;
+  const pool = new Map(
+    [...DEFAULT_EXERCISES, ...prev.customExercises].map((preset) => [preset.id, preset])
+  );
+  const canonicalItems = items.map((item) =>
+    normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))
+  );
+  const templates = (prev.templates ?? []).map((template) =>
+    template.id === id
+      ? canonicalizeLibraryTemplate({ ...template, items: canonicalItems })
+      : template
+  );
+  const base = { ...prev, templates };
+  return { ...base, microcycle: microcycleForTemplateEdit(base, templates) };
+}
+
+function withMuscleTarget(prev: AppData, muscle: MuscleGroup, low: number, high: number): AppData {
+  const targetLow = Math.max(0, Math.round(low));
+  return {
+    ...prev,
+    muscleTargets: {
+      ...(prev.muscleTargets ?? {}),
+      [muscle]: { low: targetLow, high: Math.max(targetLow, Math.round(high)) },
+    },
+  };
+}
+
 interface StoreApi {
   loaded: boolean;
   data: AppData;
@@ -118,10 +148,10 @@ interface StoreApi {
   getDay: (date: string) => DayLog | undefined;
 
   // 训练
-  setWorkoutType: (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => void;
+  setWorkoutType: (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => boolean;
   setWorkoutDone: (date: string, done: boolean, difficulty?: SessionDifficulty) => boolean;
   setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => void;
-  addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => void;
+  addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => boolean;
   removeExercise: (date: string, exerciseId: string) => void;
   addSet: (date: string, exerciseId: string, set: SetRecord) => void;
   updateSet: (
@@ -158,13 +188,14 @@ interface StoreApi {
   removeActivityEnergy: (date: string, id: string) => void;
 
   // 训练模板（自由命名 + 归属类型，每类型上限 5）
-  createTemplate: (type: TrainingType, name: string) => string | null;
+  createTemplate: (type: TrainingType, name: string, items?: TemplateItem[]) => string | null;
   duplicateTemplate: (id: string) => string | null;
   moveTemplate: (id: string, dir: -1 | 1) => void;
   renameTemplate: (id: string, name: string) => void;
   setTemplateItems: (id: string, items: TemplateItem[]) => void;
-  deleteTemplate: (id: string) => void;
-  applyTemplate: (id: string, date: string, options?: { microcycleStepId?: string }) => number;
+  commitTemplateItems: (id: string, items: TemplateItem[]) => boolean;
+  deleteTemplate: (id: string) => boolean;
+  applyTemplate: (id: string, date: string, options?: { microcycleStepId?: string }) => number | null;
 
   // 跨天查询
   trackHistories: (
@@ -190,7 +221,7 @@ interface StoreApi {
     equipment?: Equipment,
     recordModes?: RecordMode[]
   ) => ExercisePreset;
-  removeCustomExercise: (id: string) => void;
+  removeCustomExercise: (id: string) => boolean;
   updateCustomExercise: (
     id: string,
     patch: {
@@ -201,7 +232,7 @@ interface StoreApi {
       equipment?: Equipment;
       recordModes?: RecordMode[];
     }
-  ) => void;
+  ) => boolean;
   toggleFavoriteExercise: (id: string) => void;
 
   // 计划
@@ -212,10 +243,11 @@ interface StoreApi {
     policy: TrainingPolicy,
   ) => boolean;
   setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
+  commitMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => boolean;
   resetMuscleTarget: (muscle: MuscleGroup) => void;
   setMesocycleTargetCycles: (cycles: number) => void;
-  startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => void;
-  applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => boolean;
+  startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => MicrocycleStartStatus;
+  applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => CycleReviewCommitStatus;
   completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => boolean;
   dismissSetup: () => boolean;
   setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
@@ -247,6 +279,52 @@ function workoutCycleContext(microcycle: MicrocycleState, microcycleId: string):
   };
 }
 
+function withWorkoutMutation(
+  prev: AppData,
+  date: string,
+  fn: (workout: WorkoutSession) => WorkoutSession,
+): AppData {
+  const day = prev.days[date] ?? { date };
+  if (isWorkoutEditingLocked(day.workout)) return prev;
+  if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
+  const current = ensureMicrocycle(prev, date);
+  const assignment = day.workout
+    ? {
+        microcycle: current,
+        mesocycle: ensureMesocycle(prev, date),
+        microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/[^0-9]/g, "")}` : current.currentId),
+      }
+    : microcycleAssignmentForNewWorkout(prev, date);
+  const microcycle = assignment.microcycle;
+  const workout: WorkoutSession = day.workout ?? {
+    type: "push",
+    exercises: [],
+    microcycleId: assignment.microcycleId,
+    ...workoutCycleContext(microcycle, assignment.microcycleId),
+  };
+  const mutableWorkout = { ...workout };
+  const changedWorkout = fn(mutableWorkout);
+  if (changedWorkout === mutableWorkout) return prev;
+  const microcycleId = day.workout?.microcycleId ?? changedWorkout.microcycleId ?? assignment.microcycleId;
+  return {
+    ...prev,
+    microcycle,
+    mesocycle: assignment.mesocycle,
+    days: {
+      ...prev.days,
+      [date]: {
+        ...day,
+        date,
+        workout: {
+          ...workoutCycleContext(microcycle, microcycleId),
+          ...changedWorkout,
+          microcycleId,
+        },
+      },
+    },
+  };
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [data, setDataState] = useState<AppData>(emptyData);
@@ -260,6 +338,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dataRef.current = next;
     setDataState(next);
   }, []);
+  const committedDataRef = useRef<AppData | null>(null);
+  const commitData = useCallback((next: AppData) => {
+    if (!saveData(next)) return false;
+    committedDataRef.current = next;
+    setData(next);
+    return true;
+  }, [setData]);
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
   const remoteDataRef = useRef<AppData | null>(null);
@@ -308,6 +393,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       remoteDataRef.current = null;
       return;
     }
+    if (committedDataRef.current === data) {
+      committedDataRef.current = null;
+      return;
+    }
+    committedDataRef.current = null;
     remoteDataRef.current = null;
     const t = setTimeout(() => {
       saveData(data);
@@ -347,49 +437,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const mutateWorkout = useCallback(
     (date: string, fn: (w: WorkoutSession) => WorkoutSession) => {
-      setData((prev) => {
-        const day = prev.days[date] ?? { date };
-        if (isWorkoutEditingLocked(day.workout)) return prev;
-        if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
-        const current = ensureMicrocycle(prev, date);
-        const assignment = day.workout
-          ? {
-              microcycle: current,
-              mesocycle: ensureMesocycle(prev, date),
-              microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
-            }
-          : microcycleAssignmentForNewWorkout(prev, date);
-        const microcycle = assignment.microcycle;
-        const cycleContext = workoutCycleContext(microcycle, assignment.microcycleId);
-        const w: WorkoutSession = day.workout ?? {
-          type: "push",
-          exercises: [],
-          microcycleId: assignment.microcycleId,
-          ...cycleContext,
-        };
-        const next = fn({ ...w, microcycleId: w.microcycleId ?? assignment.microcycleId });
-        // Historical edits must preserve the session's original microcycle.
-        // Only a genuinely new workout receives the currently active cycle id.
-        const microcycleId = day.workout?.microcycleId ?? next.microcycleId ?? assignment.microcycleId;
-        const nextData = {
-          ...prev,
-          microcycle,
-          mesocycle: assignment.mesocycle,
-          days: {
-            ...prev.days,
-            [date]: {
-              ...day,
-              date,
-              workout: {
-                ...workoutCycleContext(microcycle, microcycleId),
-                ...next,
-                microcycleId,
-              },
-            },
-          },
-        };
-        return nextData;
-      });
+      setData((prev) => withWorkoutMutation(prev, date, fn));
     },
     [setData]
   );
@@ -409,66 +457,68 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- 训练相关 API ----
   const setWorkoutType = useCallback(
     (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => {
-      setData((prev) => {
-        const day = prev.days[date] ?? { date };
-        if (isWorkoutEditingLocked(day.workout)) return prev;
-        if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
-        const current = ensureMicrocycle(prev, date);
-        const assignment = day.workout
-          ? {
-              microcycle: current,
-              mesocycle: ensureMesocycle(prev, date),
-              microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/-/g, "")}` : current.currentId),
-            }
-          : microcycleAssignmentForNewWorkout(prev, date);
-        const microcycle = assignment.microcycle;
-        const requestedStep = options?.microcycleStepId
-          ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === type)
+      const prev = dataRef.current;
+      const day = prev.days[date] ?? { date };
+      if (isWorkoutEditingLocked(day.workout)) return false;
+      if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return false;
+      const current = ensureMicrocycle(prev, date);
+      const assignment = day.workout
+        ? {
+            microcycle: current,
+            mesocycle: ensureMesocycle(prev, date),
+            microcycleId: day.workout.microcycleId ?? (date < current.startedAt ? `legacy_mc_${date.replace(/[^0-9]/g, "")}` : current.currentId),
+          }
+        : microcycleAssignmentForNewWorkout(prev, date);
+      const microcycle = assignment.microcycle;
+      const requestedStep = options?.microcycleStepId
+        ? microcycle.steps?.find((step) => step.id === options.microcycleStepId && step.type === type)
+        : undefined;
+      const workout = day.workout ?? {
+        type,
+        exercises: [],
+        microcycleId: assignment.microcycleId,
+        ...workoutCycleContext(microcycle, assignment.microcycleId),
+      };
+      const hasRecordedSets = workout.exercises.some((exercise) => exercise.sets.some(hasSetPerformance));
+      if (type === "rest" && workout.type !== "rest" && hasRecordedSets) return false;
+      const sameType = workout.type === type;
+      const completedAt = type === "rest"
+        ? sameType
+          ? workout.completedAt ?? new Date().toISOString()
+          : new Date().toISOString()
+        : sameType && workout.done === true
+          ? workout.completedAt
           : undefined;
-        const w = day.workout ?? {
-          type,
-          exercises: [],
-          microcycleId: assignment.microcycleId,
-          ...workoutCycleContext(microcycle, assignment.microcycleId),
-        };
-        if (type === "rest" && w.type !== "rest" && w.exercises.some((exercise) => exercise.sets.some(hasSetPerformance))) {
-          return prev;
-        }
-        const sameType = w.type === type;
-        const completedAt = type === "rest"
-          ? sameType
-            ? w.completedAt ?? new Date().toISOString()
-            : new Date().toISOString()
-          : sameType && w.done === true
-            ? w.completedAt
-            : undefined;
-        const nextData: AppData = {
-          ...prev,
-          microcycle,
-          mesocycle: assignment.mesocycle,
-          days: {
-            ...prev.days,
-            [date]: {
-              ...day,
-              date,
-              workout: {
-                ...workoutCycleContext(microcycle, w.microcycleId ?? assignment.microcycleId),
-                ...w,
-                type,
-                templateId: w.type === type ? w.templateId : undefined,
-                templateSnapshot: w.type === type ? w.templateSnapshot : undefined,
-                microcycleId: w.microcycleId ?? assignment.microcycleId,
-                microcycleStepId: requestedStep?.id ?? (w.type === type ? w.microcycleStepId : undefined),
-                done: type === "rest" ? true : sameType ? (w.done ?? false) : false,
-                completedAt,
-              },
+      const next: AppData = {
+        ...prev,
+        microcycle,
+        mesocycle: assignment.mesocycle,
+        days: {
+          ...prev.days,
+          [date]: {
+            ...day,
+            date,
+            workout: {
+              ...workoutCycleContext(microcycle, workout.microcycleId ?? assignment.microcycleId),
+              ...workout,
+              type,
+              // A type switch keeps real records but drops empty drafts from the old plan.
+              exercises: sameType
+                ? workout.exercises
+                : workout.exercises.filter((exercise) => exercise.sets.some(hasSetPerformance)),
+              templateId: sameType ? workout.templateId : undefined,
+              templateSnapshot: sameType ? workout.templateSnapshot : undefined,
+              microcycleId: workout.microcycleId ?? assignment.microcycleId,
+              microcycleStepId: requestedStep?.id ?? (sameType ? workout.microcycleStepId : undefined),
+              done: type === "rest" ? true : sameType ? (workout.done ?? false) : false,
+              completedAt,
             },
           },
-        };
-        return nextData;
-      });
+        },
+      };
+      return commitData(next);
     },
-    [setData]
+    [commitData]
   );
 
   const setWorkoutDone = useCallback(
@@ -491,12 +541,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           },
         },
       };
-      if (!saveData(next)) return false;
-      dataRef.current = next;
-      setData(next);
-      return true;
+      return commitData(next);
     },
-    [setData]
+    [commitData]
   );
 
   const setWorkoutDifficulty = useCallback((date: string, difficulty?: SessionDifficulty) => {
@@ -515,7 +562,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addExercise = useCallback(
     (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => {
-      mutateWorkout(date, (w) => {
+      const prev = dataRef.current;
+      const next = withWorkoutMutation(prev, date, (w) => {
         if (w.exercises.some((e) => e.id === preset.id)) return w; // 当天去重
         const context = options?.intent === "context" || !options?.intent
           ? w.exercises.find((exercise) => exercise.prescription)?.prescription
@@ -540,8 +588,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }, prescription);
         return { ...w, done: false, completedAt: undefined, exercises: [...w.exercises, ex] };
       });
+      return next !== prev && commitData(next);
     },
-    [mutateWorkout]
+    [commitData]
   );
 
   const removeExercise = useCallback(
@@ -727,52 +776,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const genTplId = () =>
     "tpl_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
-  /** 新建模板（受每类型上限约束）。返回新 id，超限返回 null。 */
-  const createTemplate = useCallback((type: TrainingType, name: string): string | null => {
-    const list = dataRef.current.templates ?? [];
+  /** 新建模板（受每类型上限约束）。只有完整落盘后才返回新 id。 */
+  const createTemplate = useCallback((type: TrainingType, name: string, items: TemplateItem[] = []): string | null => {
+    const prev = dataRef.current;
+    const list = prev.templates ?? [];
     if (list.filter((t) => t.type === type).length >= MAX_TEMPLATES_PER_TYPE) {
       return null;
     }
     const id = genTplId();
-    setData((prev) => {
-      const current = prev.templates ?? [];
-      if (current.filter((t) => t.type === type).length >= MAX_TEMPLATES_PER_TYPE) {
-        return prev;
-      }
-      const tpl: Template = { id, name: name.trim() || name, type, items: [] };
-      const templates = [...current, tpl];
-      return { ...prev, templates, microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates) };
+    const pool = new Map([...DEFAULT_EXERCISES, ...prev.customExercises].map((preset) => [preset.id, preset]));
+    const tpl = canonicalizeLibraryTemplate({
+      id,
+      name: name.trim() || name,
+      type,
+      items: items.map((item) => normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))),
     });
-    return id;
-  }, [setData]);
+    const templates = [...list, tpl];
+    const base = { ...prev, templates };
+    const next = { ...base, microcycle: microcycleForTemplateEdit(base, templates) };
+    return commitData(next) ? id : null;
+  }, [commitData]);
 
   const duplicateTemplate = useCallback((id: string): string | null => {
-    const current = dataRef.current.templates ?? [];
+    const prev = dataRef.current;
+    const current = prev.templates ?? [];
     const source = current.find((t) => t.id === id);
     if (!source) return null;
     if (current.filter((t) => t.type === source.type).length >= MAX_TEMPLATES_PER_TYPE) {
       return null;
     }
     const nextId = genTplId();
-    setData((prev) => {
-      const source = (prev.templates ?? []).find((t) => t.id === id);
-      if (!source) return prev;
-      const list = prev.templates ?? [];
-      if (list.filter((t) => t.type === source.type).length >= MAX_TEMPLATES_PER_TYPE) {
-        return prev;
-      }
-      const copy = canonicalizeLibraryTemplate(cloneTemplate({
-        ...source,
-        id: nextId,
-        name: `${source.name.trim() || "模板"} 副本`,
-      }));
-      const sourceIndex = list.findIndex((t) => t.id === id);
-      const next = [...list];
-      next.splice(sourceIndex + 1, 0, copy);
-      return { ...prev, templates: next, microcycle: microcycleForTemplateEdit({ ...prev, templates: next }, next) };
-    });
-    return nextId;
-  }, [setData]);
+    const copy = canonicalizeLibraryTemplate(cloneTemplate({
+      ...source,
+      id: nextId,
+      name: `${source.name.trim() || "模板"} 副本`,
+    }));
+    const sourceIndex = current.findIndex((template) => template.id === id);
+    const templates = [...current];
+    templates.splice(sourceIndex + 1, 0, copy);
+    const base = { ...prev, templates };
+    const next = { ...base, microcycle: microcycleForTemplateEdit(base, templates) };
+    return commitData(next) ? nextId : null;
+  }, [commitData]);
 
   const moveTemplate = useCallback((id: string, dir: -1 | 1) => {
     setData((prev) => {
@@ -791,58 +836,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setData]);
 
   const setTemplateItems = useCallback((id: string, items: TemplateItem[]) => {
-    setData((prev) => {
-      const pool = new Map(
-        [...DEFAULT_EXERCISES, ...prev.customExercises].map((preset) => [preset.id, preset])
-      );
-      const canonicalItems = items.map((item) =>
-        normalizeTemplateItemPrescription(item, pool.get(item.exerciseId))
-      );
-      const templates = (prev.templates ?? []).map((template) =>
-        template.id === id
-          ? canonicalizeLibraryTemplate({ ...template, items: canonicalItems })
-          : template
-      );
-      return {
-        ...prev,
-        templates,
-        microcycle: microcycleForTemplateEdit({ ...prev, templates }, templates),
-      };
-    });
+    setData((prev) => withTemplateItems(prev, id, items));
   }, [setData]);
 
+  const commitTemplateItems = useCallback((id: string, items: TemplateItem[]) => {
+    const prev = dataRef.current;
+    const next = withTemplateItems(prev, id, items);
+    return next !== prev && commitData(next);
+  }, [commitData]);
+
   const deleteTemplate = useCallback((id: string) => {
-    setData((prev) => {
-      const next = (prev.templates ?? []).filter((t) => t.id !== id);
-      const clearBinding = (step: import("./types").MicrocycleStep) => step.templateId === id ? { ...step, templateId: undefined } : step;
-      const schedule = prev.schedule.microcycle ? { ...prev.schedule, microcycle: prev.schedule.microcycle.map(clearBinding) } : prev.schedule;
-      const trainingTemplateIds = prev.cutPlan?.trainingTemplateIds
-        ? Object.fromEntries(Object.entries(prev.cutPlan.trainingTemplateIds).filter(([, templateId]) => templateId !== id)) as NonNullable<CutPlan["trainingTemplateIds"]>
-        : undefined;
-      const base = {
-        ...prev,
-        templates: next.length ? next : undefined,
-        schedule,
-        cutPlan: prev.cutPlan ? { ...prev.cutPlan, trainingTemplateIds: trainingTemplateIds && Object.keys(trainingTemplateIds).length ? trainingTemplateIds : undefined } : prev.cutPlan,
-      };
-      return {
-        ...base,
-        // A cycle with recorded work keeps its immutable snapshot. An unstarted cycle follows the edited schedule.
-        microcycle: microcycleForTemplateEdit(base, next),
-      };
-    });
-  }, [setData]);
+    const prev = dataRef.current;
+    const current = prev.templates ?? [];
+    if (!current.some((template) => template.id === id)) return false;
+    const templates = current.filter((template) => template.id !== id);
+    const clearBinding = (step: import("./types").MicrocycleStep) => step.templateId === id ? { ...step, templateId: undefined } : step;
+    const schedule = prev.schedule.microcycle ? { ...prev.schedule, microcycle: prev.schedule.microcycle.map(clearBinding) } : prev.schedule;
+    const trainingTemplateIds = prev.cutPlan?.trainingTemplateIds
+      ? Object.fromEntries(Object.entries(prev.cutPlan.trainingTemplateIds).filter(([, templateId]) => templateId !== id)) as NonNullable<CutPlan["trainingTemplateIds"]>
+      : undefined;
+    const base = {
+      ...prev,
+      templates: templates.length ? templates : undefined,
+      schedule,
+      cutPlan: prev.cutPlan ? { ...prev.cutPlan, trainingTemplateIds: trainingTemplateIds && Object.keys(trainingTemplateIds).length ? trainingTemplateIds : undefined } : prev.cutPlan,
+    };
+    const next = {
+      ...base,
+      // A cycle with recorded work keeps its immutable snapshot. An unstarted cycle follows the edited schedule.
+      microcycle: microcycleForTemplateEdit(base, templates),
+    };
+    return commitData(next);
+  }, [commitData]);
 
   /**
    * 套用模板到某天：合并去重（已有的动作保留，模板里缺的补进来）。
    * 不写入任何重量 —— 重量交给"沿用上次"。返回新增动作数。
   */
   const applyTemplate = useCallback(
-    (id: string, date: string, options?: { microcycleStepId?: string }): number => {
+    (id: string, date: string, options?: { microcycleStepId?: string }): number | null => {
       const currentData = dataRef.current;
       const targetWorkout = currentData.days[date]?.workout;
-      if (isWorkoutEditingLocked(targetWorkout)) return 0;
-      if (!targetWorkout && requiresCycleReviewBeforeWorkout(currentData, date)) return 0;
+      if (isWorkoutEditingLocked(targetWorkout)) return null;
+      if (!targetWorkout && requiresCycleReviewBeforeWorkout(currentData, date)) return null;
       const targetPhase = targetWorkout?.cyclePhase
         ?? (date >= (currentData.microcycle?.startedAt ?? date) ? currentData.microcycle?.phase : "build")
         ?? "build";
@@ -850,12 +886,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const tpl = baseTemplate
         ? templateForCyclePhase(baseTemplate, targetPhase)
         : undefined;
-      if (!tpl || !tpl.items.length) return 0;
+      if (!tpl || !tpl.items.length) return null;
       const currentExercises = dataRef.current.days[date]?.workout?.exercises ?? [];
       const currentIds = new Set(currentExercises.filter((exercise) => workingSets(exercise.sets).length > 0).map((exercise) => exercise.id));
       const added = tpl.items.filter((item) => !currentIds.has(item.exerciseId)).length;
       // 预设池：内置 + 自定义（拿 primaryMuscle / isMain 快照）
-      setData((prev) => {
+      const next = ((prev: AppData) => {
         const day = prev.days[date] ?? { date };
         if (isWorkoutEditingLocked(day.workout)) return prev;
         if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
@@ -951,10 +987,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             },
           },
         };
-      });
-      return added;
+      })(currentData);
+      if (next === currentData) return null;
+      return commitData(next) ? added : null;
     },
-    [setData]
+    [commitData]
   );
 
   // ---- 跨天查询 ----
@@ -1038,12 +1075,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const removeCustomExercise = useCallback((id: string) => {
-    setData((prev) => ({
+    const prev = dataRef.current;
+    if (!prev.customExercises.some((exercise) => exercise.id === id)) return false;
+    return commitData({
       ...prev,
       customExercises: prev.customExercises.filter((e) => e.id !== id),
       favoriteExerciseIds: prev.favoriteExerciseIds?.filter((exerciseId) => exerciseId !== id),
-    }));
-  }, [setData]);
+    });
+  }, [commitData]);
 
   const toggleFavoriteExercise = useCallback((id: string) => {
     setData((prev) => {
@@ -1074,7 +1113,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     ) => {
       const name = patch.name.trim();
-      if (!name) return;
+      if (!name) return false;
+      const prev = dataRef.current;
+      if (!prev.customExercises.some((exercise) => exercise.id === id)) return false;
       const secondary = (patch.volumeContributions ?? [])
         .filter((item) => item.muscle !== patch.primaryMuscle)
         .filter((item, index, items) => items.findIndex((candidate) => candidate.muscle === item.muscle) === index)
@@ -1089,36 +1130,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ...secondary,
       ];
       const recordModes = patch.recordModes?.length ? [...new Set(patch.recordModes)] : undefined;
-      setData((prev) => {
-        const customExercises = prev.customExercises.map((e) =>
-          e.id === id
-            ? {
-                ...e,
-                name,
-                primaryMuscle: patch.primaryMuscle,
-                secondaryMuscles,
-                volumeContributions,
-                ...(patch.equipment
-                  ? { equipment: patch.equipment }
-                  : { equipment: undefined }),
-                ...(recordModes
-                  ? { recordModes }
-                  : { recordModes: undefined }),
-              }
-            : e
-        );
-        const updatedPreset = customExercises.find((exercise) => exercise.id === id);
-        const templates = updatedPreset
-          ? updateCustomExerciseTemplateReferences(prev.templates, updatedPreset)
-          : prev.templates;
-        const nextData = { ...prev, customExercises, templates };
-        return {
-          ...nextData,
-          microcycle: templates ? microcycleForTemplateEdit(nextData, templates) : prev.microcycle,
-        };
-      });
+      const customExercises = prev.customExercises.map((exercise) =>
+        exercise.id === id
+          ? {
+              ...exercise,
+              name,
+              primaryMuscle: patch.primaryMuscle,
+              secondaryMuscles,
+              volumeContributions,
+              ...(patch.equipment
+                ? { equipment: patch.equipment }
+                : { equipment: undefined }),
+              ...(recordModes
+                ? { recordModes }
+                : { recordModes: undefined }),
+            }
+          : exercise
+      );
+      const updatedPreset = customExercises.find((exercise) => exercise.id === id);
+      const templates = updatedPreset
+        ? updateCustomExerciseTemplateReferences(prev.templates, updatedPreset)
+        : prev.templates;
+      const base = { ...prev, customExercises, templates };
+      const next = {
+        ...base,
+        microcycle: templates ? microcycleForTemplateEdit(base, templates) : prev.microcycle,
+      };
+      return commitData(next);
     },
-    [setData]
+    [commitData]
   );
 
   // ---- 计划 ----
@@ -1146,14 +1186,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setData]);
 
   const setMuscleTarget = useCallback((muscle: MuscleGroup, low: number, high: number) => {
-    setData((prev) => ({
-      ...prev,
-      muscleTargets: {
-        ...(prev.muscleTargets ?? {}),
-        [muscle]: { low: Math.max(0, Math.round(low)), high: Math.max(Math.round(low), Math.round(high)) },
-      },
-    }));
+    setData((prev) => withMuscleTarget(prev, muscle, low, high));
   }, [setData]);
+
+  const commitMuscleTarget = useCallback((muscle: MuscleGroup, low: number, high: number) => {
+    return commitData(withMuscleTarget(dataRef.current, muscle, low, high));
+  }, [commitData]);
 
   const resetMuscleTarget = useCallback((muscle: MuscleGroup) => {
     setData((prev) => {
@@ -1248,20 +1286,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setData]);
 
   const startNewMicrocycle = useCallback((date: string, phase: TrainingCyclePhase = "build") => {
-    setData((prev) => {
-      if (pendingWorkoutForPlanChange(prev, date)) return prev;
-      const advanced = advanceTrainingCycle(prev, date, phase);
-      return { ...prev, microcycle: advanced.microcycle, mesocycle: advanced.mesocycle };
-    });
-  }, [setData]);
+    const prev = dataRef.current;
+    if (pendingWorkoutForPlanChange(prev, date)) return "blocked";
+    const advanced = advanceTrainingCycle(prev, date, phase);
+    const next = { ...prev, microcycle: advanced.microcycle, mesocycle: advanced.mesocycle };
+    return commitData(next) ? "started" : "persistence";
+  }, [commitData]);
 
   const applyCycleReview = useCallback((review: CycleReview, date: string, phase?: TrainingCyclePhase) => {
     const result = applyCycleReviewToData(dataRef.current, review, date, phase);
-    if (!result.applied) return false;
-    dataRef.current = result.data;
-    setData(result.data);
-    return true;
-  }, [setData]);
+    if (!result.applied) return "stale";
+    return commitData(result.data) ? "applied" : "persistence";
+  }, [commitData]);
 
   // ---- 跨天 type 查询 ----
   const lastWorkoutByType = useCallback(
@@ -1366,6 +1402,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       moveTemplate,
       renameTemplate,
       setTemplateItems,
+      commitTemplateItems,
       deleteTemplate,
       applyTemplate,
       trackHistories,
@@ -1381,6 +1418,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSchedule,
       commitAdaptivePlan,
       setMuscleTarget,
+      commitMuscleTarget,
       resetMuscleTarget,
       setMesocycleTargetCycles,
       startNewMicrocycle,
@@ -1424,6 +1462,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       moveTemplate,
       renameTemplate,
       setTemplateItems,
+      commitTemplateItems,
       deleteTemplate,
       applyTemplate,
       trackHistories,
@@ -1439,6 +1478,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setSchedule,
       commitAdaptivePlan,
       setMuscleTarget,
+      commitMuscleTarget,
       resetMuscleTarget,
       setMesocycleTargetCycles,
       startNewMicrocycle,

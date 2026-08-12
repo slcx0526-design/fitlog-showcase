@@ -8,7 +8,7 @@ import { isWorkoutEditingLocked } from "@/lib/trainingMetrics";
 import { buildSessionVolumePlan } from "@/lib/sessionVolumePlan";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
-import { useI18n, type Locale } from "@/lib/i18n";
+import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { templateForWorkout } from "@/lib/microcycle";
 import type { ExercisePreset, WorkoutSession } from "@/lib/types";
 type Params = Record<string, string | number>;
@@ -40,7 +40,10 @@ export default function SessionVolumePlan({ date, workout }: { date: string; wor
 
   function addReplacement(candidate: ExercisePreset) {
     if (editingLocked) return;
-    addExercise(date, candidate, { intent: "context" });
+    if (!addExercise(date, candidate, { intent: "context" })) {
+      toast.show(localeText(locale, "动作未能加入，请检查训练状态和浏览器存储", "The exercise could not be added. Check the session state and browser storage.", "種目を追加できませんでした。記録状態とブラウザ容量を確認してください"), { tone: "error" });
+      return;
+    }
     toast.show(t("已加入 {name}；容量会按它的计划组数重新计算", { name: t(candidate.name) }));
   }
 

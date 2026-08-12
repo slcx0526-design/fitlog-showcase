@@ -241,6 +241,209 @@ test("workout completion stays editable when its local write fails", async ({ pa
   }, date)).toEqual([false, false]);
 });
 
+test("workout type switches commit before dropping old empty drafts", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Workout command persistence needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            microcycleId: "mc_type_switch",
+            exercises: [
+              { id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true, sets: [{ weight: 80, reps: 6, type: "working" }] },
+              { id: "px_dumbbell_lateral_raise", name: "哑铃侧平举", isMain: false, sets: [] },
+            ],
+          },
+        },
+      },
+      bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+      microcycle: { currentId: "mc_type_switch", startedAt: dateKey, index: 1, steps: [{ id: "push", type: "push", label: "推" }] },
+    }));
+  }, { dateKey: date });
+  await page.goto("/train");
+  await page.getByRole("button", { name: "更改" }).click();
+  await page.getByRole("button", { name: "拉", exact: true }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    (window as unknown as { __fitlogOriginalSetItem: typeof original }).__fitlogOriginalSetItem = original;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "确认切换" }).click();
+
+  await expect(page.getByText("训练类型未能保存，请检查训练状态和浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("训练类型已更改；已有记录已保留", { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return [workout?.type, ...(workout?.exercises ?? []).map((exercise: { id: string }) => exercise.id)];
+  }, date)).toEqual(["push", "px_barbell_bench", "px_dumbbell_lateral_raise"]);
+
+  await page.evaluate(() => {
+    Storage.prototype.setItem = (window as unknown as { __fitlogOriginalSetItem: typeof Storage.prototype.setItem }).__fitlogOriginalSetItem;
+  });
+  await page.getByRole("button", { name: "确认切换" }).click();
+  await expect(page.getByText("训练类型已更改；已有记录已保留", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return [workout?.type, ...(workout?.exercises ?? []).map((exercise: { id: string }) => exercise.id)];
+  }, date)).toEqual(["pull", "px_barbell_bench"]);
+});
+
+test("template commands never acknowledge a failed browser write", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Template persistence feedback needs one focused browser regression.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {}, bodyWeights: [], waistEntries: [], customExercises: [],
+      templates: [{ id: "tpl_persist", name: "持久化测试模板", type: "push", items: [] }],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  });
+  await page.goto("/templates");
+  await page.getByRole("button", { name: /持久化测试模板/ }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+
+  await page.getByRole("button", { name: "复制为新模板" }).click();
+  await expect(page.getByText("模板副本未能保存，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("已复制模板", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".page-status")).toHaveAttribute("aria-hidden", "true");
+
+  await page.getByRole("button", { name: "删除模板" }).click();
+  await page.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.getByText("模板未能删除，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /持久化测试模板/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.length)).toBe(1);
+});
+
+test("saving completed workout sets never leaves a half-created template", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Workout template persistence needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push", done: false, microcycleId: "mc_save_template",
+            exercises: [{
+              id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true,
+              sets: [{ weight: 80, reps: 6, type: "working" }],
+              planned: { sets: 1, repsLow: 4, repsHigh: 6 },
+            }],
+          },
+        },
+      },
+      bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+      microcycle: { currentId: "mc_save_template", startedAt: dateKey, index: 1, phase: "build", steps: [{ id: "push", type: "push", label: "推" }] },
+    }));
+  }, { dateKey: date });
+  await page.goto("/train");
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "用本次完整工作组存为模板" }).click();
+
+  await expect(page.getByText("模板未能保存，请检查浏览器存储", { exact: true })).toBeVisible();
+  await expect(page.getByText("已用完整工作组保存为模板", { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").templates?.length ?? 0)).toBe(0);
+});
+
+test("cycle review stays actionable when its browser write fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Cycle persistence needs one focused browser regression.");
+  const completedDate = offsetLocalDateKey(-1);
+  await page.addInitScript(({ completedKey }) => {
+    const step = { id: "cycle_push", type: "push", label: "推" };
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [completedKey]: {
+          date: completedKey,
+          workout: {
+            type: "push", done: true, completedAt: `${completedKey}T10:00:00.000Z`,
+            microcycleId: "mc_failed_review", microcycleStepId: step.id,
+            exercises: [{ id: "px_barbell_bench", name: "平板杠铃卧推", isMain: true, sets: [{ weight: 80, reps: 6, type: "working" }] }],
+          },
+        },
+      },
+      bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"], microcycle: [step] },
+      microcycle: { currentId: "mc_failed_review", startedAt: completedKey, index: 1, phase: "build", steps: [step] },
+    }));
+  }, { completedKey: completedDate });
+  await page.goto("/train");
+  await page.getByRole("button", { name: "应用本轮复盘并开始下一周期" }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "确认并开始" }).click();
+
+  await expect(page.getByText("周期调整未能保存，请检查浏览器存储后重试", { exact: true })).toBeVisible();
+  await expect(page.getByText("调整已应用，下一周期已开始", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "确认并开始" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return [data.microcycle?.currentId, data.lastCycleReview ?? null];
+  })).toEqual(["mc_failed_review", null]);
+});
+
+test("manual microcycle reset keeps its confirmation when persistence fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Cycle reset persistence needs one focused browser regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const steps = [{ id: "push", type: "push", label: "推" }, { id: "pull", type: "pull", label: "拉" }];
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {}, bodyWeights: [], waistEntries: [], customExercises: [], templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"], microcycle: steps },
+      microcycle: { currentId: "mc_failed_reset", startedAt: dateKey, index: 1, phase: "build", steps },
+    }));
+  }, { dateKey: date });
+  await page.goto("/progress?tab=training");
+  await page.getByRole("button", { name: "手动重置" }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Quota exceeded", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "确认开始" }).click();
+
+  await expect(page.getByText("新周期未能保存，请检查浏览器存储后重试", { exact: true })).toBeVisible();
+  await expect(page.getByText("新周期已开始", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "确认开始" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").microcycle?.currentId)).toBe("mc_failed_reset");
+});
+
 test("rehab-only work can close as a log without becoming training volume", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Rehab completion needs one focused browser regression.");
   const date = localDateKey();
