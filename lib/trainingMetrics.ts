@@ -150,6 +150,21 @@ export function hasRecordedTrainingWork(workout?: WorkoutSession) {
   return Boolean(workout && workout.type !== "rest" && summarizeWorkoutWork(workout).workingSets > 0);
 }
 
+/**
+ * Explicitly open sessions remain editable. Legacy sessions with recorded input
+ * are closed in the UI, while their evidence classification stays legacy.
+ */
+export function isWorkoutSessionClosed(workout?: WorkoutSession) {
+  if (!workout) return false;
+  if (workout.done != null) return workout.done;
+  if (workout.type === "rest") return true;
+  return workout.exercises.some((exercise) => exercise.sets.some(hasSetPerformance));
+}
+
+export function isWorkoutEditingLocked(workout?: WorkoutSession) {
+  return Boolean(workout && workout.type !== "rest" && isWorkoutSessionClosed(workout));
+}
+
 export function isPastUnclosedWorkout(
   workout?: WorkoutSession,
   workoutDate?: string,

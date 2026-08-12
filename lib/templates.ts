@@ -1,12 +1,15 @@
 import {
+  exercisePrescription,
   generatedTrackWorkingSets,
   isGeneratedSharedTrackId,
   isGeneratedTemplateScopedTrackId,
   normalizeTemplateItemPrescription,
+  performanceValue,
   prescriptionFromTemplateItem,
   retargetTemplateScopedTrackId,
 } from "./prescription";
-import type { ExercisePreset, RecordMode, Template, TrainingType } from "./types";
+import { progressionSets } from "./trainingMetrics";
+import type { Exercise, ExercisePreset, RecordMode, Template, TemplateItem, TrainingType } from "./types";
 
 // ============================================================
 // 训练模板（B 层）：自由命名 + 归属类型（推/拉/腿）的模板列表。
@@ -48,6 +51,37 @@ export function moveTemplateWithinType(list: Template[], id: string, direction: 
   const next = [...list];
   [next[sourceIndex], next[targetIndex]] = [next[targetIndex], next[sourceIndex]];
   return next;
+}
+
+/** Build a reusable prescription only from complete standard work. */
+export function templateItemsFromCompletedWork(exercises: Exercise[]): TemplateItem[] {
+  return exercises.flatMap((exercise) => {
+    const sets = progressionSets(exercise.sets);
+    if (!sets.length) return [];
+    const prescription = exercisePrescription(exercise);
+    const mode = prescription.performanceMode ?? "reps";
+    const values = sets.map((set) => performanceValue(set, mode)).filter((value) => value > 0);
+    const repsLow = values.length ? Math.min(...values) : prescription.targetRepMin;
+    const repsHigh = values.length ? Math.max(...values) : prescription.targetRepMax;
+    return [{
+      exerciseId: exercise.id,
+      name: exercise.name,
+      sets: sets.length,
+      repsLow,
+      repsHigh: Math.max(repsLow, repsHigh),
+      rpe: exercise.planned?.rpe,
+      isMain: exercise.isMain,
+      primaryMuscle: exercise.primaryMuscle,
+      secondaryMuscles: exercise.secondaryMuscles,
+      volumeContributions: exercise.volumeContributions,
+      equipment: exercise.equipment,
+      movementPattern: exercise.movementPattern,
+      alternatives: exercise.alternatives,
+      recordModes: exercise.recordModes,
+      supersetGroup: exercise.supersetGroup,
+      prescription,
+    }];
+  });
 }
 
 const DELOAD_TRACK_SUFFIX = ":deload";

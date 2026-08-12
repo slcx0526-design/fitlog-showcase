@@ -5,6 +5,7 @@ import type { WorkoutSession } from "@/lib/types";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { formatSetCredit, summarizeSessionExecution } from "@/lib/trainingExecution";
 import { formatRestTime, useRestTimer } from "@/lib/restTimer";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) =>
   locale === "en" ? en : locale === "ja" ? ja : zh;
@@ -14,7 +15,7 @@ export default function SessionGuide({ workout }: { workout: WorkoutSession | un
   const rest = useRestTimer();
   const session = useMemo(() => summarizeSessionExecution(workout), [workout]);
 
-  if (!workout || workout.type === "rest" || workout.done) return null;
+  if (!workout || workout.type === "rest" || isWorkoutSessionClosed(workout)) return null;
 
   const next = session.next;
   const progressText = session.plannedSets > 0

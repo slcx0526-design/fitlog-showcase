@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { useToday } from "@/lib/hooks";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { summarizeSessionExecution } from "@/lib/trainingExecution";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 
 type DailyItem = {
   id: "body" | "nutrition" | "activity";
@@ -31,7 +32,8 @@ export default function DailyOverview() {
     const calories = day?.nutrition?.calories ?? 0;
     const completedSets = summarizeSessionExecution(day?.workout).completionCredits;
     const cardioMinutes = (day?.cardio ?? []).reduce((sum, entry) => sum + entry.minutes, 0);
-    const activityDone = Boolean(day?.workout?.done || completedSets > 0 || cardioMinutes > 0);
+    const workoutClosed = isWorkoutSessionClosed(day?.workout);
+    const activityDone = Boolean(workoutClosed || completedSets > 0 || cardioMinutes > 0);
 
     return [
       {
@@ -64,7 +66,7 @@ export default function DailyOverview() {
           : cardioMinutes > 0
             ? `${cardioMinutes} ${tx(locale, "分", "min", "分")}`
             : tx(locale, "待开始", "Open", "未開始"),
-        detail: day?.workout?.done
+        detail: workoutClosed
           ? tx(locale, "训练已完成", "Workout complete", "トレーニング完了")
           : activityDone
             ? tx(locale, "今日已推进", "Logged today", "今日記録済み")

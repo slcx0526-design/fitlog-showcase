@@ -14,6 +14,7 @@ import {
 import type { MicrocycleStep, TrainingType } from "@/lib/types";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import InlineConfirm from "@/components/ui/InlineConfirm";
 
 const TYPE_OPTIONS: Array<{ value: Exclude<TrainingType, "custom">; label: string }> = [
@@ -109,7 +110,7 @@ export default function MicrocycleEditor() {
 
         {progress.next && (!todayWorkout ? <Link href={microcycleStepHref(progress.next)} className="press mb-3 flex h-11 items-center justify-center rounded-lg bg-fg text-[12px] font-semibold text-bg">
           {tx(locale, `开始「${tr(progress.next.label)}」`, `Start “${tr(progress.next.label)}”`, `「${tr(progress.next.label)}」を開始`)}
-        </Link> : todayWorkout.done || todayWorkout.type === "rest" ? <div className="mb-3 flex min-h-11 items-center justify-center rounded-lg bg-surface-2 px-3 text-center text-[11px] font-semibold text-muted">
+        </Link> : isWorkoutSessionClosed(todayWorkout) ? <div className="mb-3 flex min-h-11 items-center justify-center rounded-lg bg-surface-2 px-3 text-center text-[11px] font-semibold text-muted">
           {tx(locale, `今日训练已完成 · 下一训练日继续「${tr(progress.next.label)}」`, `Today's workout is complete · continue with “${tr(progress.next.label)}” on the next training day`, `今日のトレーニングは完了 · 次回は「${tr(progress.next.label)}」から続行`)}
         </div> : <Link href="/train" className="press mb-3 flex h-11 items-center justify-center rounded-lg bg-fg text-[12px] font-semibold text-bg">
           {tx(locale, "继续今日训练", "Continue today's workout", "今日のトレーニングを続ける")}

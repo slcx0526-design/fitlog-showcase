@@ -12,6 +12,7 @@ import { useI18n } from "@/lib/i18n";
 import { currentMicrocycleProgress, microcycleStepHref } from "@/lib/microcycle";
 import { typeLabel } from "@/lib/exercises";
 import { summarizeSessionExecution } from "@/lib/trainingExecution";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import MorningCheckIn from "./MorningCheckIn";
 import DailyOverview from "./DailyOverview";
@@ -28,6 +29,7 @@ export default function TodayHome() {
   const today = useToday();
   const day = getDay(today);
   const workout = day?.workout;
+  const workoutClosed = isWorkoutSessionClosed(workout);
   const setCount = summarizeSessionExecution(workout).completionCredits;
   const cycleProgress = useMemo(() => currentMicrocycleProgress(data, today), [data, today]);
   const nextCycleStep = workout ? null : cycleProgress.next;
@@ -55,9 +57,9 @@ export default function TodayHome() {
       : activeType
         ? tr(typeLabel(activeType))
         : tr("训练");
-  const primaryLabel = workout?.done
+  const primaryLabel = workoutClosed
     ? tr("查看训练")
-    : workout?.type && workout.type !== "rest" && workout.done === false
+    : workout?.type && workout.type !== "rest" && !workoutClosed
       ? tr("继续训练")
       : activeType === "rest"
         ? tr("记录休息日")
@@ -80,8 +82,8 @@ export default function TodayHome() {
 
     {!setupNeeded && profileMissing && <section className="control-card mb-4 flex items-center gap-3 px-3.5 py-3"><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{tr("补齐基本资料")}</p><p className="mt-0.5 text-[11px] text-faint">{tr("身高、生理性别与出生年份用于热量和心率估算。")}</p></div><Link href="/settings" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{tr("去填写")}</Link></section>}
 
-    <section className={"primary-workout-panel mb-3 " + (workout && !workout.done && workout.type !== "rest" ? "is-active" : "")}>
-      <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{workoutTitle}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workout?.done, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workout?.done ? "is-done" : "")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
+    <section className={"primary-workout-panel mb-3 " + (workout && !workoutClosed && workout.type !== "rest" ? "is-active" : "")}>
+      <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{workoutTitle}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workoutClosed, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workoutClosed ? "is-done" : "")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
       <Link href={workoutHref} className="primary-command press">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
     </section>
 
@@ -101,9 +103,9 @@ export default function TodayHome() {
 }
 
 function MiniArrow() { return <span className="text-[16px] leading-none text-faint" aria-hidden="true">›</span>; }
-function trainingSubline(tr: Translate, type: TrainingType | undefined, done: boolean | undefined, sets: number, hasPlan: boolean) {
+function trainingSubline(tr: Translate, type: TrainingType | undefined, closed: boolean, sets: number, hasPlan: boolean) {
   if (type === "rest") return tr("今天安排休息；恢复也是计划的一部分。");
-  if (done) return tr("已完成 {n} 组。", { n: sets });
+  if (closed) return tr("已完成 {n} 组。", { n: sets });
   if (type && sets > 0) return tr("已完成 {n} 组，随时继续。", { n: sets });
   if (type) return tr("已选择训练类型，尚未记录有效工作组。");
   if (hasPlan) return tr("按计划开始，也可在训练页调整。");

@@ -11,6 +11,7 @@ import { usePersona } from "@/lib/copy";
 import { localeText, useI18n } from "@/lib/i18n";
 import { requiresCycleReviewBeforeWorkout } from "@/lib/cyclePlanning";
 import { currentMicrocycleProgress } from "@/lib/microcycle";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import type { TrainingType } from "@/lib/types";
 import TrainingModuleStable from "@/components/TrainingModuleStable";
 import SessionVolumePlan from "@/components/SessionVolumePlan";
@@ -36,8 +37,8 @@ function TrainInner() {
   const date = paramDate ?? today;
   const isPast = !!paramDate && paramDate !== today;
   const workout = getDay(date)?.workout;
-  const done = workout?.done ?? false;
-  const isActive = !!workout?.type && workout.type !== "rest" && workout.done === false;
+  const done = isWorkoutSessionClosed(workout);
+  const isActive = !!workout?.type && workout.type !== "rest" && !done;
   const requested = params.get("start");
   const requestedType = !isPast && requested && START_TYPES.includes(requested as TrainingType) ? requested as TrainingType : null;
   const requestedTemplate = !isPast ? params.get("template") : null;

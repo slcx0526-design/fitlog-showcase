@@ -24,6 +24,7 @@ import {
 } from "@/lib/muscles";
 import { computeVolumeSummary } from "@/lib/volume";
 import { summarizeSessionExecution } from "@/lib/trainingExecution";
+import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
 import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
@@ -275,7 +276,7 @@ function DayStatus({ date }: { date: string }) {
   const workout = day?.workout;
   const sets = summarizeSessionExecution(workout).completionCredits;
   if (workout?.type === "rest") return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">{tr("休息")}</span>;
-  if (workout?.done && sets > 0) return <span className="ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("已完成")}</span>;
+  if (isWorkoutSessionClosed(workout) && sets > 0) return <span className="ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("已完成")}</span>;
   if (sets > 0) return <span className="tnum ml-auto rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">{tr("{n} 组", { n: sets })}</span>;
   if (day?.nutrition || day?.recovery || (day?.cardio?.length ?? 0) > 0) return <span className="ml-auto rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">{tr("有日志")}</span>;
   return <span className="ml-auto text-[10px] text-faint">{tr("未记录")}</span>;

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { DEFAULT_EXERCISES } from "@/lib/exercises";
 import { DEFAULT_CUT_VOLUME_SCALE, isCutModeActive } from "@/lib/cutMode";
 import { formatSetCredit } from "@/lib/trainingExecution";
+import { isWorkoutEditingLocked } from "@/lib/trainingMetrics";
 import { buildSessionVolumePlan } from "@/lib/sessionVolumePlan";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -14,10 +15,10 @@ type Params = Record<string, string | number>;
 
 const COPY: Record<Exclude<Locale, "zh">, Record<string, string>> = {
   en: {
-    "已加入 {name}；容量会按它的计划组数重新计算": "Added {name}; volume will be recalculated from its planned sets.", "本次容量": "Session volume", "减脂容量按整套模板 {n}% 分配，优先保留主项。": "Cut volume is allocated at {n}% across the full template, prioritizing main lifts.", "来源于模板；今天的修改不会回写模板。": "From the template; changes today do not write back to it.", "组": "sets", "目标": "Target", "当前安排": "Planned", "已完成": "Completed", "还有 {n} 组容量未覆盖": "{n} volume sets still uncovered", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "Missing movements get candidates from movement pattern, target muscles, and equipment alternatives. Added options still count against this session; they are not treated as equivalent automatically.", "待覆盖 {n} 组": "{n} sets to cover", "加入 {name}": "Add {name}", "没有直接替代项；请从下方添加相近肌群动作。": "No direct substitute. Add a similar muscle-group exercise below.", "当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。": "The current plan covers today's target work sets. Load, reps, and tonnage are not volume targets; performance decides them.", "查看动作组数": "View exercise sets", "间接": "Indirect",
+    "已加入 {name}；容量会按它的计划组数重新计算": "Added {name}; volume will be recalculated from its planned sets.", "本次容量": "Session volume", "减脂容量按整套模板 {n}% 分配，优先保留主项。": "Cut volume is allocated at {n}% across the full template, prioritizing main lifts.", "来源于模板；今天的修改不会回写模板。": "From the template; changes today do not write back to it.", "组": "sets", "目标": "Target", "当前安排": "Planned", "已完成": "Completed", "还有 {n} 组容量未覆盖": "{n} volume sets still uncovered", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "Missing movements get candidates from movement pattern, target muscles, and equipment alternatives. Added options still count against this session; they are not treated as equivalent automatically.", "待覆盖 {n} 组": "{n} sets to cover", "加入 {name}": "Add {name}", "没有直接替代项；请从下方添加相近肌群动作。": "No direct substitute. Add a similar muscle-group exercise below.", "当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。": "The current plan covers today's target work sets. Load, reps, and tonnage are not volume targets; performance decides them.", "训练已结束；容量保留当时安排。继续训练后才能补充动作。": "This workout is closed, so its original volume plan is preserved. Resume it before adding exercises.", "查看动作组数": "View exercise sets", "间接": "Indirect",
   },
   ja: {
-    "已加入 {name}；容量会按它的计划组数重新计算": "{name}を追加しました。予定セット数でボリュームを再計算します。", "本次容量": "今回のボリューム", "减脂容量按整套模板 {n}% 分配，优先保留主项。": "減量期のボリュームはテンプレート全体の{n}%で配分し、メイン種目を優先して残します。", "来源于模板；今天的修改不会回写模板。": "テンプレート由来です。今日の変更はテンプレートに書き戻しません。", "组": "セット", "目标": "目標", "当前安排": "現在の予定", "已完成": "完了", "还有 {n} 组容量未覆盖": "あと {n} セット分のボリュームが未充足", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "不足種目には動作パターン・目標筋群・器具代替リストから候補を提示します。追加後も今回のボリュームで判定し、同等の代替とみなしません。", "待覆盖 {n} 组": "未充足 {n} セット", "加入 {name}": "{name}を追加", "没有直接替代项；请从下方添加相近肌群动作。": "直接の代替はありません。下から近い筋群の種目を追加してください。", "当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。": "現在の予定で当日の目標ワーキングセットを満たしています。重量・回数・トン数はボリューム目標に含めず、当日のパフォーマンスで決めます。", "查看动作组数": "種目セット数を見る", "间接": "間接",
+    "已加入 {name}；容量会按它的计划组数重新计算": "{name}を追加しました。予定セット数でボリュームを再計算します。", "本次容量": "今回のボリューム", "减脂容量按整套模板 {n}% 分配，优先保留主项。": "減量期のボリュームはテンプレート全体の{n}%で配分し、メイン種目を優先して残します。", "来源于模板；今天的修改不会回写模板。": "テンプレート由来です。今日の変更はテンプレートに書き戻しません。", "组": "セット", "目标": "目標", "当前安排": "現在の予定", "已完成": "完了", "还有 {n} 组容量未覆盖": "あと {n} セット分のボリュームが未充足", "缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。": "不足種目には動作パターン・目標筋群・器具代替リストから候補を提示します。追加後も今回のボリュームで判定し、同等の代替とみなしません。", "待覆盖 {n} 组": "未充足 {n} セット", "加入 {name}": "{name}を追加", "没有直接替代项；请从下方添加相近肌群动作。": "直接の代替はありません。下から近い筋群の種目を追加してください。", "当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。": "現在の予定で当日の目標ワーキングセットを満たしています。重量・回数・トン数はボリューム目標に含めず、当日のパフォーマンスで決めます。", "训练已结束；容量保留当时安排。继续训练后才能补充动作。": "終了したトレーニングの当時のボリューム計画を保持します。種目を追加するにはトレーニングを再開してください。", "查看动作组数": "種目セット数を見る", "间接": "間接",
   },
 };
 function localize(locale: Locale, key: string, params?: Params) { const text = locale === "zh" ? key : COPY[locale][key] ?? key; return text.replace(/\{(\w+)\}/g, (_, name) => String(params?.[name] ?? `{${name}}`)); }
@@ -29,6 +30,7 @@ export default function SessionVolumePlan({ date, workout }: { date: string; wor
   const t = (key: string, params?: Params) => localize(locale, key, params);
   const template = useMemo(() => templateForWorkout(data, workout), [data, workout]);
   const exercises = useMemo(() => workout?.exercises ?? [], [workout?.exercises]);
+  const editingLocked = isWorkoutEditingLocked(workout);
   const cutActive = isCutModeActive(data.cutPlan);
   const scale = data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE;
   const pool = useMemo(() => [...DEFAULT_EXERCISES, ...data.customExercises], [data.customExercises]);
@@ -36,16 +38,30 @@ export default function SessionVolumePlan({ date, workout }: { date: string; wor
   if (!template || !plan.targetSets) return null;
   const gap = Math.max(0, plan.targetSets - plan.currentPlannedSets);
 
-  function addReplacement(candidate: ExercisePreset) { addExercise(date, candidate, { intent: "context" }); toast.show(t("已加入 {name}；容量会按它的计划组数重新计算", { name: t(candidate.name) })); }
+  function addReplacement(candidate: ExercisePreset) {
+    if (editingLocked) return;
+    addExercise(date, candidate, { intent: "context" });
+    toast.show(t("已加入 {name}；容量会按它的计划组数重新计算", { name: t(candidate.name) }));
+  }
 
   return <section className={"session-volume-plan control-card overflow-hidden " + (gap ? "border-warn/35" : "")} data-session-volume-plan>
-    <details open={gap > 0} data-session-volume-plan-details>
+    <details open={gap > 0 && !editingLocked} data-session-volume-plan-details>
       <summary className="session-volume-plan__summary press flex cursor-pointer list-none items-center gap-3 px-3.5 py-3">
         <div className="min-w-0 flex-1"><p className="text-[14px] font-semibold text-fg">{t("本次容量")}</p><p className="mt-0.5 truncate text-[10px] text-faint">{cutActive ? t("减脂容量按整套模板 {n}% 分配，优先保留主项。", { n: Math.round(scale * 100) }) : t("来源于模板；今天的修改不会回写模板。")}</p></div>
         <span className={"tnum shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold " + (gap ? "bg-warn-soft text-warn" : "bg-accent-soft text-accent")}>{plan.currentPlannedSets} / {plan.targetSets} {t("组")}</span>
         <span className="session-volume-plan__chevron shrink-0 text-faint" aria-hidden="true" />
       </summary>
-      <div className="soft-divider border-t px-3.5 pb-3 pt-3"><div className="grid grid-cols-3 gap-2"><Fact label={t("目标")} value={`${plan.targetSets} ${t("组")}`} accent /><Fact label={t("当前安排")} value={`${plan.currentPlannedSets} ${t("组")}`} warn={gap > 0} /><Fact label={t("已完成")} value={`${formatSetCredit(Math.min(plan.targetSets, plan.completedSets))} ${t("组")}`} /></div>{gap > 0 ? <div className="mt-3 rounded-xl bg-warn-soft px-3 py-2.5"><p className="text-[12px] font-semibold text-warn">{t("还有 {n} 组容量未覆盖", { n: gap })}</p><p className="mt-1 text-[10px] leading-relaxed text-muted">{t("缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。")}</p>{plan.missing.map((missing) => <div key={missing.id} className="soft-divider mt-2 border-t border-warn/20 pt-2"><p className="text-[11px] font-semibold text-fg">{t(missing.name)} · {t("待覆盖 {n} 组", { n: missing.sets })}</p>{missing.suggestions.length ? <div className="mt-1.5 flex flex-wrap gap-1.5">{missing.suggestions.map((candidate) => <button key={candidate.id} type="button" onClick={() => addReplacement(candidate)} className="choice-chip press rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] font-semibold text-fg">{t("加入 {name}", { name: t(candidate.name) })}</button>)}</div> : <p className="mt-1 text-[10px] text-faint">{t("没有直接替代项；请从下方添加相近肌群动作。")}</p>}</div>)}</div> : <p className="mt-3 text-[10px] leading-relaxed text-faint">{t("当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。")}</p>}<details className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5"><summary className="cursor-pointer list-none text-[11px] font-semibold text-fg">{t("查看动作组数")}</summary><div className="soft-divider mt-2 space-y-1.5 border-t pt-2">{plan.rows.map((row) => <div key={row.id} className="flex items-center gap-2 text-[11px]"><span className="min-w-0 flex-1 truncate text-muted">{t(row.name)}{row.muscle ? ` · ${t(row.muscle)}` : ""}</span><span className={"tnum shrink-0 font-semibold " + (row.present ? "text-fg" : "text-warn")}>{row.present ? `${row.currentSets} / ${row.targetSets}` : t("待覆盖 {n} 组", { n: row.targetSets })}</span></div>)}</div></details></div>
+      <div className="soft-divider border-t px-3.5 pb-3 pt-3">
+        <div className="grid grid-cols-3 gap-2"><Fact label={t("目标")} value={`${plan.targetSets} ${t("组")}`} accent /><Fact label={t("当前安排")} value={`${plan.currentPlannedSets} ${t("组")}`} warn={gap > 0} /><Fact label={t("已完成")} value={`${formatSetCredit(Math.min(plan.targetSets, plan.completedSets))} ${t("组")}`} /></div>
+        {gap > 0 ? editingLocked ? (
+          <p className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-[10px] leading-relaxed text-muted">{t("训练已结束；容量保留当时安排。继续训练后才能补充动作。")}</p>
+        ) : (
+          <div className="mt-3 rounded-xl bg-warn-soft px-3 py-2.5"><p className="text-[12px] font-semibold text-warn">{t("还有 {n} 组容量未覆盖", { n: gap })}</p><p className="mt-1 text-[10px] leading-relaxed text-muted">{t("缺失动作会按动作模式、目标肌群和器械替代库给出候选。加入后仍以本次容量为准，不会假装已经等价替代。")}</p>{plan.missing.map((missing) => <div key={missing.id} className="soft-divider mt-2 border-t border-warn/20 pt-2"><p className="text-[11px] font-semibold text-fg">{t(missing.name)} · {t("待覆盖 {n} 组", { n: missing.sets })}</p>{missing.suggestions.length ? <div className="mt-1.5 flex flex-wrap gap-1.5">{missing.suggestions.map((candidate) => <button key={candidate.id} type="button" onClick={() => addReplacement(candidate)} className="choice-chip press rounded-lg border border-border bg-surface px-2 py-1.5 text-[11px] font-semibold text-fg">{t("加入 {name}", { name: t(candidate.name) })}</button>)}</div> : <p className="mt-1 text-[10px] text-faint">{t("没有直接替代项；请从下方添加相近肌群动作。")}</p>}</div>)}</div>
+        ) : (
+          <p className="mt-3 text-[10px] leading-relaxed text-faint">{t("当前安排已覆盖当天目标工作组。重量、次数和吨位不作为容量目标，由当天表现决定。")}</p>
+        )}
+        <details className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5"><summary className="cursor-pointer list-none text-[11px] font-semibold text-fg">{t("查看动作组数")}</summary><div className="soft-divider mt-2 space-y-1.5 border-t pt-2">{plan.rows.map((row) => <div key={row.id} className="flex items-center gap-2 text-[11px]"><span className="min-w-0 flex-1 truncate text-muted">{t(row.name)}{row.muscle ? ` · ${t(row.muscle)}` : ""}</span><span className={"tnum shrink-0 font-semibold " + (row.present ? "text-fg" : "text-warn")}>{row.present ? `${row.currentSets} / ${row.targetSets}` : t("待覆盖 {n} 组", { n: row.targetSets })}</span></div>)}</div></details>
+      </div>
     </details>
   </section>;
 }

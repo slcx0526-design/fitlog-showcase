@@ -89,7 +89,7 @@ import {
   prescriptionFromTemplateItem,
   type TrackHistoryCollection,
 } from "./prescription";
-import { hasSetPerformance, workingSets } from "./trainingMetrics";
+import { hasSetPerformance, isWorkoutEditingLocked, workingSets } from "./trainingMetrics";
 import { inspectDataHealth } from "./dataHealth";
 import { applyExercisePlannedLoad, type PlannedLoadContext } from "./trainingExecution";
 import {
@@ -348,6 +348,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, fn: (w: WorkoutSession) => WorkoutSession) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (isWorkoutEditingLocked(day.workout)) return prev;
         if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout
@@ -409,6 +410,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => {
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (isWorkoutEditingLocked(day.workout)) return prev;
         if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout
@@ -495,7 +497,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setWorkoutDifficulty = useCallback((date: string, difficulty?: SessionDifficulty) => {
     setData((prev) => {
       const day = prev.days[date];
-      if (!day?.workout) return prev;
+      if (!day?.workout || isWorkoutEditingLocked(day.workout)) return prev;
       return {
         ...prev,
         days: {
@@ -834,6 +836,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (id: string, date: string, options?: { microcycleStepId?: string }): number => {
       const currentData = dataRef.current;
       const targetWorkout = currentData.days[date]?.workout;
+      if (isWorkoutEditingLocked(targetWorkout)) return 0;
       if (!targetWorkout && requiresCycleReviewBeforeWorkout(currentData, date)) return 0;
       const targetPhase = targetWorkout?.cyclePhase
         ?? (date >= (currentData.microcycle?.startedAt ?? date) ? currentData.microcycle?.phase : "build")
@@ -849,6 +852,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // 预设池：内置 + 自定义（拿 primaryMuscle / isMain 快照）
       setData((prev) => {
         const day = prev.days[date] ?? { date };
+        if (isWorkoutEditingLocked(day.workout)) return prev;
         if (!day.workout && requiresCycleReviewBeforeWorkout(prev, date)) return prev;
         const current = ensureMicrocycle(prev, date);
         const assignment = day.workout

@@ -1,1 +1,1 @@
-FitLog 15.1.1 consistent session evidence and collision-safe imported tracks
+FitLog 15.1.2 immutable completed sessions and reusable-set integrity

@@ -68,6 +68,7 @@ export default function ExerciseCard({
   nextExercise,
   navigationTarget = false,
   active = false,
+  readOnly = false,
   onActivate,
   onNavigate,
 }: {
@@ -76,6 +77,7 @@ export default function ExerciseCard({
   nextExercise?: Exercise;
   navigationTarget?: boolean;
   active?: boolean;
+  readOnly?: boolean;
   onActivate?: (exerciseId: string) => void;
   onNavigate?: (exerciseId: string) => void;
 }) {
@@ -110,7 +112,7 @@ export default function ExerciseCard({
     kind: "same",
     sessionDifficulty: sessionWorkout?.difficulty,
   } : null;
-  const reviewingCompleted = Boolean(currentHistory && sessionWorkout?.done !== false);
+  const reviewingCompleted = Boolean(currentHistory && readOnly);
   const suggestion: ProgressionSuggestion = isDeload
     ? {
         nextWeight: null,
@@ -207,10 +209,18 @@ export default function ExerciseCard({
     if (active) setOpen(true);
   }, [active]);
 
+  useEffect(() => {
+    if (!readOnly) return;
+    setOptions(null);
+    setConfirmDelete(false);
+    setPendingFocus(null);
+  }, [readOnly]);
+
   return <section
     id={`exercise-${exercise.id}`}
     className="control-card exercise-card scroll-mt-3"
     data-active={active}
+    data-read-only={readOnly}
     onPointerDownCapture={(event) => {
       if (!(event.target as HTMLElement).closest("[data-exercise-toggle]")) onActivate?.(exercise.id);
     }}
@@ -250,7 +260,7 @@ export default function ExerciseCard({
           <path d="M7 10L12 15L17 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      <IconButton
+      {!readOnly && <IconButton
         onClick={() => exercise.sets.length ? setConfirmDelete(true) : removeExercise(date, exercise.id)}
         label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}
         tone="danger"
@@ -258,10 +268,10 @@ export default function ExerciseCard({
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
           <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
-      </IconButton>
+      </IconButton>}
     </div>
 
-    {confirmDelete && <InlineConfirm
+    {!readOnly && confirmDelete && <InlineConfirm
       tone="danger"
       message={<p className="text-[12px]">{tx(locale, `删除此动作及其 ${exercise.sets.length} 组记录？`, `Delete this exercise and its ${exercise.sets.length} set records?`, `この種目と ${exercise.sets.length} セットの記録を削除しますか？`)}</p>}
       cancelLabel={tx(locale, "取消", "Cancel", "キャンセル")}
@@ -286,16 +296,16 @@ export default function ExerciseCard({
         </div>
       {trend.sessionCount >= 2 && <p className="mt-1.5 text-[10px] text-muted">{tx(locale, "轨道趋势", "Track trend", "トラック傾向")} · {formatTrendMetric(trend.metricKind, trend.latestValue, locale)} · {trackTrendText(trend.status, locale)}</p>}
       {reviewingCompleted && acceptedWeight != null && <ProgressionOutcomeRow outcome={outcome} exercise={exercise} locale={locale} />}
-      {!reviewingCompleted && recordsWeight && <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent">
+      {!readOnly && !reviewingCompleted && recordsWeight && <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent-soft px-2.5 py-2 text-[11px] text-accent">
         <span className="min-w-0 flex-1"><span className="block">{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")}</span>{exercise.progressionPlan && <span className="mt-0.5 block text-[9px] font-medium text-muted">{planOriginLabel(exercise.progressionPlan.origin, locale)}{exercise.progressionPlan.sourceDate ? ` · ${formatCompact(exercise.progressionPlan.sourceDate, locale).md}` : ""}</span>}</span>
         <NumberField value={acceptedWeight ?? 0} onChange={(weight) => setExercisePlannedLoad(date, exercise.id, weight, { origin: "manual", progressionTrackId: trackId })} placeholder="—" ariaLabel={tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} allowDecimal className="number-cell tnum h-8 w-[72px] rounded-lg border border-accent/30 bg-surface px-2 text-center text-[13px] font-semibold text-fg" />
         <span className="shrink-0">kg</span>
         {acceptedWeight != null && <button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
       </div>}
-      {!reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{suggestion.status === "unconfirmedHistory"
+      {!readOnly && !reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{suggestion.status === "unconfirmedHistory"
         ? tx(locale, `采用参考 · ${suggestion.nextWeight}kg`, `Use reference · ${suggestion.nextWeight}kg`, `参考を採用 · ${suggestion.nextWeight}kg`)
         : tx(locale, `采用建议 · ${suggestion.nextWeight}kg`, `Use suggestion · ${suggestion.nextWeight}kg`, `推奨を採用 · ${suggestion.nextWeight}kg`)}</button>}
-      {!reviewingCompleted && recordsWeight && <PlateCalculator exercise={exercise} targetKg={acceptedWeight ?? (carry?.weight && carry.weight > 0 ? carry.weight : null)} />}
+      {!readOnly && !reviewingCompleted && recordsWeight && <PlateCalculator exercise={exercise} targetKg={acceptedWeight ?? (carry?.weight && carry.weight > 0 ? carry.weight : null)} />}
       {(histories.other.length > 0 || histories.legacy.length > 0 || histories.same.length > 1) && <details className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-muted">{tx(locale, "查看完整轨道历史", "View full track history", "トラック履歴をすべて表示")}</summary>
         <div className="mt-2 space-y-2">
@@ -312,29 +322,29 @@ export default function ExerciseCard({
         const hasTags = set.completion === "partial" || set.completion === "skipped" || Boolean(set.technique && set.technique !== "normal");
         return <div key={set.at ?? `legacy-set-${index}`} className="set-row soft-divider flex flex-wrap items-center gap-2 border-t py-2 first:border-t-0" data-records-weight={recordsWeight ? "true" : "false"}>
         <span className="set-row__index tnum w-5 text-center text-[12px] text-faint">{index + 1}</span>
-        {recordsWeight && <><NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} onEnter={() => setPendingFocus({ index, field: "performance" })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} placeholder="kg" allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "weight"} enterKeyHint="next" className="set-row__weight number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="set-row__unit text-[11px] text-faint">kg ×</span></>}
-        {performanceMode === "reps" && <><NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} placeholder={repUnit} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="set-row__unit text-[11px] text-faint">{repUnit}</span></>}
-        {performanceMode === "duration" && <><NumberField value={set.durationSeconds ?? 0} onChange={(durationSeconds) => patch(index, { durationSeconds })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组时长`, `Set ${index + 1} duration`, `セット${index + 1}の時間`)} placeholder={tx(locale, "秒", "sec", "秒")} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="set-row__unit text-[11px] text-faint">{tx(locale, "秒", "sec", "秒")}</span></>}
-        {performanceMode === "distance" && <><NumberField value={set.distanceMeters ?? 0} onChange={(distanceMeters) => patch(index, { distanceMeters })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组距离`, `Set ${index + 1} distance`, `セット${index + 1}の距離`)} placeholder="m" allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" /><span className="set-row__unit text-[11px] text-faint">m</span></>}
+        {recordsWeight && <>{readOnly ? <ReadOnlySetValue value={set.weight > 0 ? fmt(set.weight) : "—"} className="set-row__weight w-[70px]" /> : <NumberField value={set.weight} onChange={(weight) => patch(index, { weight })} onEnter={() => setPendingFocus({ index, field: "performance" })} ariaLabel={tx(locale, `第${index + 1}组重量`, `Set ${index + 1} weight`, `セット${index + 1}の重量`)} placeholder="kg" allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "weight"} enterKeyHint="next" className="set-row__weight number-cell h-10 w-[70px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" />}<span className="set-row__unit text-[11px] text-faint">kg ×</span></>}
+        {performanceMode === "reps" && <>{readOnly ? <ReadOnlySetValue value={set.reps > 0 ? fmt(set.reps) : "—"} className="set-row__performance w-[56px]" /> : <NumberField value={set.reps} onChange={(reps) => patch(index, { reps })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组次数`, `Set ${index + 1} reps`, `セット${index + 1}の回数`)} placeholder={repUnit} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[56px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" />}<span className="set-row__unit text-[11px] text-faint">{repUnit}</span></>}
+        {performanceMode === "duration" && <>{readOnly ? <ReadOnlySetValue value={(set.durationSeconds ?? 0) > 0 ? fmt(set.durationSeconds!) : "—"} className="set-row__performance w-[82px]" /> : <NumberField value={set.durationSeconds ?? 0} onChange={(durationSeconds) => patch(index, { durationSeconds })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组时长`, `Set ${index + 1} duration`, `セット${index + 1}の時間`)} placeholder={tx(locale, "秒", "sec", "秒")} focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" />}<span className="set-row__unit text-[11px] text-faint">{tx(locale, "秒", "sec", "秒")}</span></>}
+        {performanceMode === "distance" && <>{readOnly ? <ReadOnlySetValue value={(set.distanceMeters ?? 0) > 0 ? fmt(set.distanceMeters!) : "—"} className="set-row__performance w-[82px]" /> : <NumberField value={set.distanceMeters ?? 0} onChange={(distanceMeters) => patch(index, { distanceMeters })} onEnter={(value) => addAfterPerformance(index, value)} ariaLabel={tx(locale, `第${index + 1}组距离`, `Set ${index + 1} distance`, `セット${index + 1}の距離`)} placeholder="m" allowDecimal focusWhenReady={pendingFocus?.index === index && pendingFocus.field === "performance"} enterKeyHint={plannedSets <= 0 || workSummary.completionCredits < plannedSets ? "next" : "done"} className="set-row__performance number-cell h-10 w-[82px] rounded-lg border border-border bg-surface-2 text-center text-[15px]" />}<span className="set-row__unit text-[11px] text-faint">m</span></>}
         {hasTags && <div className="set-row__tags flex flex-wrap gap-1">
           {set.completion === "partial" && <Chip label={tx(locale, "部分", "Partial", "部分")} />}
           {set.completion === "skipped" && <Chip label={tx(locale, "跳过", "Skipped", "スキップ")} />}
           {set.technique && set.technique !== "normal" && <Chip label={set.technique === "rehab" ? tx(locale, "康复", "Rehab", "リハビリ") : set.technique} />}
         </div>}
-        <div className="set-row__actions ml-auto flex shrink-0 items-center gap-1">
+        {!readOnly && <div className="set-row__actions ml-auto flex shrink-0 items-center gap-1">
           <IconButton onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} aria-controls={optionsId} label={tx(locale, "组设置", "Set options", "セット設定")}>
             <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>
           </IconButton>
           <IconButton onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} label={tx(locale, "删除组", "Delete set", "セットを削除")} tone="danger">
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 12H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           </IconButton>
-        </div>
-        {options === index && <div id={optionsId} className="set-row__details w-full"><SetCapacityOptions set={set} onChange={(value) => patch(index, value)} /></div>}
+        </div>}
+        {!readOnly && options === index && <div id={optionsId} className="set-row__details w-full"><SetCapacityOptions set={set} onChange={(value) => patch(index, value)} /></div>}
       </div>;
       })}
-      <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>
-      {recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
-      {nextExercise && plannedSets > 0 && workSummary.completionCredits >= plannedSets && <button type="button" onClick={goToNextExercise} className="press mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-accent-soft px-3 text-[12px] font-semibold text-accent">
+      {!readOnly && <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>}
+      {!readOnly && recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
+      {!readOnly && nextExercise && plannedSets > 0 && workSummary.completionCredits >= plannedSets && <button type="button" onClick={goToNextExercise} className="press mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-accent-soft px-3 text-[12px] font-semibold text-accent">
         {exercise.supersetGroup && nextExercise.supersetGroup === exercise.supersetGroup
           ? tx(locale, `切换超级组 ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `Superset ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `スーパーセット ${exercise.supersetGroup}・${tr(nextExercise.name)}`)
           : tx(locale, `本动作完成 · 下一项 ${tr(nextExercise.name)}`, `Exercise complete · Next ${tr(nextExercise.name)}`, `種目完了・次は ${tr(nextExercise.name)}`)}
@@ -352,6 +362,10 @@ function HistoryRows({ title, rows, locale, tr, showTrack = false }: { title: st
 
 function Chip({ label, accent = false }: { label: string; accent?: boolean }) {
   return <span className={"rounded px-1.5 py-0.5 text-[10px] " + (accent ? "bg-accent-soft font-semibold text-accent" : "bg-surface-2 text-faint")}>{label}</span>;
+}
+
+function ReadOnlySetValue({ value, className }: { value: string; className: string }) {
+  return <span className={`tnum grid h-10 place-items-center rounded-lg bg-surface-2 text-[15px] font-semibold text-muted ${className}`}>{value}</span>;
 }
 
 function formatTrendMetric(kind: "e1rm" | "reps" | "duration" | "distance" | null, value: number | null, locale: Locale) {

@@ -12,8 +12,10 @@ import {
 } from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, parseBackupWithMeta, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
-import { canonicalizeLibraryTemplate, moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
+import { canonicalizeLibraryTemplate, moveTemplateWithinType, templateItemsFromCompletedWork, updateCustomExerciseTemplateReferences } from "../lib/templates";
 import {
+  isWorkoutEditingLocked,
+  isWorkoutSessionClosed,
   setCompletionCredit,
   setStimulusFactor,
   progressionSets,
@@ -21,7 +23,7 @@ import {
   summarizeWorkoutWork,
   workingSets,
 } from "../lib/trainingMetrics";
-import type { Exercise, ExercisePreset, Schedule, SetRecord, Template } from "../lib/types";
+import type { Exercise, ExercisePreset, Schedule, SetRecord, Template, WorkoutSession } from "../lib/types";
 import { defaultTrainingPolicy, exportTrainingPolicyBackup } from "../lib/trainingPolicy";
 import { localizeSystemText } from "../lib/systemText";
 
@@ -50,6 +52,48 @@ assert.equal(setCompletionCredit(sets[4]), 0);
 assert.equal(setStimulusFactor({ ...sets[0], technique: "dropSet" }), 1.25);
 assert.equal(setStimulusFactor({ ...sets[1], technique: "technique" }), 0.25);
 assert.equal(progressionSets([{ weight: 80, reps: 8, completion: "partial" }, { weight: 70, reps: 12, technique: "dropSet" }]).length, 0);
+
+const legacyClosedWorkout: WorkoutSession = {
+  type: "push",
+  exercises: [{ id: "legacy_press", name: "旧卧推", isMain: true, sets: [{ weight: 80, reps: 8 }] }],
+};
+assert.equal(isWorkoutSessionClosed(legacyClosedWorkout), true, "Legacy work without a done flag is closed for editing");
+assert.equal(isWorkoutEditingLocked(legacyClosedWorkout), true);
+assert.equal(isWorkoutSessionClosed({ ...legacyClosedWorkout, done: false }), false, "An explicit open state wins over legacy inference");
+assert.equal(isWorkoutSessionClosed({ ...legacyClosedWorkout, done: true, exercises: [] }), true);
+assert.equal(isWorkoutSessionClosed({ type: "push", exercises: [{ id: "draft", name: "草稿", isMain: false, sets: [{ weight: 80, reps: 0 }] }] }), false);
+const legacyRest: WorkoutSession = { type: "rest", exercises: [] };
+assert.equal(isWorkoutSessionClosed(legacyRest), true);
+assert.equal(isWorkoutEditingLocked(legacyRest), false, "Rest days stay type-editable instead of trapping the user");
+
+const reusableItems = templateItemsFromCompletedWork([{
+  id: "px_barbell_bench",
+  name: "平板杠铃卧推",
+  isMain: true,
+  planned: { sets: 6, repsLow: 6, repsHigh: 12, rpe: 8 },
+  sets: [
+    { weight: 80, reps: 8, completion: "completed" },
+    { weight: 80, reps: 10 },
+    { weight: 80, reps: 9, completion: "partial" },
+    { weight: 70, reps: 12, technique: "dropSet" },
+    { weight: 20, reps: 15, technique: "rehab" },
+    { weight: 60, reps: 10, completion: "skipped" },
+    { weight: 80, reps: 0 },
+    { weight: 40, reps: 12, type: "warmup" },
+  ],
+}]);
+assert.equal(reusableItems.length, 1);
+assert.deepEqual(
+  { sets: reusableItems[0].sets, low: reusableItems[0].repsLow, high: reusableItems[0].repsHigh, rpe: reusableItems[0].rpe },
+  { sets: 2, low: 8, high: 10, rpe: 8 },
+  "Only complete standard work becomes a reusable template prescription",
+);
+assert.deepEqual(templateItemsFromCompletedWork([{
+  id: "partial_only",
+  name: "只有半组",
+  isMain: false,
+  sets: [{ weight: 50, reps: 10, completion: "partial" }, { weight: 40, reps: 12, technique: "technique" }],
+}]), []);
 
 const exercise: Exercise = {
   id: "px_incline_barbell",

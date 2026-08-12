@@ -168,7 +168,62 @@ test("partial working sets use one completion-credit value across home, schedule
 
   await page.goto("/train");
   await expect(page.locator("[data-session-volume-plan]")).toContainText("0.5 组");
-  await expect(page.getByRole("button", { name: "用本次有效工作组存为模板" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "用本次完整工作组存为模板" })).toHaveCount(0);
+});
+
+test("legacy completed workouts stay immutable until the user explicitly resumes", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "Completed-session immutability needs one focused mobile regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              sets: [{ weight: 80, reps: 8, type: "working" }],
+              planned: { sets: 3, repsLow: 6, repsHigh: 8 },
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  await expect(page.locator(".page-status")).toHaveText("已完成");
+  const exercise = page.locator("#exercise-px_barbell_bench");
+  await expect(exercise).toHaveAttribute("data-read-only", "true");
+  await expect(exercise.getByLabel("第1组次数")).toHaveCount(0);
+  await expect(exercise.getByRole("button", { name: "删除动作" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "添加动作", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "更改", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "用本次完整工作组存为模板" })).toBeVisible();
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const workout = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout;
+    return workout ? Object.prototype.hasOwnProperty.call(workout, "done") : null;
+  }, date)).toBe(false);
+
+  await page.getByRole("button", { name: /继续训练 · 已完成 1 组/ }).click();
+  await expect.poll(() => page.evaluate((dateKey) => (
+    JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout?.done
+  ), date)).toBe(false);
+  await expect(exercise).toHaveAttribute("data-read-only", "false");
+  await expect(exercise.getByLabel("第1组次数")).toBeVisible();
+  await expect(exercise.getByRole("button", { name: "删除动作" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "添加动作", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "更改", exact: true })).toBeVisible();
 });
 
 test("IME composition Enter does not submit a custom exercise prematurely", async ({ page }, testInfo) => {
