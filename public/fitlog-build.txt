@@ -1,1 +1,1 @@
-FitLog 15.1.2 immutable completed sessions and reusable-set integrity
+FitLog 15.1.3 unified Legacy cycle and decision state

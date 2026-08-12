@@ -80,6 +80,13 @@ assert.equal(zeroSetDecision.actions[0].kind, "continueSession");
 assert.equal(zeroSetDecision.actions[0].kind === "continueSession" ? zeroSetDecision.actions[0].setCount : -1, 0);
 assert.deepEqual(zeroSetDecision.actions.map((action) => action.kind), ["continueSession"], "A selected workout draft must suppress plan-changing advice");
 
+const legacyZeroSetDraft: DayLog = {
+  date: TODAY,
+  workout: { type: "push", microcycleId: "mc_1", exercises: [] },
+};
+const legacyZeroSetDecision = buildTrainingDecision(app({ [TODAY]: legacyZeroSetDraft }), TODAY, "review");
+assert.deepEqual(legacyZeroSetDecision.actions.map((action) => action.kind), ["continueSession"], "A Legacy draft without work must stay actionable instead of receiving plan advice");
+
 const activeWithHighHistory = buildTrainingDecision(app({
   "2026-07-10": bench("2026-07-10", 18),
   [TODAY]: active,

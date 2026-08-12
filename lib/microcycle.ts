@@ -10,7 +10,7 @@ import type {
   TrainingType,
   WorkoutSession,
 } from "./types";
-import { hasRecordedTrainingWork } from "./trainingMetrics";
+import { hasRecordedTrainingWork, isWorkoutSessionClosed } from "./trainingMetrics";
 import { deloadPrescription, prescriptionFromTemplateItem } from "./prescription";
 
 export function makeMicrocycleId(index: number, startedAt: string) { return `mc_${index}_${startedAt.replace(/[^0-9]/g, "").slice(0, 8)}`; }
@@ -241,7 +241,7 @@ export function completedStep(day: DayLog, today = localDate()) {
   if (!workout || day.date > today || workout.done === false) return false;
   if (workout.type === "rest") return true;
   if (!hasWorkingSet(day)) return false;
-  return workout.done === true || day.date < today;
+  return isWorkoutSessionClosed(workout) || day.date < today;
 }
 
 function historicalCompletedStep(day: DayLog, today: string) {

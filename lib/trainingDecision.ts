@@ -5,7 +5,7 @@ import { buildIntegratedCoachAnalysis, type IntegratedCoachStatus, type Integrat
 import { currentMicrocycleProgress, microcycleStepHref, shouldAdvanceMicrocycle } from "./microcycle";
 import { exercisePrescription, progressionSuggestion, type ProgressionSuggestion } from "./prescription";
 import { diagnoseTrackTrend, type TrackDiagnosis } from "./trackDiagnosis";
-import { summarizeWorkoutWork } from "./trainingMetrics";
+import { isWorkoutSessionClosed, summarizeWorkoutWork } from "./trainingMetrics";
 import {
   recentPlanAdherence,
   type TrainingAnalysis,
@@ -189,7 +189,7 @@ export function buildTrainingDecision(
   const actions: TrainingDecisionAction[] = [];
   const todayWorkout = data.days[today]?.workout;
   const todaySets = summarizeWorkoutWork(todayWorkout).workingSets;
-  const activeSession = Boolean(todayWorkout?.type !== "rest" && todayWorkout?.done === false);
+  const activeSession = Boolean(todayWorkout && todayWorkout.type !== "rest" && !isWorkoutSessionClosed(todayWorkout));
   const recoveryPriority = integrated.status === "recover" || analysis.recovery.active;
   const conservativeSession = integrated.status === "caution" && !analysis.recovery.active;
 

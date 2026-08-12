@@ -9,7 +9,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: minimal
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     CURRENT_PROJECT_VERSION: "1"
-    MARKETING_VERSION: "15.1.2"
+    MARKETING_VERSION: "15.1.3"
 targets:
   FitLog:
     type: application
@@ -21,6 +21,8 @@ targets:
           - FitLog.entitlements
     info:
       path: FitLog/Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
     entitlements:
       path: FitLog/FitLog.entitlements
     settings:

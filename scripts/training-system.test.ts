@@ -116,6 +116,14 @@ assert.equal(microcycleDays(microData).length, 7);
 const unfinishedPast = { ...step("push", "2026-07-01"), workout: { ...step("push", "2026-07-01").workout, done: false } };
 assert.equal(completedStep(unfinishedPast, "2026-07-02"), false);
 assert.equal(currentMicrocycleProgress({ ...microData, days: { "2026-07-01": unfinishedPast } }, "2026-07-02").completed, 0);
+const legacySameDay: DayLog = { ...step("push", "2026-07-05"), workout: { ...step("push", "2026-07-05").workout, done: undefined } };
+const legacySameDayProgress = currentMicrocycleProgress({ ...microData, days: { "2026-07-05": legacySameDay } }, "2026-07-05");
+assert.equal(legacySameDayProgress.completed, 1, "A closed same-day Legacy session must advance the cycle shown in the UI");
+assert.equal(legacySameDayProgress.next?.type, "pull");
+const resumedLegacySameDay: DayLog = { ...legacySameDay, workout: { ...legacySameDay.workout!, done: false } };
+const resumedLegacyProgress = currentMicrocycleProgress({ ...microData, days: { "2026-07-05": resumedLegacySameDay } }, "2026-07-05");
+assert.equal(resumedLegacyProgress.completed, 0, "Explicitly resuming Legacy work must return the active cycle to that step");
+assert.equal(resumedLegacyProgress.next?.type, "push");
 const legacyUnfinishedDays = Object.fromEntries([
   ["2026-06-01", "push"], ["2026-06-02", "pull"], ["2026-06-03", "legs"], ["2026-06-04", "rest"],
   ["2026-06-05", "push"], ["2026-06-06", "pull"], ["2026-06-07", "rest"], ["2026-06-08", "push"],

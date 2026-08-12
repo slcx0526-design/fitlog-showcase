@@ -175,6 +175,7 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
   test.skip(testInfo.project.name !== "mobile-390", "Completed-session immutability needs one focused mobile regression.");
   const date = localDateKey();
   await page.addInitScript(({ dateKey }) => {
+    if (localStorage.getItem("fitlog:test:legacy-cycle-seeded")) return;
     localStorage.setItem("fitlog:locale", "zh");
     localStorage.setItem("fitlog:v1", JSON.stringify({
       onboarding: { completedAt: new Date().toISOString(), starterPlan: "compact3" },
@@ -183,6 +184,8 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
           date: dateKey,
           workout: {
             type: "push",
+            microcycleId: "mc_legacy_today",
+            microcycleStepId: "legacy_push",
             exercises: [{
               id: "px_barbell_bench",
               name: "平板杠铃卧推",
@@ -198,7 +201,17 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
       customExercises: [],
       templates: [],
       schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+      microcycle: {
+        currentId: "mc_legacy_today",
+        startedAt: dateKey,
+        index: 1,
+        steps: [
+          { id: "legacy_push", type: "push", label: "推力量" },
+          { id: "legacy_pull", type: "pull", label: "拉增肌" },
+        ],
+      },
     }));
+    localStorage.setItem("fitlog:test:legacy-cycle-seeded", "1");
   }, { dateKey: date });
 
   await page.goto("/train");
@@ -215,6 +228,10 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
     return workout ? Object.prototype.hasOwnProperty.call(workout, "done") : null;
   }, date)).toBe(false);
 
+  await page.goto("/progress?tab=training");
+  await expect(page.getByText(/本轮 1\/2 · 下一步/)).toContainText("拉增肌");
+  await page.goto("/train");
+
   await page.getByRole("button", { name: /继续训练 · 已完成 1 组/ }).click();
   await expect.poll(() => page.evaluate((dateKey) => (
     JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.workout?.done
@@ -224,6 +241,9 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
   await expect(exercise.getByRole("button", { name: "删除动作" })).toBeVisible();
   await expect(page.getByRole("button", { name: "添加动作", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "更改", exact: true })).toBeVisible();
+
+  await page.goto("/progress?tab=training");
+  await expect(page.getByText(/本轮 0\/2 · 下一步/)).toContainText("推力量");
 });
 
 test("IME composition Enter does not submit a custom exercise prematurely", async ({ page }, testInfo) => {
