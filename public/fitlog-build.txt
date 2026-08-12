@@ -1,1 +1,1 @@
-FitLog 15.1.0 isolated template tracks and consistent completion evidence
+FitLog 15.1.1 consistent session evidence and collision-safe imported tracks

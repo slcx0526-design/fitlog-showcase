@@ -72,7 +72,7 @@ export default function NumberField({
         onChange(Number.isFinite(n) ? n : 0);
       }}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" || !onEnter) return;
+        if (event.key !== "Enter" || event.nativeEvent.isComposing || !onEnter) return;
         event.preventDefault();
         const next = parseFloat(buf);
         onEnter(Number.isFinite(next) ? next : 0);

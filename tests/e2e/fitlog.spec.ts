@@ -134,6 +134,7 @@ test("partial working sets use one completion-credit value across home, schedule
           date: dateKey,
           workout: {
             type: "push",
+            templateId: "tpl_partial",
             done: false,
             cyclePhase: "deload",
             exercises: [{
@@ -148,7 +149,12 @@ test("partial working sets use one completion-credit value across home, schedule
       bodyWeights: [],
       waistEntries: [],
       customExercises: [],
-      templates: [],
+      templates: [{
+        id: "tpl_partial",
+        name: "半组口径",
+        type: "push",
+        items: [{ exerciseId: "px_barbell_bench", name: "平板杠铃卧推", sets: 2, repsLow: 4, repsHigh: 6 }],
+      }],
       schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
     }));
   }, { dateKey: date });
@@ -161,7 +167,50 @@ test("partial working sets use one completion-credit value across home, schedule
   await expect(page.getByText("0.5 组", { exact: true })).toBeVisible();
 
   await page.goto("/train");
+  await expect(page.locator("[data-session-volume-plan]")).toContainText("0.5 组");
   await expect(page.getByRole("button", { name: "用本次有效工作组存为模板" })).toHaveCount(0);
+});
+
+test("IME composition Enter does not submit a custom exercise prematurely", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One mobile flow covers composition-safe keyboard submission.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: { type: "push", done: false, exercises: [] },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  await page.getByRole("button", { name: "添加动作", exact: true }).click();
+  const name = page.getByLabel("新建动作名称");
+  await name.fill("哑铃飞鸟变式");
+  await page.getByLabel("选部位").selectOption("chest");
+  await name.evaluate((input) => input.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+    isComposing: true,
+  })));
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").customExercises?.length ?? 0)).toBe(0);
+  await expect(name).toHaveValue("哑铃飞鸟变式");
+
+  await name.press("Enter");
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return [data.customExercises?.length ?? 0, data.days?.[dateKey]?.workout?.exercises?.length ?? 0];
+  }, date)).toEqual([1, 1]);
 });
 
 for (const visualMode of ["lite", "pulse", "midnight", "survival"]) {

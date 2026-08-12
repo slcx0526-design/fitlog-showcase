@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { inspectDataHealth } from "../lib/dataHealth";
 import { mergeAppleHealthSnapshot, normalizeAppleHealthSnapshot } from "../lib/appleHealth";
 import { DEFAULT_EXERCISES, searchExercisePreset } from "../lib/exercises";
-import { defaultTrackId, exerciseTrackId, progressionSuggestion, templateScopedIndependentTrackId } from "../lib/prescription";
+import {
+  defaultTrackId,
+  exerciseTrackId,
+  progressionTrackIdsMatch,
+  progressionSuggestion,
+  retargetTemplateScopedTrackId,
+  templateScopedIndependentTrackId,
+} from "../lib/prescription";
 import { progressionPresentation } from "../lib/progressionPresentation";
 import { normalizeData, parseBackupWithMeta, SCHEMA_VERSION, toBackup, type AppData } from "../lib/storage";
 import { canonicalizeLibraryTemplate, moveTemplateWithinType, updateCustomExerciseTemplateReferences } from "../lib/templates";
@@ -424,6 +431,32 @@ assert.ok(inspectDataHealth({
 }).issues.some((issue) => issue.code === "customExerciseIdCollisions"));
 
 const sharedTemplateTrack = defaultTrackId("px_barbell_bench", "hypertrophy", 8, 12, 4, "reps");
+assert.equal(sharedTemplateTrack, "px_barbell_bench-hypertrophy-4x8-12", "Existing safe track ids must stay byte-for-byte stable");
+assert.notEqual(
+  defaultTrackId("动作甲", "hypertrophy", 8, 12, 4, "reps"),
+  defaultTrackId("动作乙", "hypertrophy", 8, 12, 4, "reps"),
+  "Imported non-ASCII exercise ids must not collapse into one generated track",
+);
+assert.equal(
+  progressionTrackIdsMatch(
+    "-hypertrophy-3x8-12",
+    defaultTrackId("动作甲", "hypertrophy", 8, 12, 4, "reps"),
+    "动作甲",
+  ),
+  true,
+  "Legacy generated tracks for non-ASCII exercises remain in the same history family",
+);
+assert.notEqual(
+  templateScopedIndependentTrackId(sharedTemplateTrack, "模板甲"),
+  templateScopedIndependentTrackId(sharedTemplateTrack, "模板乙"),
+  "Imported non-ASCII template ids must keep independent histories isolated",
+);
+const legacyUnicodeTemplateTrack = `${sharedTemplateTrack}-ind-${"模板甲".replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+assert.equal(
+  retargetTemplateScopedTrackId(legacyUnicodeTemplateTrack, "px_barbell_bench", "hypertrophy", 8, 12, "模板甲"),
+  legacyUnicodeTemplateTrack,
+  "Existing unsafe template tracks remain intact instead of silently losing history",
+);
 const sourceTemplateTrack = templateScopedIndependentTrackId(sharedTemplateTrack, "tpl_source");
 const copiedTemplate = canonicalizeLibraryTemplate({
   id: "tpl_copy",

@@ -96,7 +96,11 @@ export default function CustomExerciseEditor({
         value={name}
         aria-label={tr("动作名称")}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && save()}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+          e.preventDefault();
+          save();
+        }}
         placeholder={tr("动作名称…")}
         className="h-10 w-full rounded-md border border-border bg-surface px-3 text-[15px] text-fg outline-none placeholder:text-faint focus:border-accent"
       />

@@ -78,8 +78,22 @@ const INTENT_LABEL: Record<TrainingIntent, string> = {
   custom: "自定义",
 };
 
-function cleanId(value: string) {
+function legacyCleanId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+}
+
+function identityTrackId(value: string) {
+  const legacy = legacyCleanId(value);
+  if (legacy && value === legacy) return legacy;
+  // App-generated ids stay unchanged; imported ids are encoded losslessly to avoid track collisions.
+  const encoded = Array.from(value)
+    .map((character) => character.codePointAt(0)!.toString(36))
+    .join("_");
+  return `x-${encoded || "empty"}`;
+}
+
+function cleanId(value: string) {
+  return identityTrackId(value);
 }
 
 export function inferIntent(repsLow: number, repsHigh: number): TrainingIntent {
@@ -123,9 +137,8 @@ function generatedSharedTrackDefinition(
   trackId: string,
   exerciseId: string,
 ): GeneratedSharedTrackDefinition | null {
-  const exerciseKey = cleanId(exerciseId);
-  const prefix = `${exerciseKey}-`;
-  if (!exerciseKey || !trackId.startsWith(prefix)) return null;
+  const prefix = generatedExercisePrefix(trackId, exerciseId);
+  if (!prefix) return null;
   const match = trackId.slice(prefix.length).match(
     /^(?:(duration|distance)-)?(strength|hypertrophy|endurance|custom)-(\d+)x(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/,
   );
@@ -144,9 +157,8 @@ function generatedTemplateScopedTrackDefinition(
   exerciseId: string,
 ): GeneratedTemplateTrackDefinition | null {
   if (trackId.endsWith(":deload")) return null;
-  const exerciseKey = cleanId(exerciseId);
-  const prefix = `${exerciseKey}-`;
-  if (!exerciseKey || !trackId.startsWith(prefix)) return null;
+  const prefix = generatedExercisePrefix(trackId, exerciseId);
+  if (!prefix) return null;
   const match = trackId.slice(prefix.length).match(
     /^((?:(?:duration|distance)-)?(?:strength|hypertrophy|endurance|custom)-(?:\d+)x(?:\d+(?:\.\d+)?)-(?:\d+(?:\.\d+)?))-ind-(.+)$/,
   );
@@ -156,8 +168,19 @@ function generatedTemplateScopedTrackDefinition(
   return definition ? { ...definition, sharedTrackId } : null;
 }
 
-function templateTrackScopeId(value: string) {
+function generatedExercisePrefix(trackId: string, exerciseId: string) {
+  const current = `${cleanId(exerciseId)}-`;
+  if (trackId.startsWith(current)) return current;
+  const legacy = `${legacyCleanId(exerciseId)}-`;
+  return trackId.startsWith(legacy) ? legacy : null;
+}
+
+function legacyTemplateTrackScopeId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function templateTrackScopeId(value: string) {
+  return identityTrackId(value);
 }
 
 /** Generated shared tracks keep one history family when only working-set count changes. */
@@ -235,7 +258,10 @@ export function retargetTemplateScopedTrackId(
     || definition.targetRepMin !== repsLow
     || definition.targetRepMax !== repsHigh
   ) return trackId;
-  return templateScopedIndependentTrackId(definition.sharedTrackId, templateId);
+  const expected = templateScopedIndependentTrackId(definition.sharedTrackId, templateId);
+  if (trackId === expected) return trackId;
+  const legacyExpected = `${definition.sharedTrackId}-ind-${legacyTemplateTrackScopeId(templateId)}`;
+  return trackId === legacyExpected ? trackId : expected;
 }
 
 export function generatedTrackWorkingSets(trackId: string, exerciseId: string) {

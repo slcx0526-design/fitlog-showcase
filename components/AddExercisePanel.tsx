@@ -322,7 +322,11 @@ export default function AddExercisePanel({
               value={newName}
               aria-label={tr("新建动作名称")}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && createCustom()}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                createCustom();
+              }}
               placeholder={tr("新建动作名称…")}
               className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-[15px] text-fg outline-none placeholder:text-faint focus:border-accent"
             />

@@ -6,6 +6,7 @@ import {
   formatSetCredit,
   summarizeSessionExecution,
 } from "../lib/trainingExecution";
+import { buildSessionVolumePlan } from "../lib/sessionVolumePlan";
 import { workingSets } from "../lib/trainingMetrics";
 import type { Exercise, WorkoutSession } from "../lib/types";
 
@@ -209,6 +210,18 @@ assert.equal(summary.completionPct, 50);
 assert.equal(summary.next?.exercise.id, "press");
 assert.equal(summary.needsFinishConfirmation, true);
 assert.equal(formatSetCredit(summary.completionCredits), "2.5");
+
+const sessionVolume = buildSessionVolumePlan({
+  id: "tpl_execution",
+  name: "Execution template",
+  type: "push",
+  items: [
+    { exerciseId: "press", name: "Press", sets: 3, repsLow: 8, repsHigh: 12 },
+    { exerciseId: "fly", name: "Fly", sets: 2, repsLow: 8, repsHigh: 12 },
+  ],
+}, workout.exercises, [], false, 1);
+assert.equal(sessionVolume.currentPlannedSets, 5);
+assert.equal(sessionVolume.completedSets, 2.5, "Session volume must use the same half-set completion credit as the rest of training");
 
 const complete = summarizeSessionExecution({
   type: "pull",
