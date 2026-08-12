@@ -154,6 +154,13 @@ assert.equal(chestProjection.current, 4);
 assert.equal(chestProjection.remaining, 8);
 assert.equal(chestProjection.projected, 12);
 assert.equal(chestProjection.status, "in", "Remaining bound templates must prevent a false low-volume diagnosis");
+const deloadProjectionData = app({
+  "2026-07-20": workoutDay({ date: "2026-07-20", source: first, completedSets: 4, stepId: "p1" }),
+}, projectionSteps, [first, remaining]);
+deloadProjectionData.microcycle = { ...deloadProjectionData.microcycle!, phase: "deload" };
+const deloadChestProjection = buildTrainingAnalysis(deloadProjectionData, TODAY).cycle.rows.find((row) => row.muscle === "chest")!;
+assert.deepEqual(deloadChestProjection.target, { low: 7.2, high: 9.6 }, "Decision analysis must use the same 60% target shown for a deload cycle");
+assert.equal(deloadChestProjection.status, "projectedOver");
 
 const lastSmall = template("tpl_last_small", 2);
 const lateSteps = [

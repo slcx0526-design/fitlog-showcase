@@ -224,7 +224,8 @@ function cycleProjection(data: AppData, today: string) {
   const cutScale = cutActive
     ? data.cutPlan?.trainingVolumeScale ?? suggestedCutVolumeScale(cutSnapshot?.bodyFatPercent, data.cutPlan?.weeklyLossPct)
     : 1;
-  const targetScale = volumeTargetScale("microcycle", data) * cutScale;
+  const cyclePhaseScale = data.microcycle?.phase === "deload" ? 0.6 : 1;
+  const targetScale = volumeTargetScale("microcycle", data) * cutScale * cyclePhaseScale;
   const cycleDays = microcycleDays(data)
     .filter((day) => day.date <= today && day.workout?.done !== false);
   const current = computeVolumeSummary(

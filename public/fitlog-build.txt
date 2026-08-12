@@ -1,1 +1,1 @@
-FitLog 15.1.3 unified Legacy cycle and decision state
+FitLog 15.1.4 coherent cycle assignment and volume forecasts

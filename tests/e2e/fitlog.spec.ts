@@ -22,6 +22,12 @@ function localDateKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+function offsetLocalDateKey(offsetDays: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function trainingPolicy(goal: "strength" | "hypertrophy" = "strength") {
   return {
     version: 3,
@@ -244,6 +250,112 @@ test("legacy completed workouts stay immutable until the user explicitly resumes
 
   await page.goto("/progress?tab=training");
   await expect(page.getByText(/本轮 0\/2 · 下一步/)).toContainText("推力量");
+});
+
+test("the first historical backfill cannot redefine the active microcycle", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The fresh-storage backfill boundary needs one focused mobile regression.");
+  const today = localDateKey();
+  const backfillDate = offsetLocalDateKey(-1);
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem("fitlog:locale", "zh");
+  });
+
+  await page.goto(`/train?date=${backfillDate}`);
+  await expect(page.getByRole("heading", { name: "补记训练" })).toBeVisible();
+  await page.getByRole("button", { name: "推", exact: true }).click();
+
+  await expect.poll(() => page.evaluate(({ todayKey, backfillKey }) => {
+    const raw = localStorage.getItem("fitlog:v1");
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    const activeId = data.microcycle?.currentId;
+    const workoutId = data.days?.[backfillKey]?.workout?.microcycleId;
+    return {
+      activeStartedAt: data.microcycle?.startedAt,
+      mesocycleStartedAt: data.mesocycle?.startedAt,
+      historicalId: workoutId,
+      separatedFromActive: Boolean(activeId && workoutId && activeId !== workoutId),
+      expectedHistoricalId: `legacy_mc_${backfillKey.replace(/-/g, "")}`,
+      todayKey,
+    };
+  }, { todayKey: today, backfillKey: backfillDate })).toEqual({
+    activeStartedAt: today,
+    mesocycleStartedAt: today,
+    historicalId: `legacy_mc_${backfillDate.replace(/-/g, "")}`,
+    separatedFromActive: true,
+    expectedHistoricalId: `legacy_mc_${backfillDate.replace(/-/g, "")}`,
+    todayKey: today,
+  });
+});
+
+test("microcycle muscle advice uses the remaining-plan forecast", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "The cycle forecast needs one focused mobile regression.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    const template = (id: string, name: string, sets: number) => ({
+      id,
+      name,
+      type: "push",
+      items: [{
+        exerciseId: "px_barbell_bench",
+        name: "平板杠铃卧推",
+        sets,
+        repsLow: 8,
+        repsHigh: 12,
+        isMain: true,
+        primaryMuscle: "chest",
+        volumeContributions: [{ muscle: "chest", weight: 1, direct: true }],
+      }],
+    });
+    const completed = template("tpl_forecast_done", "已完成推日", 4);
+    const remaining = template("tpl_forecast_remaining", "剩余推日", 8);
+    const steps = [
+      { id: "forecast_done", type: "push", label: "已完成推日", templateId: completed.id },
+      { id: "forecast_remaining", type: "push", label: "剩余推日", templateId: remaining.id },
+      ...Array.from({ length: 5 }, (_, index) => ({ id: `forecast_rest_${index}`, type: "rest", label: "休息" })),
+    ];
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      profile: { trainingLevel: "intermediate" },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: true,
+            completedAt: new Date().toISOString(),
+            microcycleId: "mc_forecast",
+            microcycleStepId: "forecast_done",
+            templateId: completed.id,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              primaryMuscle: "chest",
+              volumeContributions: [{ muscle: "chest", weight: 1, direct: true }],
+              sets: Array.from({ length: 4 }, () => ({ weight: 80, reps: 8, type: "working" })),
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [completed, remaining],
+      schedule: { split: ["push", "push", "rest", "rest", "rest", "rest", "rest"], microcycle: steps },
+      microcycle: { currentId: "mc_forecast", startedAt: dateKey, index: 1, steps },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/progress?tab=training");
+  const chest = page.locator('[data-muscle="chest"]');
+  await expect(chest).toContainText("预计合适");
+  await chest.getByRole("button").click();
+  await expect(chest).toContainText("计入剩余模板预计 12 组");
+  await expect(chest).not.toContainText("下一个对应训练日先增加");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 });
 
 test("IME composition Enter does not submit a custom exercise prematurely", async ({ page }, testInfo) => {

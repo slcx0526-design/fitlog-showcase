@@ -329,9 +329,16 @@ export function microcycleForNewWorkout(data: AppData, date = localDate()) {
 }
 
 /** Backfilled workouts before the active cycle keep a stable historical id immediately. */
-export function microcycleAssignmentForNewWorkout(data: AppData, date = localDate()) {
-  const current = ensureMicrocycle(data, date);
-  const currentMesocycle = ensureMesocycle(data, date);
+export function microcycleAssignmentForNewWorkout(
+  data: AppData,
+  date = localDate(),
+  referenceDate = localDate(),
+) {
+  // A fresh workspace has no active cycle yet. Anchor that cycle to today so
+  // the first historical backfill cannot redefine what "current" means.
+  const activeCycleDate = data.microcycle ? date : referenceDate;
+  const current = ensureMicrocycle(data, activeCycleDate);
+  const currentMesocycle = ensureMesocycle(data, activeCycleDate);
   if (date < current.startedAt) {
     return { microcycle: current, mesocycle: currentMesocycle, microcycleId: `legacy_mc_${date.replace(/-/g, "")}` };
   }

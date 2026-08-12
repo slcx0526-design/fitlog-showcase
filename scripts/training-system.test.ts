@@ -255,6 +255,17 @@ assert.equal(refreshedCycle.steps?.[0].templateSnapshot?.items[0].sets, 2, "A ne
 const backfillAssignment = microcycleAssignmentForNewWorkout({ ...microData, microcycle: { currentId: "mc_current", startedAt: "2026-07-10", index: 4, steps: microcyclePatternFor(microData.schedule) } }, "2026-07-01");
 assert.equal(backfillAssignment.microcycleId, "legacy_mc_20260701");
 assert.equal(backfillAssignment.microcycle.currentId, "mc_current", "Backfill must not advance or rewrite the active cycle");
+const freshBackfillData: AppData = {
+  days: {},
+  bodyWeights: [],
+  waistEntries: [],
+  customExercises: [],
+  schedule: microData.schedule,
+};
+const freshBackfillAssignment = microcycleAssignmentForNewWorkout(freshBackfillData, "2026-07-01", "2026-07-10");
+assert.equal(freshBackfillAssignment.microcycle.startedAt, "2026-07-10", "A first backfill must initialize the active cycle at the real current date");
+assert.equal(freshBackfillAssignment.mesocycle.startedAt, "2026-07-10");
+assert.equal(freshBackfillAssignment.microcycleId, "legacy_mc_20260701", "A first backfill remains historical instead of becoming the active cycle");
 const cycleBackup = parseBackup(JSON.stringify(toBackup({ ...partialCycle, customExercises: [{ id: "cx_test", name: "自定义推举", isMain: false, type: "custom", primaryMuscle: "frontDelt", secondaryMuscles: ["triceps"], volumeContributions: [{ muscle: "frontDelt", weight: 1, direct: true }, { muscle: "triceps", weight: 0.5, direct: false }] }] })));
 assert.equal(cycleBackup.schedule.microcycle?.[3].label, "Push Hypertrophy");
 assert.equal(cycleBackup.microcycle?.steps?.[3].label, "Push Hypertrophy");

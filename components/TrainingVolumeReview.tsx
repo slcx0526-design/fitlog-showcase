@@ -56,6 +56,7 @@ export default function TrainingVolumeReview() {
   const [showAllMuscles, setShowAllMuscles] = useState(false);
   const integrated = useMemo(() => buildIntegratedCoachAnalysis(data, today), [data, today]);
   const decision = useMemo(() => buildTrainingDecision(data, today, "review", integrated), [data, integrated, today]);
+  const pendingSessionConfirmation = decision.actions.some((action) => action.kind === "continueSession" || action.kind === "reviewUnclosed");
   const cutActive = isCutModeActive(data.cutPlan);
   const cutScale = data.cutPlan?.trainingVolumeScale ?? DEFAULT_CUT_VOLUME_SCALE;
   const cycleScale = data.microcycle?.phase === "deload" ? 0.6 : 1;
@@ -138,16 +139,47 @@ export default function TrainingVolumeReview() {
           const max = Math.max(row.target.high, row.directEffectiveSets, 1);
           const progress = Math.min(100, Math.round((row.directEffectiveSets / max) * 100));
           const hasVolume = row.rawDirectSets > 0 || row.indirectEffectiveSets > 0 || row.rehabSets > 0;
-          const statusLabel = !hasVolume ? tx(locale, "未记录", "Not logged", "未記録") : row.status === "under" ? tx(locale, "不足", "Low", "不足") : row.status === "over" ? tx(locale, "偏高", "High", "高め") : tx(locale, "合适", "On target", "適正");
-          const advice = volumeAdviceForRow(row, scope);
+          const projection = scope === "microcycle" ? integrated.training.cycle.rows.find((item) => item.muscle === row.muscle) : undefined;
+          const advice = volumeAdviceForRow(row, scope, projection ? {
+            cycleRatio: integrated.training.cycle.ratio,
+            projectionComplete: integrated.training.cycle.projectionComplete,
+            projectedDirectSets: projection.projected,
+            evidenceConfirmed: !pendingSessionConfirmation,
+          } : undefined);
+          const statusLabel = advice.basis === "unconfirmed"
+            ? tx(locale, "待确认", "Needs confirmation", "確認待ち")
+            : advice.basis === "uncovered"
+            ? tx(locale, "计划待补", "Plan incomplete", "計画未完了")
+            : advice.basis === "partial"
+              ? tx(locale, "进行中", "In progress", "進行中")
+              : advice.basis === "projected"
+                ? advice.kind === "add"
+                  ? tx(locale, "预计不足", "Projected low", "不足見込み")
+                  : advice.kind === "reduce"
+                    ? tx(locale, "预计偏高", "Projected high", "超過見込み")
+                    : !hasVolume && advice.projectedDirectSets === 0
+                      ? tx(locale, "未安排", "Not planned", "未計画")
+                      : tx(locale, "预计合适", "Projected on target", "適正見込み")
+                : !hasVolume
+                  ? tx(locale, "未记录", "Not logged", "未記録")
+                  : row.status === "under"
+                    ? tx(locale, "不足", "Low", "不足")
+                    : row.status === "over"
+                      ? tx(locale, "偏高", "High", "高め")
+                      : tx(locale, "合适", "On target", "適正");
+          const statusTone = advice.kind === "reduce"
+            ? "bg-warn/10 text-warn"
+            : advice.basis === "projected" && advice.kind === "hold" && (advice.projectedDirectSets ?? 0) > 0
+              ? "bg-accent-soft text-accent"
+              : "bg-surface text-faint";
           const baseTarget = targetForMuscle(row.muscle, data.profile?.trainingLevel, data.muscleTargets);
           const normalLow = Math.round((row.target.low / cutScale) * 10) / 10;
           const normalHigh = Math.round((row.target.high / cutScale) * 10) / 10;
           const muscleName = tr(MUSCLE_LABELS[row.muscle]);
-          return <div key={row.muscle} className="rounded-lg bg-surface-2 p-2.5">
+          return <div key={row.muscle} data-muscle={row.muscle} className="rounded-lg bg-surface-2 p-2.5">
             <button type="button" onClick={() => setExpandedMuscle((current) => current === row.muscle ? null : row.muscle)} className="press flex min-h-10 w-full items-center justify-between gap-2 text-left" aria-expanded={expandedMuscle === row.muscle}>
               <span className="font-medium text-fg">{muscleName}</span>
-              <span className={"tnum rounded-md px-1.5 py-0.5 text-[10px] font-semibold " + (row.status === "in" ? "bg-accent-soft text-accent" : row.status === "over" ? "bg-warn/10 text-warn" : "bg-surface text-faint")}>{statusLabel}</span>
+              <span className={"tnum rounded-md px-1.5 py-0.5 text-[10px] font-semibold " + statusTone}>{statusLabel}</span>
             </button>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-faint">
               <span className="tnum">{tx(locale, `直接有效 ${row.directEffectiveSets} · 连带 ${row.indirectEffectiveSets}`, `Direct effective ${row.directEffectiveSets} · indirect ${row.indirectEffectiveSets}`, `直接有効 ${row.directEffectiveSets} · 間接 ${row.indirectEffectiveSets}`)}</span>
@@ -186,6 +218,22 @@ export default function TrainingVolumeReview() {
 
 function localizedAdvice(row: MuscleVolumeRow, advice: VolumeAdvice, scope: VolumeScope, locale: Locale, tr: Tr) {
   if (locale === "zh") return advice.detail;
+  const projected = advice.projectedDirectSets ?? row.directEffectiveSets;
+  if (advice.basis === "unconfirmed") {
+    return tx(locale, "当前仍有进行中或未显式结束的训练。先完成或确认该记录，再重新计算周期预测。", "A workout is still active or was never explicitly closed. Finish or confirm it before recalculating the cycle forecast.", "進行中または未確定のトレーニングがあります。完了または確認後に周期予測を再計算します。");
+  }
+  if (advice.basis === "uncovered") {
+    return tx(locale, "部分剩余训练日没有可计算的模板，无法可靠预测完整周期；先补全计划或完成本轮。", "Some remaining training days have no usable template, so a full-cycle forecast is not reliable. Complete the plan or the cycle before changing volume.", "残りのトレーニング日に計算可能なテンプレートがなく、周期全体を予測できません。計画または周期を完了してから調整します。");
+  }
+  if (advice.basis === "partial") {
+    return tx(locale, `剩余计划完成后预计 ${projected} 组，但本轮尚未接近结束；先按计划执行，不用早期数据追加组数。`, `The remaining plan projects ${projected} sets, but the cycle is still early. Follow the plan without adding sets from partial-cycle data.`, `残りを含め ${projected} セット見込みですが、周期前半です。途中データだけでセットを追加せず計画どおり進めます。`);
+  }
+  if (advice.basis === "projected") {
+    if (advice.kind === "add") return tx(locale, `完成剩余计划预计 ${projected} 组，仍低于目标；只在下轮增加 ${advice.suggestedDirectSets} 个直接工作组。`, `The full-cycle forecast is ${projected} sets and remains below target. Add ${advice.suggestedDirectSets} direct sets only in the next cycle.`, `周期完了時は ${projected} セット見込みで目標未満です。追加は次周期に直接 ${advice.suggestedDirectSets} セットだけ行います。`);
+    if (advice.kind === "reduce") return tx(locale, `完成剩余计划预计 ${projected} 组并超过上限；只在下轮减少 ${advice.suggestedDirectSets} 个直接工作组。`, `The full-cycle forecast is ${projected} sets and exceeds the ceiling. Remove ${advice.suggestedDirectSets} direct sets only in the next cycle.`, `周期完了時は ${projected} セット見込みで上限超過です。削減は次周期に直接 ${advice.suggestedDirectSets} セットだけ行います。`);
+    if (!row.directEffectiveSets && projected === 0) return tx(locale, "当前周期没有直接训练来源，系统不会从空白记录自动要求加量。", "This cycle has no direct-work source, so the app will not prescribe volume from an empty record.", "現周期に直接種目がないため、空白記録だけで増量を提案しません。");
+    return tx(locale, `完成剩余计划预计 ${projected} 组，可进入目标范围；无需因为当前数值偏低临时加组。`, `The remaining plan projects ${projected} sets, which reaches the target range. Do not add sets just because the current partial total is low.`, `残りを含め ${projected} セットで目標範囲に入る見込みです。現在値が低くても途中で追加しません。`);
+  }
   const scale = scope === "28d" ? 4 : 1;
   const current = Math.round((row.directEffectiveSets / scale) * 100) / 100;
   const low = Math.round((row.target.low / scale) * 100) / 100;
