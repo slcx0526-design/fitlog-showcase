@@ -844,7 +844,11 @@ test("the latest set survives an immediate reload", async ({ page }) => {
   await page.goto("/train");
   const exercise = page.locator("#exercise-px_barbell_bench");
   const addSet = exercise.getByRole("button", { name: /添加下一组/ });
-  if (!(await addSet.isVisible())) await exercise.getByRole("button", { name: "展开平板杠铃卧推" }).click();
+  const expand = exercise.getByRole("button", { name: "展开平板杠铃卧推" });
+  await expect(exercise).toBeVisible();
+  await expect(addSet.or(expand)).toBeVisible();
+  if (await expand.isVisible()) await expand.click();
+  await expect(addSet).toBeVisible();
   await addSet.click();
   await exercise.getByRole("textbox", { name: "第1组次数" }).fill("6");
   await page.reload({ waitUntil: "domcontentloaded" });
