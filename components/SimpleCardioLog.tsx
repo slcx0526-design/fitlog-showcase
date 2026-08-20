@@ -44,8 +44,16 @@ export default function SimpleCardioLog({ date }: { date: string }) {
 
   function save(next: { mode: string; minutes: number; zone: Zone }) {
     if (!next.minutes || next.minutes <= 0) return;
-    addCardio(date, next);
+    if (!addCardio(date, next)) {
+      toast.show(t("有氧记录未能保存，请重试", "The cardio log could not be saved. Try again.", "有酸素記録を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     toast.show(t(`已记录 ${next.mode} ${next.minutes} 分`, `${modeLabel(locale, next.mode)} ${next.minutes} min logged`, `${modeLabel(locale, next.mode)} ${next.minutes}分を記録しました`));
+  }
+
+  function remove(id: string) {
+    if (removeCardio(date, id)) return;
+    toast.show(t("有氧记录未能删除，请重试", "The cardio log could not be deleted. Try again.", "有酸素記録を削除できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   return (
@@ -77,7 +85,7 @@ export default function SimpleCardioLog({ date }: { date: string }) {
         )}
       </section>
 
-      {entries.length > 0 && <section className="control-card overflow-hidden"><div className="px-3.5 py-3"><p className="text-[14px] font-semibold text-fg">{t("当天已记录", "Logged today", "本日の記録")}</p></div>{entries.map((entry) => <div key={entry.id} className="soft-divider flex items-center gap-3 border-t px-3.5 py-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-accent-soft text-[11px] font-bold text-accent">{entry.zone ? `Z${entry.zone}` : "—"}</span><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{modeLabel(locale, entry.mode)} · {entry.minutes} {t("分", "min", "分")}</p><p className="mt-0.5 text-[10px] text-faint">{t("已计入这一周的减脂速度", "Included in this week's cut pace", "今週の減量ペースに反映済み")}</p></div><button type="button" onClick={() => removeCardio(date, entry.id)} aria-label={t(`删除${entry.mode}记录`, `Delete ${modeLabel(locale, entry.mode)} log`, `${modeLabel(locale, entry.mode)}の記録を削除`)} className="press h-10 w-10 rounded-lg text-[18px] text-faint">×</button></div>)}</section>}
+      {entries.length > 0 && <section className="control-card overflow-hidden"><div className="px-3.5 py-3"><p className="text-[14px] font-semibold text-fg">{t("当天已记录", "Logged today", "本日の記録")}</p></div>{entries.map((entry) => <div key={entry.id} className="soft-divider flex items-center gap-3 border-t px-3.5 py-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-accent-soft text-[11px] font-bold text-accent">{entry.zone ? `Z${entry.zone}` : "—"}</span><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{modeLabel(locale, entry.mode)} · {entry.minutes} {t("分", "min", "分")}</p><p className="mt-0.5 text-[10px] text-faint">{t("已计入这一周的减脂速度", "Included in this week's cut pace", "今週の減量ペースに反映済み")}</p></div><button type="button" onClick={() => remove(entry.id)} aria-label={t(`删除${entry.mode}记录`, `Delete ${modeLabel(locale, entry.mode)} log`, `${modeLabel(locale, entry.mode)}の記録を削除`)} className="press h-10 w-10 rounded-lg text-[18px] text-faint">×</button></div>)}</section>}
     </section>
   );
 }

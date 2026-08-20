@@ -113,6 +113,14 @@ import { pendingWorkoutForPlanChange } from "./trainingAnalysis";
 type MicrocycleStartStatus = "started" | "blocked" | "persistence";
 type CycleReviewCommitStatus = "applied" | "stale" | "persistence";
 
+export type CustomExerciseDraft = {
+  name: string;
+  isMain: boolean;
+  primaryMuscle: MuscleGroup;
+  equipment?: Equipment;
+  recordModes?: RecordMode[];
+};
+
 function withTemplateItems(prev: AppData, id: string, items: TemplateItem[]): AppData {
   if (!(prev.templates ?? []).some((template) => template.id === id)) return prev;
   const pool = new Map(
@@ -150,37 +158,38 @@ interface StoreApi {
   // 训练
   setWorkoutType: (date: string, type: TrainingType, options?: { microcycleStepId?: string }) => boolean;
   setWorkoutDone: (date: string, done: boolean, difficulty?: SessionDifficulty) => boolean;
-  setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => void;
+  setWorkoutDifficulty: (date: string, difficulty?: SessionDifficulty) => boolean;
   addExercise: (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => boolean;
-  removeExercise: (date: string, exerciseId: string) => void;
-  addSet: (date: string, exerciseId: string, set: SetRecord) => void;
+  removeExercise: (date: string, exerciseId: string) => boolean;
+  addSet: (date: string, exerciseId: string, set: SetRecord) => boolean;
   updateSet: (
     date: string,
     exerciseId: string,
     index: number,
     set: SetRecord
   ) => void;
-  removeSet: (date: string, exerciseId: string, index: number) => void;
+  removeSet: (date: string, exerciseId: string, index: number) => boolean;
   setExercisePlannedLoad: (date: string, exerciseId: string, weight?: number, context?: PlannedLoadContext) => void;
+  commitExercisePlannedLoad: (date: string, exerciseId: string, weight?: number, context?: PlannedLoadContext) => boolean;
 
   // 营养
   setNutrition: (date: string, log: NutritionLog | undefined) => void;
 
   // 每日恢复状态
-  setRecovery: (date: string, log: RecoveryCheckIn | undefined) => void;
+  setRecovery: (date: string, log: RecoveryCheckIn | undefined) => boolean;
 
   // 有氧
-  addCardio: (date: string, entry: Omit<CardioEntry, "id" | "at">) => void;
+  addCardio: (date: string, entry: Omit<CardioEntry, "id" | "at">) => boolean;
   updateCardio: (
     date: string,
     id: string,
     patch: Partial<Omit<CardioEntry, "id">>
   ) => void;
-  removeCardio: (date: string, id: string) => void;
+  removeCardio: (date: string, id: string) => boolean;
 
   // 身体数据 / 减脂计划
   setProfile: (patch: Partial<Profile>) => void;
-  setCutPlan: (patch: Partial<CutPlan>) => void;
+  setCutPlan: (patch: Partial<CutPlan>) => boolean;
   addActivityEnergy: (
     date: string,
     entry: Omit<ActivityEnergyEntry, "id" | "at">
@@ -190,7 +199,7 @@ interface StoreApi {
   // 训练模板（自由命名 + 归属类型，每类型上限 5）
   createTemplate: (type: TrainingType, name: string, items?: TemplateItem[]) => string | null;
   duplicateTemplate: (id: string) => string | null;
-  moveTemplate: (id: string, dir: -1 | 1) => void;
+  moveTemplate: (id: string, dir: -1 | 1) => boolean;
   renameTemplate: (id: string, name: string) => void;
   setTemplateItems: (id: string, items: TemplateItem[]) => void;
   commitTemplateItems: (id: string, items: TemplateItem[]) => boolean;
@@ -212,15 +221,15 @@ interface StoreApi {
   // 腰围（cm）
   setWaist: (date: string, waist: number) => void;
   removeWaist: (date: string) => void;
+  commitBodyMeasurements: (date: string, measurements: { weight?: number; waist?: number }) => boolean;
 
   // 自定义动作
-  addCustomExercise: (
-    name: string,
-    isMain: boolean,
-    primaryMuscle?: MuscleGroup,
-    equipment?: Equipment,
-    recordModes?: RecordMode[]
-  ) => ExercisePreset;
+  createCustomExerciseInWorkout: (
+    date: string,
+    draft: CustomExerciseDraft,
+    options?: { intent?: TrainingIntent | "context" },
+  ) => boolean;
+  createCustomExerciseInTemplate: (templateId: string, draft: CustomExerciseDraft) => boolean;
   removeCustomExercise: (id: string) => boolean;
   updateCustomExercise: (
     id: string,
@@ -233,10 +242,11 @@ interface StoreApi {
       recordModes?: RecordMode[];
     }
   ) => boolean;
-  toggleFavoriteExercise: (id: string) => void;
+  toggleFavoriteExercise: (id: string) => boolean;
 
   // 计划
   setSchedule: (schedule: Schedule) => void;
+  commitSchedule: (schedule: Schedule) => boolean;
   commitAdaptivePlan: (
     patches: AdaptiveTemplatePatch[],
     schedule: Schedule | undefined,
@@ -244,13 +254,13 @@ interface StoreApi {
   ) => boolean;
   setMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => void;
   commitMuscleTarget: (muscle: MuscleGroup, low: number, high: number) => boolean;
-  resetMuscleTarget: (muscle: MuscleGroup) => void;
-  setMesocycleTargetCycles: (cycles: number) => void;
+  resetMuscleTarget: (muscle: MuscleGroup) => boolean;
+  setMesocycleTargetCycles: (cycles: number) => boolean;
   startNewMicrocycle: (date: string, phase?: TrainingCyclePhase) => MicrocycleStartStatus;
   applyCycleReview: (review: CycleReview, date: string, phase?: TrainingCyclePhase) => CycleReviewCommitStatus;
   completeSetup: (options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => boolean;
   dismissSetup: () => boolean;
-  setTrainingPreferences: (patch: Partial<TrainingPreferences>) => void;
+  setTrainingPreferences: (patch: Partial<TrainingPreferences>) => boolean;
   importAppleHealthSnapshot: (snapshot: unknown) => AppleHealthMergeSummary;
 
   // 跨天 type 查询（"上次也做了"用）
@@ -323,6 +333,58 @@ function withWorkoutMutation(
       },
     },
   };
+}
+
+function customExerciseFromDraft(draft: CustomExerciseDraft): ExercisePreset {
+  return {
+    id: `cx_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`,
+    name: draft.name.trim(),
+    isMain: draft.isMain,
+    type: "custom",
+    custom: true,
+    primaryMuscle: draft.primaryMuscle,
+    volumeContributions: [{ muscle: draft.primaryMuscle, weight: 1, direct: true }],
+    ...(draft.equipment ? { equipment: draft.equipment } : {}),
+    ...(draft.recordModes?.length ? { recordModes: [...new Set(draft.recordModes)] } : {}),
+  };
+}
+
+function withAddedExercise(
+  prev: AppData,
+  date: string,
+  preset: ExercisePreset,
+  options?: { intent?: TrainingIntent | "context" },
+): AppData {
+  return withWorkoutMutation(prev, date, (workout) => {
+    if (workout.exercises.some((exercise) => exercise.id === preset.id)) return workout;
+    const context = options?.intent === "context" || !options?.intent
+      ? workout.exercises.find((exercise) => exercise.prescription)?.prescription
+      : undefined;
+    const intent = options?.intent && options.intent !== "context" ? options.intent : undefined;
+    const basePrescription = prescriptionForPreset(preset, workout.type, intent, context);
+    const prescription = workout.cyclePhase === "deload"
+      ? deloadPrescription(basePrescription)
+      : basePrescription;
+    const exercise = applyPrescriptionSnapshot({
+      id: preset.id,
+      name: preset.name,
+      isMain: preset.isMain,
+      sets: [],
+      primaryMuscle: preset.primaryMuscle,
+      secondaryMuscles: preset.secondaryMuscles,
+      volumeContributions: preset.volumeContributions,
+      recordModes: preset.recordModes,
+      equipment: preset.equipment,
+      movementPattern: preset.movementPattern,
+      alternatives: preset.alternatives,
+    }, prescription);
+    return {
+      ...workout,
+      done: false,
+      completedAt: undefined,
+      exercises: [...workout.exercises, exercise],
+    };
+  });
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -547,47 +609,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const setWorkoutDifficulty = useCallback((date: string, difficulty?: SessionDifficulty) => {
-    setData((prev) => {
-      const day = prev.days[date];
-      if (!day?.workout || isWorkoutEditingLocked(day.workout)) return prev;
-      return {
-        ...prev,
-        days: {
-          ...prev.days,
-          [date]: { ...day, workout: { ...day.workout, difficulty } },
-        },
-      };
+    const prev = dataRef.current;
+    const day = prev.days[date];
+    if (!day?.workout || isWorkoutEditingLocked(day.workout) || day.workout.difficulty === difficulty) return false;
+    return commitData({
+      ...prev,
+      days: {
+        ...prev.days,
+        [date]: { ...day, workout: { ...day.workout, difficulty } },
+      },
     });
-  }, [setData]);
+  }, [commitData]);
 
   const addExercise = useCallback(
     (date: string, preset: ExercisePreset, options?: { intent?: TrainingIntent | "context" }) => {
       const prev = dataRef.current;
-      const next = withWorkoutMutation(prev, date, (w) => {
-        if (w.exercises.some((e) => e.id === preset.id)) return w; // 当天去重
-        const context = options?.intent === "context" || !options?.intent
-          ? w.exercises.find((exercise) => exercise.prescription)?.prescription
-          : undefined;
-        const intent = options?.intent && options.intent !== "context" ? options.intent : undefined;
-        const basePrescription = prescriptionForPreset(preset, w.type, intent, context);
-        const prescription = w.cyclePhase === "deload"
-          ? deloadPrescription(basePrescription)
-          : basePrescription;
-        const ex = applyPrescriptionSnapshot({
-          id: preset.id,
-          name: preset.name,
-          isMain: preset.isMain,
-          sets: [],
-          primaryMuscle: preset.primaryMuscle,
-          secondaryMuscles: preset.secondaryMuscles,
-          volumeContributions: preset.volumeContributions,
-          recordModes: preset.recordModes,
-          equipment: preset.equipment,
-          movementPattern: preset.movementPattern,
-          alternatives: preset.alternatives,
-        }, prescription);
-        return { ...w, done: false, completedAt: undefined, exercises: [...w.exercises, ex] };
-      });
+      const next = withAddedExercise(prev, date, preset, options);
       return next !== prev && commitData(next);
     },
     [commitData]
@@ -595,37 +632,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const removeExercise = useCallback(
     (date: string, exerciseId: string) => {
-      mutateWorkout(date, (w) => ({
-        ...w,
-        done: false,
-        completedAt: undefined,
-        exercises: w.exercises.filter((e) => e.id !== exerciseId),
-      }));
+      const prev = dataRef.current;
+      const next = withWorkoutMutation(prev, date, (workout) => {
+        if (!workout.exercises.some((exercise) => exercise.id === exerciseId)) return workout;
+        return {
+          ...workout,
+          done: false,
+          completedAt: undefined,
+          exercises: workout.exercises.filter((exercise) => exercise.id !== exerciseId),
+        };
+      });
+      return next !== prev && commitData(next);
     },
-    [mutateWorkout]
+    [commitData]
   );
 
   const addSet = useCallback(
     (date: string, exerciseId: string, set: SetRecord) => {
       // 加组即视为会话重新进行中：顺带清除"已结束"标记
-      mutateWorkout(date, (w) => ({
-        ...w,
-        done: false,
-        completedAt: undefined,
-        exercises: w.exercises.map((e) =>
-          e.id === exerciseId
-            ? {
-                ...e,
-                sets: [
-                  ...e.sets,
-                  { type: "working", ...set, at: set.at ?? new Date().toISOString() },
-                ],
-              }
-            : e
-        ),
-      }));
+      const prev = dataRef.current;
+      const next = withWorkoutMutation(prev, date, (workout) => {
+        if (!workout.exercises.some((exercise) => exercise.id === exerciseId)) return workout;
+        return {
+          ...workout,
+          done: false,
+          completedAt: undefined,
+          exercises: workout.exercises.map((exercise) =>
+            exercise.id === exerciseId
+              ? {
+                  ...exercise,
+                  sets: [
+                    ...exercise.sets,
+                    { type: "working", ...set, at: set.at ?? new Date().toISOString() },
+                  ],
+                }
+              : exercise
+          ),
+        };
+      });
+      return next !== prev && commitData(next);
     },
-    [mutateWorkout]
+    [commitData]
   );
 
   const updateSet = useCallback(
@@ -644,16 +691,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const removeSet = useCallback(
     (date: string, exerciseId: string, index: number) => {
-      mutateWorkout(date, (workout) => ({
-        ...workout,
-        done: false,
-        completedAt: undefined,
-        exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
-          ? { ...exercise, sets: exercise.sets.filter((_, currentIndex) => currentIndex !== index) }
-          : exercise),
-      }));
+      const prev = dataRef.current;
+      const next = withWorkoutMutation(prev, date, (workout) => {
+        const exercise = workout.exercises.find((candidate) => candidate.id === exerciseId);
+        if (!exercise || index < 0 || index >= exercise.sets.length) return workout;
+        return {
+          ...workout,
+          done: false,
+          completedAt: undefined,
+          exercises: workout.exercises.map((candidate) => candidate.id === exerciseId
+            ? { ...candidate, sets: candidate.sets.filter((_, currentIndex) => currentIndex !== index) }
+            : candidate),
+        };
+      });
+      return next !== prev && commitData(next);
     },
-    [mutateWorkout]
+    [commitData]
   );
 
   const setExercisePlannedLoad = useCallback(
@@ -661,6 +714,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       mutateExercise(date, exerciseId, (exercise) => applyExercisePlannedLoad(exercise, weight, context));
     },
     [mutateExercise]
+  );
+
+  const commitExercisePlannedLoad = useCallback(
+    (date: string, exerciseId: string, weight?: number, context?: PlannedLoadContext) => {
+      const prev = dataRef.current;
+      const next = withWorkoutMutation(prev, date, (workout) => {
+        if (!workout.exercises.some((exercise) => exercise.id === exerciseId)) return workout;
+        return {
+          ...workout,
+          done: false,
+          completedAt: undefined,
+          exercises: workout.exercises.map((exercise) => exercise.id === exerciseId
+            ? applyExercisePlannedLoad(exercise, weight, context)
+            : exercise),
+        };
+      });
+      return next !== prev && commitData(next);
+    },
+    [commitData]
   );
 
   // ---- 营养 ----
@@ -673,25 +745,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setRecovery = useCallback(
     (date: string, log: RecoveryCheckIn | undefined) => {
-      mutateDay(date, (day) => ({ ...day, recovery: log }));
+      const prev = dataRef.current;
+      const current = prev.days[date] ?? { date };
+      if (!log && !current.recovery) return false;
+      return commitData({
+        ...prev,
+        days: {
+          ...prev.days,
+          [date]: { ...current, date, recovery: log },
+        },
+      });
     },
-    [mutateDay]
+    [commitData]
   );
 
   // ---- 有氧 ----
   const addCardio = useCallback(
     (date: string, entry: Omit<CardioEntry, "id" | "at">) => {
-      mutateDay(date, (day) => {
-        const list = day.cardio ?? [];
-        const item: CardioEntry = {
-          ...entry,
-          id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          at: new Date().toISOString(),
-        };
-        return { ...day, cardio: [...list, item] };
+      if (!Number.isFinite(entry.minutes) || entry.minutes <= 0) return false;
+      const prev = dataRef.current;
+      const day = prev.days[date] ?? { date };
+      const item: CardioEntry = {
+        ...entry,
+        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        at: new Date().toISOString(),
+      };
+      return commitData({
+        ...prev,
+        days: {
+          ...prev.days,
+          [date]: { ...day, date, cardio: [...(day.cardio ?? []), item] },
+        },
       });
     },
-    [mutateDay]
+    [commitData]
   );
 
   const updateCardio = useCallback(
@@ -709,13 +796,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const removeCardio = useCallback(
     (date: string, id: string) => {
-      mutateDay(date, (day) => {
-        if (!day.cardio) return day;
-        const next = day.cardio.filter((c) => c.id !== id);
-        return { ...day, cardio: next.length ? next : undefined };
+      const prev = dataRef.current;
+      const day = prev.days[date];
+      if (!day?.cardio?.some((entry) => entry.id === id)) return false;
+      const cardio = day.cardio.filter((entry) => entry.id !== id);
+      return commitData({
+        ...prev,
+        days: {
+          ...prev.days,
+          [date]: { ...day, cardio: cardio.length ? cardio : undefined },
+        },
       });
     },
-    [mutateDay]
+    [commitData]
   );
 
   // ---- 身体数据 ----
@@ -733,18 +826,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ---- 减脂计划 / 主动活动消耗 ----
   const setCutPlan = useCallback((patch: Partial<CutPlan>) => {
-    setData((prev) => {
-      const merged = { ...(prev.cutPlan ?? {}), ...patch };
-      (Object.keys(merged) as (keyof CutPlan)[]).forEach((k) => {
-        const v = merged[k];
-        if (v == null || Number.isNaN(v as number) || v === 0) delete merged[k];
-      });
-      return {
-        ...prev,
-        cutPlan: Object.keys(merged).length ? merged : undefined,
-      };
+    const prev = dataRef.current;
+    const merged = { ...(prev.cutPlan ?? {}), ...patch };
+    (Object.keys(merged) as (keyof CutPlan)[]).forEach((key) => {
+      const value = merged[key];
+      if (value == null || Number.isNaN(value as number) || value === 0) delete merged[key];
     });
-  }, [setData]);
+    return commitData({
+      ...prev,
+      cutPlan: Object.keys(merged).length ? merged : undefined,
+    });
+  }, [commitData]);
 
   const addActivityEnergy = useCallback(
     (date: string, entry: Omit<ActivityEnergyEntry, "id" | "at">) => {
@@ -820,13 +912,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [commitData]);
 
   const moveTemplate = useCallback((id: string, dir: -1 | 1) => {
-    setData((prev) => {
-      const list = prev.templates ?? [];
-      const next = moveTemplateWithinType(list, id, dir);
-      if (next === list) return prev;
-      return { ...prev, templates: next };
-    });
-  }, [setData]);
+    const prev = dataRef.current;
+    const list = prev.templates ?? [];
+    const templates = moveTemplateWithinType(list, id, dir);
+    if (templates === list) return false;
+    return commitData({ ...prev, templates });
+  }, [commitData]);
 
   const renameTemplate = useCallback((id: string, name: string) => {
     setData((prev) => {
@@ -1042,36 +1133,72 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [setData]);
 
+  const commitBodyMeasurements = useCallback(
+    (date: string, measurements: { weight?: number; waist?: number }) => {
+      const weight = measurements.weight;
+      const waist = measurements.waist;
+      const hasWeight = weight != null && Number.isFinite(weight) && weight >= 30 && weight <= 300;
+      const hasWaist = waist != null && Number.isFinite(waist) && waist >= 30 && waist <= 200;
+      if (!hasWeight && !hasWaist) return false;
+      const prev = dataRef.current;
+      const bodyWeights = hasWeight
+        ? [...prev.bodyWeights.filter((entry) => entry.date !== date), { date, weight } as BodyWeightEntry]
+            .sort((a, b) => a.date.localeCompare(b.date))
+        : prev.bodyWeights;
+      const waistEntries = hasWaist
+        ? [...prev.waistEntries.filter((entry) => entry.date !== date), { date, waist } as WaistEntry]
+            .sort((a, b) => a.date.localeCompare(b.date))
+        : prev.waistEntries;
+      return commitData({ ...prev, bodyWeights, waistEntries });
+    },
+    [commitData]
+  );
+
   // ---- 自定义动作 ----
-  const addCustomExercise = useCallback(
+  const createCustomExerciseInWorkout = useCallback(
     (
-      name: string,
-      isMain: boolean,
-      primaryMuscle?: MuscleGroup,
-      equipment?: Equipment,
-      recordModes?: RecordMode[]
+      date: string,
+      draft: CustomExerciseDraft,
+      options?: { intent?: TrainingIntent | "context" },
     ) => {
-      const preset: ExercisePreset = {
-        id:
-          "cx_" +
-          Math.random().toString(36).slice(2, 9) +
-          Date.now().toString(36).slice(-4),
-        name: name.trim(),
-        isMain,
-        type: "custom",
-        custom: true,
-        ...(primaryMuscle ? { primaryMuscle } : {}),
-        ...(primaryMuscle ? { volumeContributions: [{ muscle: primaryMuscle, weight: 1, direct: true }] } : {}),
-        ...(equipment ? { equipment } : {}),
-        ...(recordModes?.length ? { recordModes: [...new Set(recordModes)] } : {}),
+      if (!draft.name.trim()) return false;
+      const prev = dataRef.current;
+      const preset = customExerciseFromDraft(draft);
+      const workoutData = withAddedExercise(prev, date, preset, options);
+      if (workoutData === prev) return false;
+      return commitData({
+        ...workoutData,
+        customExercises: [...prev.customExercises, preset],
+      });
+    },
+    [commitData]
+  );
+
+  const createCustomExerciseInTemplate = useCallback(
+    (templateId: string, draft: CustomExerciseDraft) => {
+      if (!draft.name.trim()) return false;
+      const prev = dataRef.current;
+      const template = (prev.templates ?? []).find((candidate) => candidate.id === templateId);
+      if (!template) return false;
+      const preset = customExerciseFromDraft(draft);
+      const prescription = prescriptionForPreset(preset, template.type);
+      const item: TemplateItem = {
+        exerciseId: preset.id,
+        name: preset.name,
+        sets: prescription.workingSets,
+        repsLow: prescription.targetRepMin,
+        repsHigh: prescription.targetRepMax,
+        prescription,
+        recordModes: preset.recordModes,
       };
-      setData((prev) => ({
+      const base = {
         ...prev,
         customExercises: [...prev.customExercises, preset],
-      }));
-      return preset;
+      };
+      const next = withTemplateItems(base, templateId, [...template.items, item]);
+      return next !== base && commitData(next);
     },
-    [setData]
+    [commitData]
   );
 
   const removeCustomExercise = useCallback((id: string) => {
@@ -1085,14 +1212,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [commitData]);
 
   const toggleFavoriteExercise = useCallback((id: string) => {
-    setData((prev) => {
-      const current = prev.favoriteExerciseIds ?? [];
-      const favoriteExerciseIds = current.includes(id)
-        ? current.filter((exerciseId) => exerciseId !== id)
-        : [...current, id];
-      return { ...prev, favoriteExerciseIds: favoriteExerciseIds.length ? favoriteExerciseIds : undefined };
+    const prev = dataRef.current;
+    const current = prev.favoriteExerciseIds ?? [];
+    const favoriteExerciseIds = current.includes(id)
+      ? current.filter((exerciseId) => exerciseId !== id)
+      : [...current, id];
+    return commitData({
+      ...prev,
+      favoriteExerciseIds: favoriteExerciseIds.length ? favoriteExerciseIds : undefined,
     });
-  }, [setData]);
+  }, [commitData]);
 
   /**
    * 编辑自定义动作：改名 / 部位 / 器械。
@@ -1166,6 +1295,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({ ...prev, schedule, microcycle: microcycleForScheduleEdit(prev, schedule) }));
   }, [setData]);
 
+  const commitSchedule = useCallback((schedule: Schedule) => {
+    const prev = dataRef.current;
+    return commitData({
+      ...prev,
+      schedule,
+      microcycle: microcycleForScheduleEdit(prev, schedule),
+    });
+  }, [commitData]);
+
   const commitAdaptivePlan = useCallback((
     patches: AdaptiveTemplatePatch[],
     schedule: Schedule | undefined,
@@ -1194,21 +1332,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [commitData]);
 
   const resetMuscleTarget = useCallback((muscle: MuscleGroup) => {
-    setData((prev) => {
-      if (!prev.muscleTargets?.[muscle]) return prev;
-      const muscleTargets = { ...prev.muscleTargets };
-      delete muscleTargets[muscle];
-      return { ...prev, muscleTargets: Object.keys(muscleTargets).length ? muscleTargets : undefined };
+    const prev = dataRef.current;
+    if (!prev.muscleTargets?.[muscle]) return false;
+    const muscleTargets = { ...prev.muscleTargets };
+    delete muscleTargets[muscle];
+    return commitData({
+      ...prev,
+      muscleTargets: Object.keys(muscleTargets).length ? muscleTargets : undefined,
     });
-  }, [setData]);
+  }, [commitData]);
 
   const setMesocycleTargetCycles = useCallback((cycles: number) => {
-    setData((prev) => {
-      const current = ensureMesocycle(prev, todayKey());
-      const targetBuildCycles = Math.min(8, Math.max(current.currentBuildCycle, Math.max(2, Math.round(cycles))));
-      return { ...prev, mesocycle: { ...current, targetBuildCycles } };
-    });
-  }, [setData]);
+    const prev = dataRef.current;
+    const current = ensureMesocycle(prev, todayKey());
+    const targetBuildCycles = Math.min(8, Math.max(current.currentBuildCycle, Math.max(2, Math.round(cycles))));
+    if (current.targetBuildCycles === targetBuildCycles && prev.mesocycle) return false;
+    return commitData({ ...prev, mesocycle: { ...current, targetBuildCycles } });
+  }, [commitData]);
 
   const completeSetup = useCallback((options: { starterPlan: StarterPlanPreset; profile: Partial<Profile>; date: string }) => {
     const prev = dataRef.current;
@@ -1255,27 +1395,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [setData]);
 
   const setTrainingPreferences = useCallback((patch: Partial<TrainingPreferences>) => {
-    setData((prev) => {
-      const current = prev.trainingPreferences ?? {};
-      const barbellWeightKg = patch.barbellWeightKg == null
-        ? current.barbellWeightKg
-        : Math.min(50, Math.max(1, Math.round(patch.barbellWeightKg * 4) / 4));
-      const plateSizesKg = patch.plateSizesKg == null
-        ? current.plateSizesKg
-        : [...new Set(patch.plateSizesKg
-            .filter((plate) => Number.isFinite(plate) && plate >= 0.25 && plate <= 50)
-            .map((plate) => Math.round(plate * 4) / 4))]
-            .sort((a, b) => b - a)
-            .slice(0, 16);
-      return {
-        ...prev,
-        trainingPreferences: {
-          ...(barbellWeightKg ? { barbellWeightKg } : {}),
-          ...(plateSizesKg?.length ? { plateSizesKg } : {}),
-        },
-      };
+    const prev = dataRef.current;
+    const current = prev.trainingPreferences ?? {};
+    const barbellWeightKg = patch.barbellWeightKg == null
+      ? current.barbellWeightKg
+      : Math.min(50, Math.max(1, Math.round(patch.barbellWeightKg * 4) / 4));
+    const plateSizesKg = patch.plateSizesKg == null
+      ? current.plateSizesKg
+      : [...new Set(patch.plateSizesKg
+          .filter((plate) => Number.isFinite(plate) && plate >= 0.25 && plate <= 50)
+          .map((plate) => Math.round(plate * 4) / 4))]
+          .sort((a, b) => b - a)
+          .slice(0, 16);
+    return commitData({
+      ...prev,
+      trainingPreferences: {
+        ...(barbellWeightKg ? { barbellWeightKg } : {}),
+        ...(plateSizesKg?.length ? { plateSizesKg } : {}),
+      },
     });
-  }, [setData]);
+  }, [commitData]);
 
   const importAppleHealthSnapshot = useCallback((snapshot: unknown) => {
     const result = mergeAppleHealthData(dataRef.current, snapshot);
@@ -1388,6 +1527,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateSet,
       removeSet,
       setExercisePlannedLoad,
+      commitExercisePlannedLoad,
       setNutrition,
       setRecovery,
       addCardio,
@@ -1411,11 +1551,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeBodyWeight,
       setWaist,
       removeWaist,
-      addCustomExercise,
+      commitBodyMeasurements,
+      createCustomExerciseInWorkout,
+      createCustomExerciseInTemplate,
       removeCustomExercise,
       updateCustomExercise,
       toggleFavoriteExercise,
       setSchedule,
+      commitSchedule,
       commitAdaptivePlan,
       setMuscleTarget,
       commitMuscleTarget,
@@ -1448,6 +1591,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateSet,
       removeSet,
       setExercisePlannedLoad,
+      commitExercisePlannedLoad,
       setNutrition,
       setRecovery,
       addCardio,
@@ -1471,11 +1615,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeBodyWeight,
       setWaist,
       removeWaist,
-      addCustomExercise,
+      commitBodyMeasurements,
+      createCustomExerciseInWorkout,
+      createCustomExerciseInTemplate,
       removeCustomExercise,
       updateCustomExercise,
       toggleFavoriteExercise,
       setSchedule,
+      commitSchedule,
       commitAdaptivePlan,
       setMuscleTarget,
       commitMuscleTarget,

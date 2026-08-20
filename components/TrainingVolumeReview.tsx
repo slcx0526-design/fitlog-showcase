@@ -100,6 +100,11 @@ export default function TrainingVolumeReview() {
     toast.show(tx(locale, "新周期已开始", "New cycle started", "新しい周期を開始しました"));
   }
 
+  function restoreDefaultTarget(muscle: MuscleGroup) {
+    if (resetMuscleTarget(muscle)) return;
+    toast.show(tx(locale, "默认容量目标未能恢复，请重试", "The default volume target could not be restored. Try again.", "既定のボリューム目標を復元できませんでした。もう一度お試しください。"), { tone: "error" });
+  }
+
   return <div className="space-y-4">
     <TrainingDecisionBrief decision={decision} />
 
@@ -212,7 +217,7 @@ export default function TrainingVolumeReview() {
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5"><NumberField value={baseTarget.low} onChange={(value) => setMuscleTarget(row.muscle, value, baseTarget.high)} ariaLabel={tx(locale, `${muscleName}每周目标下限`, `${muscleName} weekly target minimum`, `${muscleName} 週間目標下限`)} className="number-cell h-10 min-w-0 rounded-lg border border-border bg-surface px-2 text-center text-[16px] text-fg" /><NumberField value={baseTarget.high} onChange={(value) => setMuscleTarget(row.muscle, baseTarget.low, value)} ariaLabel={tx(locale, `${muscleName}每周目标上限`, `${muscleName} weekly target maximum`, `${muscleName} 週間目標上限`)} className="number-cell h-10 min-w-0 rounded-lg border border-border bg-surface px-2 text-center text-[16px] text-fg" /><span className="self-center text-[11px] text-faint">{tx(locale, "每周目标", "Weekly target", "週間目標")}</span></div>
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-[10px] leading-relaxed text-faint">{cutActive ? tx(locale, `当前范围按减脂比例显示为 ${row.target.low}–${row.target.high}；平时同范围约 ${normalLow}–${normalHigh}。`, `This cut range is ${row.target.low}–${row.target.high}; the same normal range is about ${normalLow}–${normalHigh}.`, `減量中は ${row.target.low}–${row.target.high}、通常時の同範囲は約 ${normalLow}–${normalHigh} です。`) : tx(locale, "基础目标会按本周期、7 天或 28 天范围自动换算。", "The base target scales automatically for this cycle, 7 days, or 28 days.", "基準目標は現周期・7日・28日の範囲に自動換算されます。")}</p>
-                  {data.muscleTargets?.[row.muscle] && <button type="button" onClick={() => resetMuscleTarget(row.muscle)} className="press min-h-10 shrink-0 rounded-lg bg-surface px-2 text-[10px] font-semibold text-accent">{tx(locale, "恢复默认", "Reset default", "既定値に戻す")}</button>}
+                  {data.muscleTargets?.[row.muscle] && <button type="button" onClick={() => restoreDefaultTarget(row.muscle)} className="press min-h-10 shrink-0 rounded-lg bg-surface px-2 text-[10px] font-semibold text-accent">{tx(locale, "恢复默认", "Reset default", "既定値に戻す")}</button>}
                 </div>
               </div>
               <div className="space-y-1">{row.sources.map((source) => <p key={`${row.muscle}-${source.exerciseId}-${source.name}-${source.directEffectiveSets}-${source.indirectEffectiveSets}`} className="tnum flex justify-between gap-2 text-[11px] text-muted"><span className="truncate">{tr(source.name)}{source.directEffectiveSets ? tx(locale, " · 直接", " · direct", " · 直接") : tx(locale, " · 连带", " · indirect", " · 間接")}</span><span className="shrink-0">{tx(locale, `直 ${source.directEffectiveSets} · 连 ${source.indirectEffectiveSets}`, `D ${source.directEffectiveSets} · I ${source.indirectEffectiveSets}`, `直 ${source.directEffectiveSets} · 間 ${source.indirectEffectiveSets}`)}</span></p>)}</div>

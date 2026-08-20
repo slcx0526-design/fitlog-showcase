@@ -33,13 +33,19 @@ export default function RecoveryCheckInCard({ date }: { date: string }) {
 
   function save() {
     if (!signalCount) return;
-    setRecovery(date, { ...draft, at: new Date().toISOString() });
+    if (!setRecovery(date, { ...draft, at: new Date().toISOString() })) {
+      toast.show(tx(locale, "状态记录未能保存，请重试", "The recovery check-in could not be saved. Try again.", "状態記録を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     setOpen(false);
     toast.show(tx(locale, "今日状态已记录", "Today's recovery check-in is saved", "今日の状態を記録しました"));
   }
 
   function clear() {
-    setRecovery(date, undefined);
+    if (!setRecovery(date, undefined)) {
+      toast.show(tx(locale, "状态记录未能清除，请重试", "The recovery check-in could not be cleared. Try again.", "状態記録を削除できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     setDraft({});
     setOpen(true);
     toast.show(tx(locale, "状态记录已清除", "Recovery check-in cleared", "状態記録を削除しました"));

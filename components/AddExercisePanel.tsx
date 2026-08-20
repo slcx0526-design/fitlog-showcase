@@ -13,6 +13,7 @@ import {
   type MuscleGroup,
 } from "@/lib/muscles";
 import { formatCompact } from "@/lib/date";
+import { useToast } from "@/lib/toast";
 import CustomExerciseEditor, { isCustomExercise } from "./CustomExerciseEditor";
 import Sheet from "./ui/Sheet";
 
@@ -33,10 +34,11 @@ export default function AddExercisePanel({
   lockedIds?: Set<string>;
 }) {
   const { tr, locale } = useI18n();
+  const toast = useToast();
   const {
     addExercise,
     removeExercise,
-    addCustomExercise,
+    createCustomExerciseInWorkout,
     data,
     lastWorkoutByType,
     toggleFavoriteExercise,
@@ -88,14 +90,25 @@ export default function AddExercisePanel({
   }, [customs, lastSession, type]);
 
   function addPreset(p: ExercisePreset) {
-    addExercise(date, p, { intent: trackChoice });
+    const added = addExercise(date, p, { intent: trackChoice });
+    if (!added) {
+      toast.show(localeText(locale, "动作未能加入，请重试", "The exercise could not be added. Try again.", "種目を追加できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
+    return added;
+  }
+
+  function toggleFavorite(id: string) {
+    if (toggleFavoriteExercise(id)) return;
+    toast.show(localeText(locale, "收藏状态未能保存，请重试", "The favorite could not be saved. Try again.", "お気に入りを保存できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   function toggle(p: ExercisePreset) {
     if (addedIds.has(p.id)) {
       // 有已记录组的动作不在这里删 —— 避免静默丢记录，删除请用动作卡上的 ×
       if (lockedIds?.has(p.id)) return;
-      removeExercise(date, p.id);
+      if (!removeExercise(date, p.id)) {
+        toast.show(localeText(locale, "动作未能移除，请重试", "The exercise could not be removed. Try again.", "種目を削除できませんでした。もう一度お試しください。"), { tone: "error" });
+      }
     } else {
       addPreset(p);
     }
@@ -111,18 +124,27 @@ export default function AddExercisePanel({
   function createCustom() {
     const name = newName.trim();
     if (!name || !newMuscle) return;
-    const preset = addCustomExercise(
+    const created = createCustomExerciseInWorkout(date, {
       name,
-      false,
-      newMuscle,
-      newEquip || undefined,
-      RECORD_MODES[newRecordKind]
-    );
-    addPreset(preset);
+      isMain: false,
+      primaryMuscle: newMuscle,
+      equipment: newEquip || undefined,
+      recordModes: RECORD_MODES[newRecordKind],
+    }, { intent: trackChoice });
+    if (!created) {
+      toast.show(localeText(
+        locale,
+        "动作未能保存并加入训练，请重试",
+        "The exercise could not be saved and added. Try again.",
+        "種目を保存してトレーニングに追加できませんでした。もう一度お試しください。",
+      ), { tone: "error" });
+      return;
+    }
     setNewName("");
     setNewMuscle("");
     setNewEquip("");
     setNewRecordKind("weightReps");
+    toast.show(localeText(locale, "已新建并加入训练", "Created and added to this workout", "作成してトレーニングに追加しました"));
   }
 
   const allLastAdded =
@@ -197,7 +219,7 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavoriteExercise}
+              onFavorite={toggleFavorite}
               onEdit={(p) => isCustomExercise(p) && setEditId(p.id)}
             />
           )}
@@ -214,7 +236,7 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavoriteExercise}
+              onFavorite={toggleFavorite}
               onEdit={(p) => isCustomExercise(p) && setEditId(p.id)}
             />
           )}
@@ -278,7 +300,7 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavoriteExercise}
+              onFavorite={toggleFavorite}
             />
           )}
 
@@ -290,7 +312,7 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavoriteExercise}
+              onFavorite={toggleFavorite}
             />
           )}
 
@@ -302,7 +324,7 @@ export default function AddExercisePanel({
               lockedIds={lockedIds}
               favoriteIds={favoriteIds}
               onToggle={toggle}
-              onFavorite={toggleFavoriteExercise}
+              onFavorite={toggleFavorite}
               onEdit={(p) => setEditId(p.id)}
             />
           )}

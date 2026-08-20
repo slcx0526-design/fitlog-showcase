@@ -28,6 +28,7 @@ import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import { buildTrainingAnalysis } from "@/lib/trainingAnalysis";
 import type { Schedule, TrainingType } from "@/lib/types";
 import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
+import { useToast } from "@/lib/toast";
 
 const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
   { value: "push", label: "推" },
@@ -40,8 +41,9 @@ const TYPE_OPTIONS: Array<{ value: TrainingType | ""; label: string }> = [
 export default function SchedulePage() {
   const { tr, locale } = useI18n();
   const { persona, typeName } = usePersona();
-  const { loaded, data, setSchedule } = useStore();
+  const { loaded, data, commitSchedule } = useStore();
   const { mode } = useUIMode();
+  const toast = useToast();
   const today = useToday();
 
   const todayIdx = dateKeyWeekdayIndex(today);
@@ -69,7 +71,9 @@ export default function SchedulePage() {
   function setDay(idx: number, value: TrainingType | "") {
     const next: Schedule = { ...schedule, split: [...schedule.split] };
     next.split[idx] = value;
-    setSchedule(next);
+    if (!commitSchedule(next)) {
+      toast.show(localeText(locale, "每周排程未能保存，请重试", "The weekly schedule could not be saved. Try again.", "週間スケジュールを保存できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
   }
 
   return (
@@ -138,13 +142,14 @@ export default function SchedulePage() {
                   {tr("训练")}
                 </Link>}
               </div>
-              <div className="control-strip grid grid-cols-5 gap-1 rounded-xl p-1">
+              <div className="control-strip grid grid-cols-5 gap-1 rounded-xl p-1" role="group" aria-label={`${tr(label)} · ${tr("训练安排")}`}>
                 {TYPE_OPTIONS.map((opt) => {
                   const active = schedule.split[idx] === opt.value;
                   return (
                     <button type="button"
                       key={opt.value || "empty"}
                       onClick={() => setDay(idx, opt.value)}
+                      aria-pressed={active}
                       className={
                         "choice-chip press h-9 text-[13px] font-semibold " +
                         (active

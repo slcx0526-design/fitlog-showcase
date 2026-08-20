@@ -1,1 +1,1 @@
-FitLog 15.2.0 durable training commands and honest feedback
+FitLog 15.3.0 atomic records and plan controls

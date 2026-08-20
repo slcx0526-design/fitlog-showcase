@@ -84,7 +84,7 @@ export default function ExerciseCard({
   const { tr, locale } = useI18n();
   const { persona } = usePersona();
   const { mode } = useUIMode();
-  const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, trackHistories, data } = useStore();
+  const { addSet, updateSet, removeSet, removeExercise, setExercisePlannedLoad, commitExercisePlannedLoad, trackHistories, data } = useStore();
   const toast = useToast();
   const contentId = useId();
   const [open, setOpen] = useState(active);
@@ -148,8 +148,11 @@ export default function ExerciseCard({
       blank,
     });
     const index = exercise.sets.length;
+    if (!addSet(date, exercise.id, set)) {
+      toast.show(tx(locale, "工作组未能保存，请重试", "The work set could not be saved. Try again.", "ワーキングセットを保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     setPendingFocus({ index, field: recordsWeight && set.weight <= 0 ? "weight" : "performance" });
-    addSet(date, exercise.id, set);
     if (set.weight > 0) toast.show(tx(locale, `已带入 ${set.weight}kg，请记录本组实际表现`, `${set.weight}kg carried forward — enter this set's result`, `${set.weight}kg を引き継ぎました。このセットの実績を入力してください`), { tone: "info" });
     else toast.show(persona.setAdded(mode));
     if (mode === "pulse") pulseFeedback("confirm");
@@ -170,14 +173,38 @@ export default function ExerciseCard({
 
   function acceptSuggestion() {
     if (suggestion.nextWeight == null || suggestion.nextWeight <= 0) return;
-    setExercisePlannedLoad(date, exercise.id, suggestion.nextWeight, {
+    if (!commitExercisePlannedLoad(date, exercise.id, suggestion.nextWeight, {
       origin: suggestion.status === "unconfirmedHistory" ? "reference" : "suggestion",
       progressionTrackId: trackId,
       sourceDate: previous?.date,
       suggestedLoadKg: suggestion.nextWeight,
       suggestionStatus: suggestion.status,
-    });
+    })) {
+      toast.show(tx(locale, "计划负重未能保存，请重试", "The planned load could not be saved. Try again.", "予定重量を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     toast.show(tx(locale, `本次计划负重已设为 ${suggestion.nextWeight}kg`, `Planned load set to ${suggestion.nextWeight}kg`, `今回の予定重量を ${suggestion.nextWeight}kg に設定しました`));
+  }
+
+  function deleteExercise() {
+    if (removeExercise(date, exercise.id)) {
+      setConfirmDelete(false);
+      return;
+    }
+    toast.show(tx(locale, "动作未能删除，请重试", "The exercise could not be deleted. Try again.", "種目を削除できませんでした。もう一度お試しください。"), { tone: "error" });
+  }
+
+  function deleteSet(index: number) {
+    if (removeSet(date, exercise.id, index)) {
+      setOptions(null);
+      return;
+    }
+    toast.show(tx(locale, "工作组未能删除，请重试", "The work set could not be deleted. Try again.", "ワーキングセットを削除できませんでした。もう一度お試しください。"), { tone: "error" });
+  }
+
+  function clearPlannedLoad() {
+    if (commitExercisePlannedLoad(date, exercise.id)) return;
+    toast.show(tx(locale, "计划负重未能清除，请重试", "The planned load could not be cleared. Try again.", "予定重量を解除できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   function goToNextExercise() {
@@ -261,7 +288,7 @@ export default function ExerciseCard({
         </svg>
       </button>
       {!readOnly && <IconButton
-        onClick={() => exercise.sets.length ? setConfirmDelete(true) : removeExercise(date, exercise.id)}
+        onClick={() => exercise.sets.length ? setConfirmDelete(true) : deleteExercise()}
         label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}
         tone="danger"
       >
@@ -277,7 +304,7 @@ export default function ExerciseCard({
       cancelLabel={tx(locale, "取消", "Cancel", "キャンセル")}
       confirmLabel={tx(locale, "删除", "Delete", "削除")}
       onCancel={() => setConfirmDelete(false)}
-      onConfirm={() => removeExercise(date, exercise.id)}
+      onConfirm={deleteExercise}
     />}
 
     {open && <div id={contentId}>
@@ -300,7 +327,7 @@ export default function ExerciseCard({
         <span className="min-w-0 flex-1"><span className="block">{tx(locale, "本次计划负重", "Planned load", "今回の予定重量")}</span>{exercise.progressionPlan && <span className="mt-0.5 block text-[9px] font-medium text-muted">{planOriginLabel(exercise.progressionPlan.origin, locale)}{exercise.progressionPlan.sourceDate ? ` · ${formatCompact(exercise.progressionPlan.sourceDate, locale).md}` : ""}</span>}</span>
         <NumberField value={acceptedWeight ?? 0} onChange={(weight) => setExercisePlannedLoad(date, exercise.id, weight, { origin: "manual", progressionTrackId: trackId })} placeholder="—" ariaLabel={tx(locale, "本次计划负重", "Planned load", "今回の予定重量")} allowDecimal className="number-cell tnum h-8 w-[72px] rounded-lg border border-accent/30 bg-surface px-2 text-center text-[13px] font-semibold text-fg" />
         <span className="shrink-0">kg</span>
-        {acceptedWeight != null && <button type="button" onClick={() => setExercisePlannedLoad(date, exercise.id)} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
+        {acceptedWeight != null && <button type="button" onClick={clearPlannedLoad} className="press shrink-0 font-semibold">{tx(locale, "清除", "Clear", "解除")}</button>}
       </div>}
       {!readOnly && !reviewingCompleted && currentWorking.length === 0 && suggestion.nextWeight != null && suggestion.nextWeight > 0 && acceptedWeight !== suggestion.nextWeight && <button type="button" onClick={acceptSuggestion} className="press mt-2 flex h-9 w-full items-center justify-center rounded-lg border border-accent/30 bg-accent-soft text-[11px] font-semibold text-accent">{suggestion.status === "unconfirmedHistory"
         ? tx(locale, `采用参考 · ${suggestion.nextWeight}kg`, `Use reference · ${suggestion.nextWeight}kg`, `参考を採用 · ${suggestion.nextWeight}kg`)
@@ -335,7 +362,7 @@ export default function ExerciseCard({
           <IconButton onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} aria-controls={optionsId} label={tx(locale, "组设置", "Set options", "セット設定")}>
             <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>
           </IconButton>
-          <IconButton onClick={() => { setOptions(null); removeSet(date, exercise.id, index); }} label={tx(locale, "删除组", "Delete set", "セットを削除")} tone="danger">
+          <IconButton onClick={() => deleteSet(index)} label={tx(locale, "删除组", "Delete set", "セットを削除")} tone="danger">
             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 12H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           </IconButton>
         </div>}

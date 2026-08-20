@@ -857,6 +857,275 @@ test("IME composition Enter does not submit a custom exercise prematurely", asyn
   }, date)).toEqual([1, 1]);
 });
 
+test("custom exercise creation and workout insertion persist atomically", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers the atomic workout command.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: { type: "push", done: false, exercises: [] },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  await page.getByRole("button", { name: "添加动作", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "添加动作" });
+  const name = dialog.getByLabel("新建动作名称");
+  await name.fill("原子训练动作");
+  await dialog.getByLabel("选部位").selectOption("chest");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await dialog.getByRole("button", { name: "新建", exact: true }).click();
+
+  await expect(page.getByText("动作未能保存并加入训练，请重试", { exact: true })).toBeVisible();
+  await expect(name).toHaveValue("原子训练动作");
+  await expect(dialog.getByRole("button", { name: "原子训练动作", exact: true })).toHaveCount(0);
+  expect(await page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      customExercises: data.customExercises?.length ?? 0,
+      workoutExercises: data.days?.[dateKey]?.workout?.exercises?.length ?? 0,
+    };
+  }, date)).toEqual({ customExercises: 0, workoutExercises: 0 });
+});
+
+test("custom exercise creation and template insertion persist atomically", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers the atomic template command.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      templates: [{ id: "tpl_atomic", name: "原子模板", type: "push", items: [] }],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  });
+
+  await page.goto("/templates");
+  await page.getByRole("button", { name: /原子模板/ }).click();
+  await page.getByRole("button", { name: "按部位加动作", exact: true }).click();
+  await page.getByRole("button", { name: "胸", exact: true }).click();
+  const name = page.getByLabel("动作名称");
+  await name.fill("原子模板动作");
+  const savedStatus = page.locator(".page-status");
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("fitlog:persistence", {
+    detail: { status: "saved" },
+  })));
+  await expect(savedStatus).toHaveAttribute("aria-hidden", "false");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+
+  await expect(page.getByText("动作未能保存并加入模板，请重试", { exact: true })).toBeVisible();
+  await expect(name).toHaveValue("原子模板动作");
+  await page.waitForTimeout(50);
+  expect(await savedStatus.getAttribute("aria-hidden")).toBe("true");
+  expect(await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return {
+      customExercises: data.customExercises?.length ?? 0,
+      templateItems: data.templates?.[0]?.items?.length ?? 0,
+    };
+  })).toEqual({ customExercises: 0, templateItems: 0 });
+});
+
+test("adding a work set only reports success after persistence", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers the explicit set command.");
+  const date = localDateKey();
+  await page.addInitScript(({ dateKey }) => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {
+        [dateKey]: {
+          date: dateKey,
+          workout: {
+            type: "push",
+            done: false,
+            exercises: [{
+              id: "px_barbell_bench",
+              name: "平板杠铃卧推",
+              isMain: true,
+              recordModes: ["weight", "reps"],
+              prescription: {
+                progressionTrackId: "px_barbell_bench:hypertrophy:8-12:3:reps",
+                progressionTrackLabel: "增肌 · 8–12 次",
+                trainingIntent: "hypertrophy",
+                targetRepMin: 8,
+                targetRepMax: 12,
+                workingSets: 3,
+                loadIncrementKg: 2.5,
+                progressionRule: "doubleProgression",
+                performanceMode: "reps",
+              },
+              sets: [],
+            }],
+          },
+        },
+      },
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  }, { dateKey: date });
+
+  await page.goto("/train");
+  const exercise = page.locator("#exercise-px_barbell_bench");
+  const expand = exercise.getByRole("button", { name: "展开平板杠铃卧推" });
+  if (await expand.isVisible()) await expand.click();
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await exercise.getByRole("button", { name: /添加下一组/ }).click();
+
+  await expect(page.getByText("工作组未能保存，请重试", { exact: true })).toBeVisible();
+  await expect(exercise.getByRole("textbox", { name: "第1组次数" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate((dateKey) => {
+    const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
+    return data.days?.[dateKey]?.workout?.exercises?.[0]?.sets?.length ?? 0;
+  }, date)).toBe(0);
+});
+
+test("body measurements keep the draft when persistence fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers the body measurement transaction.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  });
+
+  await page.goto("/progress?tab=body");
+  const weight = page.getByRole("textbox", { name: "体重", exact: true });
+  await weight.fill("80.5");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.locator("[data-measure-save]").click();
+
+  await expect(page.getByText("身体数据未能保存，请重试", { exact: true })).toBeVisible();
+  await expect(weight).toHaveValue("80.5");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").bodyWeights?.length ?? 0)).toBe(0);
+});
+
+test("recovery and cardio logs do not acknowledge failed writes", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers the remaining explicit daily logs.");
+  const date = localDateKey();
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "zh");
+    if (sessionStorage.getItem("fitlog:e2e:daily-log-seeded")) return;
+    sessionStorage.setItem("fitlog:e2e:daily-log-seeded", "1");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /恢复状态/ }).click();
+  const sleep = page.getByRole("textbox", { name: "睡眠时长" });
+  await sleep.fill("7.5");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "保存状态" }).click();
+  await expect(page.getByText("状态记录未能保存，请重试", { exact: true })).toBeVisible();
+  await expect(sleep).toHaveValue("7.5");
+  await expect.poll(() => page.evaluate((dateKey) => Boolean(JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.recovery), date)).toBe(false);
+
+  await page.goto("/cardio");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: /走路 30 分/ }).click();
+  await expect(page.getByText("有氧记录未能保存，请重试", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate((dateKey) => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.[dateKey]?.cardio?.length ?? 0, date)).toBe(0);
+});
+
+test("weekly schedule choices roll back when persistence fails", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser covers immediate schedule commands.");
+  await page.addInitScript(() => {
+    localStorage.setItem("fitlog:locale", "zh");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "push", "pull", "rest"] },
+    }));
+  });
+
+  await page.goto("/schedule");
+  const monday = page.getByRole("group", { name: "周一 · 训练安排" });
+  const push = monday.getByRole("button", { name: "推", exact: true });
+  const legs = monday.getByRole("button", { name: "腿", exact: true });
+  await expect(push).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === "fitlog:v1") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      originalSetItem.call(this, key, value);
+    };
+  });
+  await legs.click();
+
+  await expect(page.getByText("每周排程未能保存，请重试", { exact: true })).toBeVisible();
+  await expect(push).toHaveAttribute("aria-pressed", "true");
+  await expect(legs).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").schedule?.split?.[0])).toBe("push");
+});
+
 for (const visualMode of ["lite", "pulse", "midnight", "survival"]) {
 test(`active product routes meet the WCAG AA baseline in ${visualMode}`, async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-390", "Accessibility is audited once at the primary mobile viewport.");

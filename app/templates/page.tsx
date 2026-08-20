@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
+import { useStore, type CustomExerciseDraft } from "@/lib/store";
 import { localeText, useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
 import { PERSISTENCE_EVENT, type PersistenceEventDetail } from "@/lib/persistence";
@@ -110,7 +110,12 @@ export default function TemplatesPage() {
   useEffect(() => {
     const onPersistence = (event: Event) => {
       const detail = (event as CustomEvent<PersistenceEventDetail>).detail;
-      if (detail.status !== "saved") return;
+      if (detail.status !== "saved") {
+        if (hideTimer.current) clearTimeout(hideTimer.current);
+        hideTimer.current = undefined;
+        setShowSaved(false);
+        return;
+      }
       setShowSaved(true);
       if (hideTimer.current) clearTimeout(hideTimer.current);
       hideTimer.current = setTimeout(() => setShowSaved(false), 1500);
@@ -302,7 +307,7 @@ function TemplateCard({
 }) {
   const { locale, tr } = useI18n();
   const toast = useToast();
-  const { data, setTemplateItems, renameTemplate, duplicateTemplate, moveTemplate, deleteTemplate } = useStore();
+  const { data, setTemplateItems, commitTemplateItems, renameTemplate, duplicateTemplate, moveTemplate, deleteTemplate, createCustomExerciseInTemplate } = useStore();
   const items = tpl.items;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -353,22 +358,33 @@ function TemplateCard({
     }));
   }
   function remove(idx: number) {
-    setTemplateItems(tpl.id, items.filter((_, i) => i !== idx));
+    if (!commitTemplateItems(tpl.id, items.filter((_, index) => index !== idx))) {
+      toast.show(localeText(locale, "动作未能从模板移除，请重试", "The exercise could not be removed from the template. Try again.", "テンプレートから種目を削除できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
   }
   function move(idx: number, dir: -1 | 1) {
     const j = idx + dir;
     if (j < 0 || j >= items.length) return;
     const next = [...items];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setTemplateItems(tpl.id, next);
+    if (!commitTemplateItems(tpl.id, next)) {
+      toast.show(localeText(locale, "动作顺序未能保存，请重试", "The exercise order could not be saved. Try again.", "種目順を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
   }
   function add(p: ExercisePreset) {
     if (items.some((it) => it.exerciseId === p.id)) return;
     const prescription = prescriptionForPreset(p, tpl.type);
-    setTemplateItems(tpl.id, [
+    if (!commitTemplateItems(tpl.id, [
       ...items,
       { exerciseId: p.id, name: p.name, sets: prescription.workingSets, repsLow: prescription.targetRepMin, repsHigh: prescription.targetRepMax, prescription, recordModes: p.recordModes },
-    ]);
+    ])) {
+      toast.show(localeText(locale, "动作未能加入模板，请重试", "The exercise could not be added to the template. Try again.", "種目をテンプレートに追加できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
+  }
+
+  function moveCard(dir: -1 | 1) {
+    if (moveTemplate(tpl.id, dir)) return;
+    toast.show(localeText(locale, "模板顺序未能保存，请重试", "The template order could not be saved. Try again.", "テンプレート順を保存できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   function setTrackMode(index: number, mode: "shared" | "independent") {
@@ -427,7 +443,7 @@ function TemplateCard({
           <span className="flex shrink-0 items-center gap-1">
             <button
               type="button"
-              onClick={() => moveTemplate(tpl.id, -1)}
+              onClick={() => moveCard(-1)}
               disabled={!canMoveUp}
               aria-label={tr("上移模板")}
               className="press grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-faint disabled:opacity-30"
@@ -438,7 +454,7 @@ function TemplateCard({
             </button>
             <button
               type="button"
-              onClick={() => moveTemplate(tpl.id, 1)}
+              onClick={() => moveCard(1)}
               disabled={!canMoveDown}
               aria-label={tr("下移模板")}
               className="press grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-faint disabled:opacity-30"
@@ -650,6 +666,7 @@ function TemplateCard({
             <MusclePicker
               addedIds={new Set(items.map((i) => i.exerciseId))}
               onPick={add}
+              onCreateCustom={(draft) => createCustomExerciseInTemplate(tpl.id, draft)}
               onClose={() => setPickerOpen(false)}
             />
           ) : (
@@ -725,14 +742,17 @@ function Stepper({
 function MusclePicker({
   addedIds,
   onPick,
+  onCreateCustom,
   onClose,
 }: {
   addedIds: Set<string>;
   onPick: (p: ExercisePreset) => void;
+  onCreateCustom: (draft: CustomExerciseDraft) => boolean;
   onClose: () => void;
 }) {
-  const { tr } = useI18n();
-  const { data, addCustomExercise, toggleFavoriteExercise } = useStore();
+  const { locale, tr } = useI18n();
+  const toast = useToast();
+  const { data, toggleFavoriteExercise } = useStore();
   const pool = useMemo(
     () => [...DEFAULT_EXERCISES, ...data.customExercises],
     [data.customExercises]
@@ -755,11 +775,31 @@ function MusclePicker({
   function createHere() {
     const name = newName.trim();
     if (!name || muscle === null || muscle === "untagged" || muscle === "favorites") return;
-    const p = addCustomExercise(name, false, muscle, newEquip || undefined, CUSTOM_RECORD_MODES[newRecordKind]);
-    onPick(p);
+    const created = onCreateCustom({
+      name,
+      isMain: false,
+      primaryMuscle: muscle,
+      equipment: newEquip || undefined,
+      recordModes: CUSTOM_RECORD_MODES[newRecordKind],
+    });
+    if (!created) {
+      toast.show(localeText(
+        locale,
+        "动作未能保存并加入模板，请重试",
+        "The exercise could not be saved and added to the template. Try again.",
+        "種目を保存してテンプレートに追加できませんでした。もう一度お試しください。",
+      ), { tone: "error" });
+      return;
+    }
     setNewName("");
     setNewEquip("");
     setNewRecordKind("weightReps");
+    toast.show(localeText(locale, "已新建并加入模板", "Created and added to the template", "作成してテンプレートに追加しました"));
+  }
+
+  function toggleFavorite(id: string) {
+    if (toggleFavoriteExercise(id)) return;
+    toast.show(localeText(locale, "收藏状态未能保存，请重试", "The favorite could not be saved. Try again.", "お気に入りを保存できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   const activeSearch = Boolean(query.trim() || equipmentFilter);
@@ -832,7 +872,7 @@ function MusclePicker({
             }
             return (
               <div key={p.id} className="flex items-stretch gap-1">
-                <button type="button" onClick={() => toggleFavoriteExercise(p.id)} aria-label={favoriteIds.has(p.id) ? tr("取消收藏") : tr("收藏动作")} className={"press grid w-9 shrink-0 place-items-center rounded-lg border " + (favoriteIds.has(p.id) ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface text-faint")}>
+                <button type="button" onClick={() => toggleFavorite(p.id)} aria-label={favoriteIds.has(p.id) ? tr("取消收藏") : tr("收藏动作")} className={"press grid w-9 shrink-0 place-items-center rounded-lg border " + (favoriteIds.has(p.id) ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface text-faint")}>
                   {favoriteIds.has(p.id) ? "★" : "☆"}
                 </button>
                 <button type="button"

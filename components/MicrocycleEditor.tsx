@@ -16,6 +16,7 @@ import { localeText, useI18n, type Locale } from "@/lib/i18n";
 import { useToday } from "@/lib/hooks";
 import { isWorkoutSessionClosed } from "@/lib/trainingMetrics";
 import InlineConfirm from "@/components/ui/InlineConfirm";
+import { useToast } from "@/lib/toast";
 
 const TYPE_OPTIONS: Array<{ value: Exclude<TrainingType, "custom">; label: string }> = [
   { value: "push", label: "推" },
@@ -31,8 +32,9 @@ function stepId() {
 }
 
 export default function MicrocycleEditor() {
-  const { data, setSchedule, setMesocycleTargetCycles } = useStore();
+  const { data, setSchedule, commitSchedule, setMesocycleTargetCycles } = useStore();
   const { locale, tr } = useI18n();
+  const toast = useToast();
   const today = useToday();
   const steps = microcyclePatternFor(data.schedule);
   const progress = currentMicrocycleProgress(data);
@@ -42,14 +44,23 @@ export default function MicrocycleEditor() {
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
   const [confirmWeeklyReset, setConfirmWeeklyReset] = useState(false);
 
-  function save(next: MicrocycleStep[]) {
-    if (!next.length) return;
-    setSchedule({ ...data.schedule, microcycle: next.slice(0, 14) });
+  function save(next: MicrocycleStep[], immediate = true) {
+    if (!next.length) return false;
+    const schedule = { ...data.schedule, microcycle: next.slice(0, 14) };
+    if (!immediate) {
+      setSchedule(schedule);
+      return true;
+    }
+    const saved = commitSchedule(schedule);
+    if (!saved) {
+      toast.show(tx(locale, "微周期计划未能保存，请重试", "The microcycle plan could not be saved. Try again.", "マイクロサイクル計画を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+    }
+    return saved;
   }
 
-  function update(index: number, patch: Partial<MicrocycleStep>) {
+  function update(index: number, patch: Partial<MicrocycleStep>, immediate = true) {
     setPendingDeleteIndex(null);
-    save(steps.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step));
+    return save(steps.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step), immediate);
   }
 
   function templatesFor(type: TrainingType) {
@@ -74,9 +85,17 @@ export default function MicrocycleEditor() {
   }
 
   function useWeeklySchedule() {
-    setSchedule({ split: [...data.schedule.split] });
+    if (!commitSchedule({ split: [...data.schedule.split] })) {
+      toast.show(tx(locale, "每周排程未能恢复，请重试", "The weekly schedule could not be restored. Try again.", "週間スケジュールを復元できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
     setConfirmWeeklyReset(false);
     setPendingDeleteIndex(null);
+  }
+
+  function changeTargetCycles(cycles: number) {
+    if (setMesocycleTargetCycles(cycles)) return;
+    toast.show(tx(locale, "建设周期目标未能保存，请重试", "The build-cycle target could not be saved. Try again.", "構築周期の目標を保存できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   function remove(index: number) {
@@ -98,9 +117,9 @@ export default function MicrocycleEditor() {
         <div className="mb-3 flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2">
           <div className="min-w-0 flex-1"><p className="text-[11px] font-semibold text-fg">{phase === "deload" ? tx(locale, "当前 · 恢复周期", "Current · Recovery cycle", "現在・回復サイクル") : tx(locale, `中周期 ${mesocycle.index} · 建设 ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`, `Mesocycle ${mesocycle.index} · Build ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`, `メゾサイクル ${mesocycle.index}・構築 ${mesocycle.currentBuildCycle}/${mesocycle.targetBuildCycles}`)}</p><p className="mt-0.5 text-[9px] text-faint">{tx(locale, "建设周期目标", "Build-cycle target", "構築周期の目標")}</p></div>
           <div className="flex shrink-0 items-center rounded-lg border border-border bg-surface p-0.5">
-            <button type="button" onClick={() => setMesocycleTargetCycles(mesocycle.targetBuildCycles - 1)} disabled={mesocycle.targetBuildCycles <= Math.max(2, mesocycle.currentBuildCycle)} aria-label={tx(locale, "减少建设周期", "Decrease build cycles", "構築周期を減らす")} className="press grid h-10 w-10 place-items-center text-[17px] text-muted disabled:opacity-20">−</button>
+            <button type="button" onClick={() => changeTargetCycles(mesocycle.targetBuildCycles - 1)} disabled={mesocycle.targetBuildCycles <= Math.max(2, mesocycle.currentBuildCycle)} aria-label={tx(locale, "减少建设周期", "Decrease build cycles", "構築周期を減らす")} className="press grid h-10 w-10 place-items-center text-[17px] text-muted disabled:opacity-20">−</button>
             <span className="tnum w-8 text-center text-[13px] font-semibold text-fg">{mesocycle.targetBuildCycles}</span>
-            <button type="button" onClick={() => setMesocycleTargetCycles(mesocycle.targetBuildCycles + 1)} disabled={mesocycle.targetBuildCycles >= 8} aria-label={tx(locale, "增加建设周期", "Increase build cycles", "構築周期を増やす")} className="press grid h-10 w-10 place-items-center text-[17px] text-muted disabled:opacity-20">+</button>
+            <button type="button" onClick={() => changeTargetCycles(mesocycle.targetBuildCycles + 1)} disabled={mesocycle.targetBuildCycles >= 8} aria-label={tx(locale, "增加建设周期", "Increase build cycles", "構築周期を増やす")} className="press grid h-10 w-10 place-items-center text-[17px] text-muted disabled:opacity-20">+</button>
           </div>
         </div>
         <div className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[11px] text-muted">
@@ -149,8 +168,8 @@ export default function MicrocycleEditor() {
                       value={isDefaultMicrocycleStepLabel(step.label, step.type as Exclude<TrainingType, "custom">)
                         ? tr(defaultMicrocycleStepLabel(step.type as Exclude<TrainingType, "custom">))
                         : step.label}
-                      onChange={(event) => update(index, { label: event.target.value.slice(0, 24) })}
-                      onBlur={() => !step.label.trim() && update(index, { label: defaultMicrocycleStepLabel(step.type as Exclude<TrainingType, "custom">) })}
+                      onChange={(event) => update(index, { label: event.target.value.slice(0, 24) }, false)}
+                      onBlur={() => update(index, { label: step.label.trim() || defaultMicrocycleStepLabel(step.type as Exclude<TrainingType, "custom">) })}
                       aria-label={tx(locale, `第 ${index + 1} 步名称`, `Step ${index + 1} name`, `ステップ ${index + 1} の名前`)}
                       className="h-10 min-w-0 rounded-md border border-border bg-surface px-2.5 text-[16px] text-fg outline-none focus:border-accent sm:text-[13px]"
                     />

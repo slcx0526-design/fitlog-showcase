@@ -19,7 +19,7 @@ type BodyTrendMetric = "weight" | "waist" | "bodyFat";
 export default function BodyProgressReview() {
   const { locale } = useI18n();
   const today = useToday();
-  const { data, setBodyWeight, setWaist } = useStore();
+  const { data, commitBodyMeasurements } = useStore();
   const toast = useToast();
   const t = (zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
   const [weight, setWeight] = useState(0);
@@ -50,21 +50,17 @@ export default function BodyProgressReview() {
       );
       return;
     }
-    let count = 0;
-    if (changedWeight) {
-      setBodyWeight(today, weight);
-      count += 1;
+    if (!commitBodyMeasurements(today, {
+      weight: changedWeight ? weight : undefined,
+      waist: changedWaist ? waist : undefined,
+    })) {
+      toast.show(t("身体数据未能保存，请重试", "Body measurements could not be saved. Try again.", "身体測定値を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
     }
-    if (changedWaist) {
-      setWaist(today, waist);
-      count += 1;
-    }
-    if (count) {
-      haptic([8, 24, 8]);
-      toast.show(hasTodayRecord
-        ? t("同日测量已更新", "Today's measurements updated", "今日の測定値を更新しました")
-        : t("身体数据已保存", "Body measurements saved", "身体測定値を保存しました"));
-    }
+    haptic([8, 24, 8]);
+    toast.show(hasTodayRecord
+      ? t("同日测量已更新", "Today's measurements updated", "今日の測定値を更新しました")
+      : t("身体数据已保存", "Body measurements saved", "身体測定値を保存しました"));
   }
 
   const latestWeights = useMemo(

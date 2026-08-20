@@ -7,13 +7,13 @@ import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { haptic, pulseFeedback } from "@/lib/feedback";
 import { useUIMode } from "@/lib/uiMode";
-import { useI18n } from "@/lib/i18n";
+import { localeText, useI18n } from "@/lib/i18n";
 
 export default function MorningCheckIn({ date }: { date: string }) {
-  const { data, setBodyWeight, setWaist } = useStore();
+  const { data, commitBodyMeasurements } = useStore();
   const toast = useToast();
   const { mode } = useUIMode();
-  const { tr } = useI18n();
+  const { locale, tr } = useI18n();
   const [open, setOpen] = useState(false);
   const [waistOpen, setWaistOpen] = useState(false);
   const currentWeight = useMemo(() => data.bodyWeights.find((entry) => entry.date === date)?.weight, [data.bodyWeights, date]);
@@ -22,13 +22,22 @@ export default function MorningCheckIn({ date }: { date: string }) {
   const [waist, setWaistValue] = useState(0);
 
   function save() {
-    let saved = 0;
-    if (weight >= 30 && weight <= 300) { setBodyWeight(date, weight); saved += 1; setWeight(0); }
-    if (waist >= 30 && waist <= 200) { setWaist(date, waist); saved += 1; setWaistValue(0); }
+    const validWeight = weight >= 30 && weight <= 300;
+    const validWaist = waist >= 30 && waist <= 200;
+    const saved = Number(validWeight) + Number(validWaist);
     if (!saved) return;
+    if (!commitBodyMeasurements(date, {
+      weight: validWeight ? weight : undefined,
+      waist: validWaist ? waist : undefined,
+    })) {
+      toast.show(localeText(locale, "测量未能保存，请重试", "Measurements could not be saved. Try again.", "測定値を保存できませんでした。もう一度お試しください。"), { tone: "error" });
+      return;
+    }
+    if (validWeight) setWeight(0);
+    if (validWaist) setWaistValue(0);
     if (mode !== "pulse") haptic([8, 30, 8]);
     pulseFeedback("finish");
-    toast.show(saved === 2 ? tr("晨重和腰围已记录") : saved === 1 && waist >= 30 ? tr("腰围已记录") : tr("晨重已记录"));
+    toast.show(saved === 2 ? tr("晨重和腰围已记录") : validWaist ? tr("腰围已记录") : tr("晨重已记录"));
     setOpen(false);
   }
 

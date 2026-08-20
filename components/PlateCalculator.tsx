@@ -5,12 +5,14 @@ import type { Exercise } from "@/lib/types";
 import { calculatePlateLoad, DEFAULT_PLATE_SIZES_KG, supportsPlateCalculator } from "@/lib/plateCalculator";
 import { useStore } from "@/lib/store";
 import { useI18n, type Locale } from "@/lib/i18n";
+import { useToast } from "@/lib/toast";
 
 const tx = (locale: Locale, zh: string, en: string, ja: string) => locale === "en" ? en : locale === "ja" ? ja : zh;
 
 export default function PlateCalculator({ exercise, targetKg }: { exercise: Exercise; targetKg: number | null }) {
   const { locale } = useI18n();
   const { data, setTrainingPreferences } = useStore();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   if (!supportsPlateCalculator(exercise) || !targetKg || targetKg <= 0) return null;
 
@@ -22,7 +24,12 @@ export default function PlateCalculator({ exercise, targetKg }: { exercise: Exer
     const active = plateSizes.includes(plate);
     const next = active ? plateSizes.filter((value) => value !== plate) : [...plateSizes, plate];
     if (!next.length) return;
-    setTrainingPreferences({ plateSizesKg: next });
+    savePreferences({ plateSizesKg: next });
+  }
+
+  function savePreferences(patch: Parameters<typeof setTrainingPreferences>[0]) {
+    if (setTrainingPreferences(patch)) return;
+    toast.show(tx(locale, "杠铃片设置未能保存，请重试", "Plate settings could not be saved. Try again.", "プレート設定を保存できませんでした。もう一度お試しください。"), { tone: "error" });
   }
 
   return (
@@ -47,7 +54,7 @@ export default function PlateCalculator({ exercise, targetKg }: { exercise: Exer
                 <button
                   key={weight}
                   type="button"
-                  onClick={() => setTrainingPreferences({ barbellWeightKg: weight })}
+                  onClick={() => savePreferences({ barbellWeightKg: weight })}
                   aria-pressed={barbellKg === weight}
                   className={"choice-chip press h-7 px-2 text-[10px] font-semibold " + (barbellKg === weight ? "bg-fg text-bg" : "text-muted")}
                 >
