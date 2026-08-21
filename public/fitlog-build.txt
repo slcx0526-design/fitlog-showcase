@@ -1,1 +1,1 @@
-FitLog 15.3.0 atomic records and plan controls
+FitLog 16.0.0 visual system and workout-first hierarchy

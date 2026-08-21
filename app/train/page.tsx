@@ -3,6 +3,7 @@
 import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useUIMode } from "@/lib/uiMode";
 import { useToday } from "@/lib/hooks";
@@ -19,6 +20,7 @@ import SessionGuide from "@/components/SessionGuide";
 import CycleReviewPanel from "@/components/CycleReviewPanel";
 import IntegratedCoachBrief from "@/components/IntegratedCoachBrief";
 import TrainingPolicyShortcut from "@/components/TrainingPolicyShortcut";
+import CutTrainingNotice from "@/components/CutTrainingNotice";
 
 const START_TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 
@@ -73,9 +75,9 @@ function TrainInner() {
         : headerType
           ? typeName[headerType](mode)
           : t("训练", "Training", "トレーニング");
-  return <div>
-    <header className="mb-5">
-      <div className="mb-2 flex items-center justify-between"><Link href={isPast ? "/progress?tab=log" : "/"} className="page-back-link press"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{isPast ? t("日志", "Log", "ログ") : t("今天", "Today", "今日")}</Link><div className="flex items-center gap-2"><Link href="/schedule" className="page-utility-link press">{t("计划", "Plan", "プラン")}</Link><Link href="/templates" className="page-utility-link press">{t("模板", "Templates", "テンプレート")}</Link><TrainingPolicyShortcut /></div></div>
+  return <div className="page-shell training-page">
+    <header className="mb-4">
+      <div className="mb-2 flex items-center justify-between"><Link href={isPast ? "/progress?tab=log" : "/"} className="page-back-link press"><ChevronLeft aria-hidden="true" size={16} strokeWidth={2} />{isPast ? t("日志", "Log", "ログ") : t("今天", "Today", "今日")}</Link><div className="flex items-center gap-2"><Link href="/schedule" className="page-utility-link press">{t("计划", "Plan", "プラン")}</Link><Link href="/templates" className="page-utility-link press">{t("模板", "Templates", "テンプレート")}</Link><TrainingPolicyShortcut /></div></div>
       <div className="page-heading">
         <div><p className="page-heading__eyebrow">{isPast ? t("历史训练", "Past session", "過去のセッション") : t("训练记录", "Training log", "トレーニング記録")}</p><h1>{title}</h1><p className="page-heading__meta tnum">{formatDisplay(date, locale)}</p></div>
         {done ? <span className="page-status">{t("已完成", "Completed", "完了")}</span> : isActive ? <span className="page-status"><span className="active-dot h-1.5 w-1.5 rounded-full bg-accent" />{t("进行中", "In progress", "進行中")}</span> : null}
@@ -93,10 +95,15 @@ function TrainInner() {
       </div>
       <CycleReviewPanel reviewDate={date} />
     </div> : <>
-      {!isPast && !workout && <IntegratedCoachBrief compact showAction={false} />}
-      {!isPast && <SessionGuide workout={workout} />}
-      <SessionVolumePlan date={date} workout={workout} />
-      <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />
+      <div className="training-command-stack">
+        {!isPast && <SessionGuide workout={workout} />}
+        <TrainingModuleStable date={date} suggestedType={isPast ? null : scheduled} />
+      </div>
+      <div className="training-support-stack">
+        <SessionVolumePlan date={date} workout={workout} />
+        <CutTrainingNotice />
+        {!isPast && !workout && <IntegratedCoachBrief compact showAction={false} />}
+      </div>
     </>}
   </div>;
 }

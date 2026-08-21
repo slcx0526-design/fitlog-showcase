@@ -80,7 +80,7 @@ export default function BodyProgressReview() {
       : t("请输入体重或腰围", "Enter weight or waist", "体重またはウエストを入力");
 
   return <div className="space-y-4">
-    <section className="control-card p-3.5">
+    <section className="progress-measure-panel control-card p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[14px] font-semibold text-fg">{t("今天的测量", "Today's measurements", "今日の測定")}</p>
@@ -97,7 +97,7 @@ export default function BodyProgressReview() {
       <button type="button" data-measure-save data-ready={canSave ? "true" : "false"} aria-disabled={!canSave} onClick={save} className={"progress-measure-save press mt-3 flex h-[44px] w-full items-center justify-center rounded-[14px] text-[14px] font-semibold " + (canSave ? "bg-fg text-bg" : "border border-border bg-surface-2 text-muted")}>{actionLabel}</button>
     </section>
 
-    <section>
+    <section className="progress-trend-section">
       <SectionTitle title={t("身体趋势", "Body trends", "身体の推移")} helper={t("一张图切换体重、腰围和 RFM 体脂估算", "Switch weight, waist, and RFM body-fat estimate in one chart", "1つのグラフで体重・ウエスト・RFM体脂肪推定を切り替え")} />
       <div className="control-strip mb-2 grid grid-cols-3 gap-1 rounded-2xl p-1" aria-label={t("身体趋势指标", "Body trend metric", "身体推移の指標")}>
         {([
@@ -111,7 +111,7 @@ export default function BodyProgressReview() {
       {trendMetric === "bodyFat" && <BodyFatTrendChart profile={data.profile} waistEntries={data.waistEntries} />}
     </section>
 
-    <section>
+    <section className="progress-bodyfat-section">
       <SectionTitle title={t("体脂估算", "Body-fat estimate", "体脂肪推定")} helper={t("RFM 当前值和公式说明；趋势在上方切换查看", "Current RFM value and formula; switch the trend above", "現在のRFM値と式。推移は上で切り替え")} />
       <BodyFatEstimateCard profile={data.profile} waistEntries={data.waistEntries} bodyWeights={data.bodyWeights} />
     </section>

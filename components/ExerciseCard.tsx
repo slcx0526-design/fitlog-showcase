@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Minus, MoreHorizontal, Plus, X } from "lucide-react";
 import type { Exercise, PerformanceMode, SetRecord } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -283,18 +284,14 @@ export default function ExerciseCard({
             {workSummary.completionCredits > 0 && <span className="tnum text-faint">{formatSetCredit(workSummary.completionCredits)} {setUnit}</span>}
           </span>
         </span>
-        <svg className={`exercise-card__chevron ${open ? "is-open" : ""}`} aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M7 10L12 15L17 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <ChevronDown className={`exercise-card__chevron ${open ? "is-open" : ""}`} aria-hidden="true" size={16} strokeWidth={1.8} />
       </button>
       {!readOnly && <IconButton
         onClick={() => exercise.sets.length ? setConfirmDelete(true) : deleteExercise()}
         label={tx(locale, "删除动作", "Delete exercise", "種目を削除")}
         tone="danger"
       >
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
+        <X aria-hidden="true" size={16} strokeWidth={1.8} />
       </IconButton>}
     </div>
 
@@ -360,22 +357,22 @@ export default function ExerciseCard({
         </div>}
         {!readOnly && <div className="set-row__actions ml-auto flex shrink-0 items-center gap-1">
           <IconButton onClick={() => setOptions((current) => current === index ? null : index)} aria-expanded={options === index} aria-controls={optionsId} label={tx(locale, "组设置", "Set options", "セット設定")}>
-            <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>
+            <MoreHorizontal aria-hidden="true" size={17} strokeWidth={2} />
           </IconButton>
           <IconButton onClick={() => deleteSet(index)} label={tx(locale, "删除组", "Delete set", "セットを削除")} tone="danger">
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 12H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+            <Minus aria-hidden="true" size={16} strokeWidth={1.8} />
           </IconButton>
         </div>}
         {!readOnly && options === index && <div id={optionsId} className="set-row__details w-full"><SetCapacityOptions set={set} onChange={(value) => patch(index, value)} /></div>}
       </div>;
       })}
-      {!readOnly && <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg">+ {acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>}
+      {!readOnly && <button type="button" onClick={() => add()} className="press mt-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-border bg-surface-2 text-[13px] font-semibold text-fg"><Plus aria-hidden="true" size={15} strokeWidth={2} />{acceptedWeight != null && performanceMode === "reps" ? tx(locale, `下一组 · ${acceptedWeight}kg`, `Next set · ${acceptedWeight}kg`, `次セット · ${acceptedWeight}kg`) : recordsWeight && carry && carry.weight > 0 ? tx(locale, `下一组 · ${carry.weight}kg`, `Next set · ${carry.weight}kg`, `次セット · ${carry.weight}kg`) : tx(locale, "添加下一组", "Add next set", "次のセットを追加")}</button>}
       {!readOnly && recordsWeight && (acceptedWeight != null || (carry?.weight ?? 0) > 0) && <button type="button" onClick={() => add(true)} className="press mt-1 h-8 w-full text-[11px] text-muted">{tx(locale, "添加空白组", "Add empty set", "空のセットを追加")}</button>}
       {!readOnly && nextExercise && plannedSets > 0 && workSummary.completionCredits >= plannedSets && <button type="button" onClick={goToNextExercise} className="press mt-2 flex h-10 w-full items-center justify-center rounded-xl bg-accent-soft px-3 text-[12px] font-semibold text-accent">
         {exercise.supersetGroup && nextExercise.supersetGroup === exercise.supersetGroup
           ? tx(locale, `切换超级组 ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `Superset ${exercise.supersetGroup} · ${tr(nextExercise.name)}`, `スーパーセット ${exercise.supersetGroup}・${tr(nextExercise.name)}`)
           : tx(locale, `本动作完成 · 下一项 ${tr(nextExercise.name)}`, `Exercise complete · Next ${tr(nextExercise.name)}`, `種目完了・次は ${tr(nextExercise.name)}`)}
-        <span className="ml-1.5" aria-hidden="true">→</span>
+        <ChevronRight className="ml-1.5" aria-hidden="true" size={15} strokeWidth={2} />
       </button>}
       </div>
     </div>}

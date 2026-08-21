@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { ChevronRight, TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useUIMode } from "@/lib/uiMode";
 import {
@@ -77,7 +78,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div>
+    <div className="page-shell schedule-page">
       <header className="page-heading mb-5">
         <div>
           <p className="page-heading__eyebrow">{tr("训练规划")}</p>
@@ -89,12 +90,10 @@ export default function SchedulePage() {
 
       {/* —— 今日计划 + 入口 —— */}
       <section className="mb-5">
-        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
-          {tr("今日")}
-        </h2>
+        <div className="section-heading"><h2>{tr("今日")}</h2></div>
         <Link
           href="/train"
-          className="action-card control-card block px-4 py-4"
+          className="schedule-today-command action-card control-card block px-4 py-4"
         >
           <div className="flex items-baseline justify-between gap-3">
             <div>
@@ -112,8 +111,8 @@ export default function SchedulePage() {
                   : tr("未规划")}
               </p>
             </div>
-            <span className="text-[13px] font-medium text-muted">
-              {persona.startSession(mode)} →
+            <span className="flex items-center gap-1 text-[13px] font-medium text-muted">
+              {persona.startSession(mode)} <ChevronRight aria-hidden="true" size={16} strokeWidth={1.9} />
             </span>
           </div>
         </Link>
@@ -121,10 +120,8 @@ export default function SchedulePage() {
 
       {/* —— 每周排程编辑 —— */}
       <section className="mb-5">
-        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
-          {tr("每周排程")}
-        </h2>
-        <div className="control-card px-3 py-1">
+        <div className="section-heading"><h2>{tr("每周排程")}</h2></div>
+        <div className="schedule-week-list control-card">
           {WEEKDAY_LABELS.map((label, idx) => {
             const canOpen = week[idx] <= today;
             const daySummary = <>
@@ -135,8 +132,8 @@ export default function SchedulePage() {
               <span className="tnum text-[11px] text-faint">{formatCompact(week[idx], locale).md}</span>
               {canOpen ? <DayStatus date={week[idx]} /> : <span className="ml-auto text-[10px] font-medium text-faint">{localeText(locale, "待开始", "Upcoming", "予定")}</span>}
             </>;
-            return <div key={idx} className="soft-divider border-t py-2.5 first:border-t-0">
-              <div className="mb-1.5 flex items-center gap-2">
+            return <div key={idx} className="schedule-day-row soft-divider border-t first:border-t-0">
+              <div className="schedule-day-row__header flex items-center gap-2">
                 {canOpen ? <Link href={`/train?date=${week[idx]}`} className={"press flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 " + (idx === todayIdx ? "text-accent" : "text-fg")}>{daySummary}</Link> : <div className="flex min-h-10 min-w-0 flex-1 items-center gap-2 px-1.5 text-muted">{daySummary}</div>}
                 {canOpen && <Link href={`/train?date=${week[idx]}`} className="press flex min-h-10 items-center rounded-lg bg-surface-2 px-3 text-[11px] font-semibold text-accent">
                   {tr("训练")}
@@ -174,9 +171,7 @@ export default function SchedulePage() {
 
       {/* —— 训练模板入口 —— */}
       <section className="mb-5">
-        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
-          {tr("训练模板")}
-        </h2>
+        <div className="section-heading"><h2>{tr("训练模板")}</h2></div>
         <Link
           href="/templates"
           className="control-card press flex items-center gap-3 px-3.5 py-3"
@@ -188,9 +183,7 @@ export default function SchedulePage() {
             </p>
           </div>
           <TplSummary />
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0 text-faint">
-            <path d="M9 6L15 12L9 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <ChevronRight aria-hidden="true" size={16} strokeWidth={2} className="shrink-0 text-faint" />
         </Link>
       </section>
 
@@ -199,9 +192,7 @@ export default function SchedulePage() {
 
       {/* —— 状态：连续 + 近 28 天 + 减载提醒 —— */}
       <section>
-        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">
-          {tr("训练状态")}
-        </h2>
+        <div className="section-heading"><h2>{tr("训练状态")}</h2></div>
         <div className="control-card grid grid-cols-2 gap-2 p-3">
           <Stat
             label={persona.streak(mode)}
@@ -216,15 +207,7 @@ export default function SchedulePage() {
         </div>
         {analysis.recovery.active ? (
           <p className="mt-2 flex items-center gap-2 rounded-md border border-warn-soft bg-warn-soft px-3 py-2 text-[12px] text-warn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 8V13M12 16.5V16.6M4.9 19H19.1L12 5L4.9 19Z"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <TriangleAlert aria-hidden="true" size={14} strokeWidth={1.8} />
             <span>
               {localeText(locale, `恢复优先：${analysis.recovery.regressingExercises} 个动作持续回落，最近 ${analysis.load.difficultySamples} 次难度记录中 ${analysis.load.hardSessions} 次吃力。`, `Recovery first: ${analysis.recovery.regressingExercises} exercises are regressing and ${analysis.load.hardSessions} of ${analysis.load.difficultySamples} recent sessions felt hard.`, `回復優先：${analysis.recovery.regressingExercises} 種目が低下し、直近 ${analysis.load.difficultySamples} 回中 ${analysis.load.hardSessions} 回がきつい状態です。`)}
             </span>

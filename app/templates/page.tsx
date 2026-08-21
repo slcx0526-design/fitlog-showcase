@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Check, ChevronDown, ChevronLeft, ChevronUp, Copy, CopyPlus, Plus, Trash2 } from "lucide-react";
 import { useStore, type CustomExerciseDraft } from "@/lib/store";
 import { localeText, useI18n } from "@/lib/i18n";
 import { useToast } from "@/lib/toast";
@@ -139,15 +140,13 @@ export default function TemplatesPage() {
   const all = data.templates ?? [];
 
   return (
-    <div>
+    <div className="page-shell templates-page">
       <header className="mb-4">
         <Link
           href="/schedule"
           className="page-back-link press mb-1"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <ChevronLeft aria-hidden="true" size={16} strokeWidth={2} />
           {tr("计划")}
         </Link>
         <div className="page-heading">
@@ -164,9 +163,7 @@ export default function TemplatesPage() {
               }
               aria-hidden={!showSaved}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <path d="M5 13L9 17L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Check aria-hidden="true" size={13} strokeWidth={2.4} />
               {tr("已保存")}
             </span>
             <TrainingPolicyShortcut />
@@ -197,10 +194,7 @@ export default function TemplatesPage() {
           }
           className="press mt-5 flex h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface text-[14px] font-medium text-fg"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <Copy aria-hidden="true" size={15} strokeWidth={1.8} />
           {tr("复制全部计划")}
         </button>
       )}
@@ -245,8 +239,8 @@ function TypeSection({
   }
 
   return (
-    <section>
-      <div className="mb-2 flex items-baseline justify-between px-0.5">
+    <section className="template-type-section">
+      <div className="section-heading">
         <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted">
           {tr(TYPE_LABEL[type])}
         </h2>
@@ -255,7 +249,7 @@ function TypeSection({
         </span>
       </div>
 
-      <div className="space-y-2">
+      <div className="template-type-section__list">
         {templates.map((tpl, index) => (
           <TemplateCard
             key={tpl.id}
@@ -271,17 +265,13 @@ function TypeSection({
           onClick={add}
           disabled={full}
           className={
-            "press flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed text-[13px] font-medium " +
+            "template-create-button press flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed text-[13px] font-medium " +
             (full
               ? "border-border text-faint opacity-50"
               : "border-border-strong text-muted active:bg-surface-2")
           }
         >
-          {!full && (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-              <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          )}
+          {!full && <Plus aria-hidden="true" size={15} strokeWidth={2} />}
           {full ? tr("已达上限 5 个") : tr("新建模板")}
         </button>
       </div>
@@ -431,13 +421,13 @@ function TemplateCard({
           <span className="tnum shrink-0 text-[12px] text-muted">
             {items.length ? tr("{n} 动作 · {m} 组", { n: items.length, m: totalSets }) : tr("空模板")}
           </span>
-          <svg
-            width="16" height="16" viewBox="0 0 24 24" fill="none"
+          <ChevronDown
+            aria-hidden="true"
+            size={16}
+            strokeWidth={2}
             className="shrink-0 text-faint"
             style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}
-          >
-            <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          />
         </button>
         {(canMoveUp || canMoveDown) && (
           <span className="flex shrink-0 items-center gap-1">
@@ -448,9 +438,7 @@ function TemplateCard({
               aria-label={tr("上移模板")}
               className="press grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-faint disabled:opacity-30"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="M6 15L12 9L18 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <ChevronUp aria-hidden="true" size={14} strokeWidth={2} />
             </button>
             <button
               type="button"
@@ -459,9 +447,7 @@ function TemplateCard({
               aria-label={tr("下移模板")}
               className="press grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-faint disabled:opacity-30"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="M6 9L12 15L18 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <ChevronDown aria-hidden="true" size={14} strokeWidth={2} />
             </button>
           </span>
         )}
@@ -498,10 +484,7 @@ function TemplateCard({
               aria-label={tr("复制为新模板")}
               className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-accent"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M8 7H6.5C5.7 7 5 7.7 5 8.5V18.5C5 19.3 5.7 20 6.5 20H16.5C17.3 20 18 19.3 18 18.5V17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                <rect x="8" y="4" width="11" height="11" rx="1.8" stroke="currentColor" strokeWidth="1.7" />
-              </svg>
+              <CopyPlus aria-hidden="true" size={16} strokeWidth={1.8} />
             </button>
             <button type="button"
               onClick={() =>
@@ -514,10 +497,7 @@ function TemplateCard({
               aria-label={tr("复制文字计划")}
               className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-accent"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <Copy aria-hidden="true" size={16} strokeWidth={1.8} />
             </button>
             {confirmDel ? (
               <button type="button"
@@ -538,9 +518,7 @@ function TemplateCard({
                 aria-label={tr("删除模板")}
                 className="press grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-border bg-surface text-faint hover:text-warn"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <Trash2 aria-hidden="true" size={16} strokeWidth={1.7} />
               </button>
             )}
           </div>

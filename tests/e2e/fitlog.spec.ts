@@ -1216,7 +1216,16 @@ test("all visual modes keep core mobile flows contained", async ({ page }, testI
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   const modes = ["lite", "pulse", "midnight", "survival"];
-  const routes = ["/", "/train", "/progress?tab=training", "/settings"];
+  const routes = [
+    "/",
+    "/train",
+    "/templates",
+    "/schedule",
+    "/progress?tab=body",
+    "/progress?tab=training",
+    "/progress?tab=log",
+    "/settings",
+  ];
 
   await page.addInitScript(({ dateKey }) => {
     localStorage.setItem("fitlog:v1", JSON.stringify({
@@ -1252,7 +1261,11 @@ test("all visual modes keep core mobile flows contained", async ({ page }, testI
       await expect(page.locator("html")).toHaveAttribute("data-mode", mode);
       await expect(page.locator("main")).toBeVisible();
       if (route === "/") await expect(page.locator("[data-daily-overview]")).toBeVisible();
-      if (route === "/train") await expect(page.locator("[data-session-guide]")).toBeVisible();
+      if (route === "/train") {
+        await expect(page.locator("[data-session-guide]")).toBeVisible();
+        const exerciseTop = await page.locator("#exercise-px_barbell_bench").evaluate((element) => element.getBoundingClientRect().top);
+        expect(exerciseTop, `${mode} active exercise should remain in the first viewport`).toBeLessThan(680);
+      }
       const layout = await page.evaluate(() => ({
         viewport: window.innerWidth,
         body: document.body.scrollWidth,

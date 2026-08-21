@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 import type { TrainingType } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -14,7 +15,6 @@ import { useRestTimerControls } from "@/lib/restTimer";
 import { haptic } from "@/lib/feedback";
 import ExerciseCard from "./ExerciseCard";
 import AddExercisePanel from "./AddExercisePanel";
-import CutTrainingNotice from "./CutTrainingNotice";
 
 const TYPES: TrainingType[] = ["push", "pull", "legs", "rest", "custom"];
 const templateType = (type: TrainingType | undefined): type is "push" | "pull" | "legs" => type === "push" || type === "pull" || type === "legs";
@@ -166,9 +166,8 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
 
   const templates = (data.templates ?? []).filter((template) => template.type === type);
   const applicableTemplates = templates.filter((template) => template.items.length > 0);
-  return <section>
-    <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted">{tx(locale, "训练", "Training", "トレーニング")}</h2>
-    <CutTrainingNotice />
+  return <section className="training-module">
+    <h2 className="sr-only">{tx(locale, "训练", "Training", "トレーニング")}</h2>
     {type && type !== "rest" && <div className={"mb-3 rounded-xl border px-3 py-2.5 " + (cyclePhase === "deload" ? "border-warn/30 bg-warn-soft" : "border-border bg-surface") }>
       <div className="flex items-center justify-between gap-2"><p className="text-[11px] font-semibold text-fg">{cyclePhase === "deload" ? tx(locale, "恢复周期", "Recovery cycle", "回復サイクル") : cycleNumber ? tx(locale, `中周期 · 建设 ${cycleNumber}`, `Mesocycle · Build ${cycleNumber}`, `メゾサイクル・構築 ${cycleNumber}`) : tx(locale, "训练周期记录", "Training-cycle record", "トレーニング周期記録")}</p><span className="tnum text-[10px] text-faint">{cycleIndex ? `MC ${cycleIndex}` : ""}</span></div>
       {cyclePhase === "deload" && <p className="mt-1 text-[10px] leading-relaxed text-muted">{tx(locale, "工作组按恢复快照缩减，本轮不触发加重，也不覆盖正常训练轨道。", "Working sets use a reduced recovery snapshot; this cycle does not trigger load progression or overwrite normal tracks.", "セット数を回復用に縮小し、増量判定や通常トラックへの上書きは行いません。")}</p>}
@@ -187,7 +186,7 @@ export default function TrainingModuleStable({ date, suggestedType }: { date: st
       {!editingLocked && templates.length > 0 && <div className="flex flex-wrap gap-2">
         {applicableTemplates.map((template) => <button key={template.id} type="button" onClick={() => applySelectedTemplate(template.id, template.name)} className="choice-chip press min-w-0 flex-1 rounded-lg border border-accent/30 bg-accent-soft px-2 py-2 text-[12px] font-semibold text-accent"><span className="truncate">{tr(template.name || tx(locale, "未命名模板", "Untitled template", "無題のテンプレート"))}</span></button>)}
         {applicableTemplates.length > 0
-          ? <Link href="/templates" className="press grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>✎</Link>
+          ? <Link href="/templates" className="press grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}><Pencil aria-hidden="true" size={16} strokeWidth={1.8} /></Link>
           : <Link href="/templates" className="choice-chip press flex min-h-10 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-3 text-[12px] font-semibold text-muted" aria-label={tx(locale, "编辑模板", "Edit templates", "テンプレートを編集")}>{tx(locale, "模板为空，先添加动作", "Template is empty; add exercises first", "テンプレートは空です。先に種目を追加")}</Link>}
       </div>}
       {exercises.map((exercise, index) => <ExerciseCard

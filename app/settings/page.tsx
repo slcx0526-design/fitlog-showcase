@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { ChevronLeft, Pencil } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { maxHR, methodNote } from "@/lib/hr";
 import { LEVELS, weeklyTarget, MUSCLE_LABELS, EQUIPMENT_LABELS } from "@/lib/muscles";
@@ -31,10 +32,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
+    <div className="page-shell settings-page">
       <header className="mb-5">
         <Link href="/" className="page-back-link press mb-1">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <ChevronLeft aria-hidden="true" size={16} strokeWidth={2} />
           {tr("今天")}
         </Link>
         <div className="page-heading">
@@ -53,7 +54,7 @@ export default function SettingsPage() {
       <TrainingLevelSection />
 
       {data.customExercises.length > 0 && (
-        <section className="mb-6">
+        <section className="settings-section">
           <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{tr("自定义动作")}</h2>
           <div className="control-card overflow-hidden">
             {data.customExercises.map((exercise) => (
@@ -65,7 +66,7 @@ export default function SettingsPage() {
                       <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{tr(MUSCLE_LABELS[exercise.primaryMuscle])}{exercise.equipment ? ` · ${tr(EQUIPMENT_LABELS[exercise.equipment])}` : ""}</span>
                     ) : <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-faint">{tr("未分类")}</span>}
                     <button type="button" onClick={() => setEditId(exercise.id)} aria-label={`${tr("编辑")}${tr(exercise.name)}`} className="press grid h-9 w-9 place-items-center text-faint hover:text-accent">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6L18 10M4 20L4.5 16.5L15 6L18 9L7.5 19.5L4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <Pencil aria-hidden="true" size={15} strokeWidth={1.8} />
                     </button>
                   </div>
                 )}
@@ -92,7 +93,7 @@ function ProfileSection() {
   const calculated = maxHR(profile);
 
   return (
-    <section className="mb-6">
+    <section className="settings-section">
       <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{tr("身体数据")}</h2>
       <div className="control-card p-3">
         <div className="grid grid-cols-2 gap-2">
@@ -133,7 +134,7 @@ function TrainingLevelSection() {
   const level = data.profile?.trainingLevel;
   const target = level ? weeklyTarget(level) : null;
   const current = LEVELS.find((item) => item.value === level);
-  return <section className="mb-6">
+  return <section className="settings-section">
     <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{tr("训练水平")}</h2>
     <div className="control-card p-3">
       <div className="training-level-grid grid grid-cols-3 gap-2">
@@ -152,5 +153,5 @@ function LanguageSection() {
   const { locale, setLocale, tr } = useI18n();
   const locales: Locale[] = ["zh", "ja", "en"];
   const heading = locale === "en" ? "Language" : `${tr("语言")} · Language`;
-  return <section className="mb-6"><h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{heading}</h2><div className="control-card p-3"><div className="grid grid-cols-3 gap-2">{locales.map((item) => { const selected = locale === item; return <button type="button" key={item} onClick={() => setLocale(item)} className={`choice-chip press border px-2 py-2.5 text-center text-[13px] font-bold ${selected ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2 text-fg"}`}>{LOCALE_LABELS[item]}</button>; })}</div></div></section>;
+  return <section className="settings-section"><h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">{heading}</h2><div className="control-card p-3"><div className="grid grid-cols-3 gap-2">{locales.map((item) => { const selected = locale === item; return <button type="button" key={item} onClick={() => setLocale(item)} className={`choice-chip press border px-2 py-2.5 text-center text-[13px] font-bold ${selected ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2 text-fg"}`}>{LOCALE_LABELS[item]}</button>; })}</div></div></section>;
 }

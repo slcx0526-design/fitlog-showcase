@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { useUIMode, type UIMode } from "@/lib/uiMode";
 
@@ -42,7 +43,7 @@ export default function ThemeModeSelector() {
             <span className="mode-switchboard__mode-name">{item.name}</span>
             <span className="mode-switchboard__mode-tag">{tr(item.tag)}</span>
           </span>
-          <span className="mode-switchboard__check" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 12.5L9.2 16.5L19 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+          <span className="mode-switchboard__check" aria-hidden="true"><Check size={13} strokeWidth={2.4} /></span>
         </button>;
       })}
     </div>

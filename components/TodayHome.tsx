@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { ChevronRight, Dumbbell, Settings } from "lucide-react";
 import { resolveCutEnergyPlan } from "@/lib/cut";
 import { isCutModeActive } from "@/lib/cutMode";
 import { useStore } from "@/lib/store";
@@ -72,10 +73,10 @@ export default function TodayHome() {
 
   if (!loaded) return <div className="space-y-3"><div className="h-16 rounded-2xl bg-surface-2" /><div className="h-24 rounded-2xl bg-surface-2" /><div className="h-44 rounded-2xl bg-surface-2" /></div>;
 
-  return <div className="pb-2">
+  return <div className="page-shell pb-2">
     <header className="page-heading mb-5">
       <div><p className="page-heading__eyebrow">FITLOG</p><h1>{formatDisplay(today, locale)}</h1></div>
-      <Link href="/settings" aria-label={tr("设置")} className="page-icon-button press"><svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" /><path d="M12 2.75V5M12 19V21.25M4.75 12H2.5M21.5 12H19.25M6.9 6.9L5.3 5.3M18.7 18.7L17.1 17.1M6.9 17.1L5.3 18.7M18.7 5.3L17.1 6.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg></Link>
+      <Link href="/settings" aria-label={tr("设置")} className="page-icon-button press"><Settings aria-hidden="true" size={19} strokeWidth={1.8} /></Link>
     </header>
 
     {setupNeeded && <div className="mb-4"><SetupGuide /></div>}
@@ -83,12 +84,14 @@ export default function TodayHome() {
     {!setupNeeded && profileMissing && <section className="control-card mb-4 flex items-center gap-3 px-3.5 py-3"><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-fg">{tr("补齐基本资料")}</p><p className="mt-0.5 text-[11px] text-faint">{tr("身高、生理性别与出生年份用于热量和心率估算。")}</p></div><Link href="/settings" className="press rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px] font-semibold text-accent">{tr("去填写")}</Link></section>}
 
     <section className={"primary-workout-panel mb-3 " + (workout && !workoutClosed && workout.type !== "rest" ? "is-active" : "")}>
-      <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{workoutTitle}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workoutClosed, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workoutClosed ? "is-done" : "")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.5 8.5V15.5M17.5 8.5V15.5M3.7 10V14M20.3 10V14M6.5 10.5H17.5V13.5H6.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span></div>
-      <Link href={workoutHref} className="primary-command press">{primaryLabel}<span className="ml-2" aria-hidden="true">→</span></Link>
+      <div className="flex items-start justify-between gap-3"><div><p className="primary-workout-panel__label">{tr("今日训练")}</p><h2>{workoutTitle}</h2><p className="mt-1 text-[12px] text-muted">{trainingSubline(tr, workout?.type, workoutClosed, setCount, !!activeType)}</p></div><span className={"primary-workout-panel__icon " + (workoutClosed ? "is-done" : "")}><Dumbbell aria-hidden="true" size={20} strokeWidth={1.8} /></span></div>
+      <Link href={workoutHref} className="primary-command press">{primaryLabel}<ChevronRight className="ml-1.5" aria-hidden="true" size={17} strokeWidth={2} /></Link>
     </section>
 
-    <MorningCheckIn date={today} />
-    <RecoveryCheckInCard date={today} />
+    <div className="home-checkin-group">
+      <MorningCheckIn date={today} />
+      <RecoveryCheckInCard date={today} />
+    </div>
     <DailyOverview />
 
     <IntegratedCoachBrief compact />
@@ -102,7 +105,7 @@ export default function TodayHome() {
   </div>;
 }
 
-function MiniArrow() { return <span className="text-[16px] leading-none text-faint" aria-hidden="true">›</span>; }
+function MiniArrow() { return <ChevronRight className="text-faint" aria-hidden="true" size={16} strokeWidth={1.8} />; }
 function trainingSubline(tr: Translate, type: TrainingType | undefined, closed: boolean, sets: number, hasPlan: boolean) {
   if (type === "rest") return tr("今天安排休息；恢复也是计划的一部分。");
   if (closed) return tr("已完成 {n} 组。", { n: sets });

@@ -16,7 +16,7 @@ import AppMotionLayer from "@/components/AppMotionLayer";
 import PersistenceStatus from "@/components/PersistenceStatus";
 import AdaptivePlanController from "@/components/AdaptivePlanController";
 
-export const metadata: Metadata = { title: "FitLog 15.3.0", description: "闭环个体反应驱动的本地优先训练、进度与减脂控制台", manifest: "/manifest.webmanifest", appleWebApp: { capable: true, statusBarStyle: "default", title: "FitLog" }, icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }], apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }] } };
+export const metadata: Metadata = { title: "FitLog 16.0.0", description: "闭环个体反应驱动的本地优先训练、进度与减脂控制台", manifest: "/manifest.webmanifest", appleWebApp: { capable: true, statusBarStyle: "default", title: "FitLog" }, icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }], apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }] } };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: [{ media: "(prefers-color-scheme: light)", color: "#f6f4ee" }, { media: "(prefers-color-scheme: dark)", color: "#0e0d0b" }] };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

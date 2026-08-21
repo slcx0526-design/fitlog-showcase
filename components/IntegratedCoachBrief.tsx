@@ -21,13 +21,13 @@ export default function IntegratedCoachBrief({ compact = false, showAction = tru
   const badge = analysis.status === "recover" ? "bg-warn text-white" : analysis.status === "ready" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted";
   const href = analysis.primaryAction === "logRecovery" ? "#recovery-check-in" : analysis.primaryAction === "takeRecovery" ? "/train?start=rest" : "/train";
 
-  return <section className={"mb-3 rounded-2xl border p-3.5 shadow-sm " + tone} data-integrated-coach>
+  return <section className={"coach-brief mb-3 rounded-2xl border p-3.5 shadow-sm " + tone} data-integrated-coach>
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-semibold text-faint">{tx(locale, "今日建议", "Daily guidance", "今日の提案")}</p><h2 className="mt-1 text-[15px] font-semibold text-fg">{copy.title}</h2></div><span className={"shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold " + badge}>{confidenceLabel(locale, analysis)}</span></div>
     <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{copy.detail}</p>
     {!compact && <div className="mt-3 grid grid-cols-3 gap-2"><Metric label={tx(locale, "今日状态", "Today", "今日")} value={analysis.recovery.today ? String(analysis.recovery.today.score) : "—"} /><Metric label={tx(locale, "近 7 天", "7-day avg", "7日平均")} value={analysis.recovery.average7d == null ? "—" : String(analysis.recovery.average7d)} /><Metric label={tx(locale, "训练日", "Training days", "トレ日")} value={String(analysis.training.load.sessions7d)} /></div>}
     <button type="button" onClick={() => setExpanded((value) => !value)} className="press mt-2 flex w-full items-center justify-between py-1 text-left text-[10px] font-semibold text-faint" aria-expanded={expanded}><span>{tx(locale, "判断依据", "Evidence", "判断根拠")}</span><span aria-hidden="true">{expanded ? "−" : "+"}</span></button>
     {expanded && <div className="animate-slidedown space-y-1.5 border-t border-border/70 pt-2"><EvidenceRows locale={locale} analysis={analysis} /></div>}
-    {showAction && <Link href={href} className="press mt-3 flex h-10 items-center justify-center rounded-xl bg-fg px-3 text-[12px] font-semibold text-bg">{copy.action}</Link>}
+    {showAction && <Link href={href} className="coach-command press mt-3 flex h-10 items-center justify-center rounded-xl bg-fg px-3 text-[12px] font-semibold text-bg">{copy.action}</Link>}
   </section>;
 }
 
