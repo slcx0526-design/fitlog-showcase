@@ -3,7 +3,12 @@ import type { ExercisePreset, MovementPattern } from "./types";
 import {
   activePolicyOverrides,
   type ExercisePreference,
+  type ExerciseLockMode,
+  type MusclePlanTarget,
   type MusclePriority,
+  type PlanningAggressiveness,
+  type ScheduleAdaptationStyle,
+  type TrainingChangeBudget,
   type TrainingPolicy,
 } from "./trainingPolicy";
 
@@ -38,10 +43,19 @@ export interface CompiledTrainingConstraints {
   excludedExerciseIds: Set<string>;
   avoidedExerciseIds: Set<string>;
   preferredExerciseIds: Set<string>;
+  exerciseLocks: Map<string, ExerciseLockMode>;
   unavailableEquipment: Set<Equipment>;
   preferredEquipment: Set<Equipment>;
   restrictedPatterns: Set<MovementPattern>;
   musclePriorities: Partial<Record<MuscleGroup, MusclePriority>>;
+  planTargets: MusclePlanTarget[];
+  scheduleAdaptation: ScheduleAdaptationStyle;
+  planningAggressiveness: PlanningAggressiveness;
+  minimumRecoveryDays: number;
+  allowExerciseAdditions: boolean;
+  preserveTotalWorkingSets: boolean;
+  maintenanceFloorRatio: number;
+  changeBudget: TrainingChangeBudget;
   hard: HardTrainingConstraint[];
   soft: SoftTrainingConstraint[];
 }
@@ -127,10 +141,19 @@ export function compileTrainingConstraints(policy: TrainingPolicy, date: string)
     excludedExerciseIds,
     avoidedExerciseIds,
     preferredExerciseIds,
+    exerciseLocks: new Map(Object.entries(policy.exerciseLocks)),
     unavailableEquipment,
     preferredEquipment: new Set(policy.preferredEquipment),
     restrictedPatterns,
     musclePriorities: policy.musclePriorities,
+    planTargets: policy.planTargets,
+    scheduleAdaptation: policy.scheduleAdaptation,
+    planningAggressiveness: policy.planningAggressiveness,
+    minimumRecoveryDays: policy.minimumRecoveryDays,
+    allowExerciseAdditions: policy.allowExerciseAdditions,
+    preserveTotalWorkingSets: policy.preserveTotalWorkingSets,
+    maintenanceFloorRatio: policy.maintenanceFloorRatio,
+    changeBudget: policy.changeBudget,
     hard,
     soft,
   };
@@ -152,6 +175,9 @@ export function exercisePreferenceScore(
   constraints: CompiledTrainingConstraints,
 ) {
   let score = 0;
+  const lock = constraints.exerciseLocks.get(exercise.id);
+  if (lock === "freeze") score += 100;
+  else if (lock === "keep") score += 60;
   if (constraints.preferredExerciseIds.has(exercise.id)) score += 20;
   if (constraints.avoidedExerciseIds.has(exercise.id)) score -= 20;
   if (exercise.equipment && constraints.preferredEquipment.has(exercise.equipment)) score += 8;

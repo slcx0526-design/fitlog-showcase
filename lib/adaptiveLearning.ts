@@ -2,6 +2,7 @@ import { workingSets } from "./trainingMetrics";
 import {
   mergeTrainingPolicy,
   type ExercisePreference,
+  type TrainingDecisionFeedbackReason,
   type TrainingPolicy,
 } from "./trainingPolicy";
 import type { AppData, Exercise, TemplateItem, WorkoutSession } from "./types";
@@ -10,7 +11,8 @@ export type AdaptiveLearningSignalKind =
   | "avoidExercise"
   | "preferReplacement"
   | "shortenTemplate"
-  | "reduceSessionLoad";
+  | "reduceSessionLoad"
+  | "feedbackGuardrail";
 
 export interface AdaptiveLearningSignal {
   id: string;
@@ -135,6 +137,91 @@ function exercisePreferencePatch(
   return { exercisePreferences: { ...policy.exercisePreferences, ...values } };
 }
 
+function feedbackGuardrailSignal(
+  policy: TrainingPolicy,
+  reason: TrainingDecisionFeedbackReason,
+  count: number,
+  sampleSize: number,
+): AdaptiveLearningSignal | undefined {
+  const evidence = [`最近 ${sampleSize} 次有原因的提案拒绝中，${count} 次选择同一原因`];
+  if (reason === "volumeTooHigh") {
+    if (policy.planningAggressiveness === "conservative" && policy.preserveTotalWorkingSets) return undefined;
+    return {
+      id: "feedback:volume-too-high:v1",
+      kind: "feedbackGuardrail",
+      confidence: count >= 3 ? "high" : "medium",
+      summary: "你多次认为建议容量过高，可改为恢复优先并保持总组数",
+      evidence,
+      suggestedPatch: {
+        planningAggressiveness: "conservative",
+        preserveTotalWorkingSets: true,
+      },
+    };
+  }
+  if (reason === "recoveryConcern") {
+    const recoveryDays = Math.max(2, Math.min(4, policy.minimumRecoveryDays + 1));
+    if (policy.planningAggressiveness === "conservative" && policy.minimumRecoveryDays >= recoveryDays) return undefined;
+    return {
+      id: `feedback:recovery-concern:${recoveryDays}:v1`,
+      kind: "feedbackGuardrail",
+      confidence: count >= 3 ? "high" : "medium",
+      summary: `你多次担心恢复，可将同肌群间隔提高到 ${recoveryDays} 天`,
+      evidence,
+      suggestedPatch: {
+        planningAggressiveness: "conservative",
+        minimumRecoveryDays: recoveryDays,
+      },
+    };
+  }
+  if (reason === "tooManyChanges") {
+    if (
+      policy.planningAggressiveness === "conservative"
+      && policy.changeBudget.maxAddedExercisesPerTemplate === 0
+      && policy.changeBudget.maxSetDeltaPerExercise === 1
+      && !policy.allowExerciseAdditions
+    ) return undefined;
+    return {
+      id: "feedback:too-many-changes:v1",
+      kind: "feedbackGuardrail",
+      confidence: count >= 3 ? "high" : "medium",
+      summary: "你多次认为改动过多，可收紧为单动作最多变化 1 组且不自动补动作",
+      evidence,
+      suggestedPatch: {
+        planningAggressiveness: "conservative",
+        allowExerciseAdditions: false,
+        changeBudget: {
+          ...policy.changeBudget,
+          maxSetDeltaPerExercise: 1,
+          maxAddedExercisesPerTemplate: 0,
+        },
+      },
+    };
+  }
+  if (reason === "exerciseMismatch") {
+    if (!policy.allowExerciseAdditions) return undefined;
+    return {
+      id: "feedback:exercise-mismatch:v1",
+      kind: "feedbackGuardrail",
+      confidence: count >= 3 ? "high" : "medium",
+      summary: "你多次认为补入动作不合适，可停止自动新增动作",
+      evidence,
+      suggestedPatch: { allowExerciseAdditions: false },
+    };
+  }
+  if (reason === "scheduleMismatch") {
+    if (policy.scheduleAdaptation === "preserve") return undefined;
+    return {
+      id: "feedback:schedule-mismatch:v1",
+      kind: "feedbackGuardrail",
+      confidence: count >= 3 ? "high" : "medium",
+      summary: "你多次拒绝日程变化，可锁定当前分化结构",
+      evidence,
+      suggestedPatch: { scheduleAdaptation: "preserve" },
+    };
+  }
+  return undefined;
+}
+
 export function deriveAdaptiveLearningSignals(
   data: AppData,
   policy: TrainingPolicy,
@@ -228,6 +315,26 @@ export function deriveAdaptiveLearningSignals(
         },
       });
     }
+  }
+
+  const seenProposals = new Set<string>();
+  const rejectedFeedback = [...policy.decisionEvents]
+    .sort((left, right) => right.at.localeCompare(left.at))
+    .filter((event) => {
+      if (event.outcome !== "rejected" || !event.feedbackReason || seenProposals.has(event.proposalId)) return false;
+      seenProposals.add(event.proposalId);
+      return true;
+    })
+    .slice(0, 12);
+  const feedbackCounts = new Map<TrainingDecisionFeedbackReason, number>();
+  for (const event of rejectedFeedback) {
+    if (!event.feedbackReason) continue;
+    feedbackCounts.set(event.feedbackReason, (feedbackCounts.get(event.feedbackReason) ?? 0) + 1);
+  }
+  for (const [reason, count] of feedbackCounts) {
+    if (count < 2) continue;
+    const signal = feedbackGuardrailSignal(policy, reason, count, rejectedFeedback.length);
+    if (signal && !hidden.has(signal.id)) signals.push(signal);
   }
 
   return signals.sort((left, right) => {

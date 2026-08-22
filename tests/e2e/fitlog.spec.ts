@@ -30,7 +30,7 @@ function offsetLocalDateKey(offsetDays: number) {
 
 function trainingPolicy(goal: "strength" | "hypertrophy" = "strength") {
   return {
-    version: 3,
+    version: 4,
     goal,
     musclePriorities: {},
     exercisePreferences: {},
@@ -1625,7 +1625,7 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
       customExercises: [],
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(policy));
   }, { policy: trainingPolicy("hypertrophy") });
 
   await page.goto("/training-policy");
@@ -1640,9 +1640,9 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
   await expect(page.getByText("中束: grow", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Strength/ }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}").goal)).toBe("strength");
   await expect.poll(() => page.evaluate(() => {
-    const priorities = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").musclePriorities ?? {};
+    const priorities = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}").musclePriorities ?? {};
     return [priorities.chest, priorities.upperChest, priorities.sideDelt];
   })).toEqual(["specialize", "specialize", "grow"]);
 
@@ -1654,6 +1654,35 @@ test("adaptive planning stays localized, persistent, and contained", async ({ pa
   const outcomeWidth = await page.evaluate(() => ({ viewport: innerWidth, width: document.documentElement.scrollWidth }));
   expect(outcomeWidth.width).toBeLessThanOrEqual(outcomeWidth.viewport + 1);
   expect(consoleErrors).toEqual([]);
+});
+
+test("adaptive policy v3 migrates to v4 without losing preferences", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile-390", "One browser is enough for the storage migration contract.");
+  const legacy = { ...trainingPolicy("strength"), version: 3 };
+  await page.addInitScript(({ policy }) => {
+    localStorage.setItem("fitlog:locale", "en");
+    localStorage.setItem("fitlog:v1", JSON.stringify({
+      onboarding: { completedAt: new Date().toISOString() },
+      days: {},
+      bodyWeights: [],
+      waistEntries: [],
+      customExercises: [],
+      schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
+    }));
+    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+  }, { policy: legacy });
+
+  await page.goto("/training-policy");
+  await expect(page.getByRole("heading", { name: "Adaptive training plan" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const migrated = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
+    return {
+      version: migrated.version,
+      goal: migrated.goal,
+      oldKey: localStorage.getItem("fitlog:training-policy:v3"),
+      planning: migrated.planningAggressiveness,
+    };
+  })).toEqual({ version: 4, goal: "strength", oldKey: null, planning: "balanced" });
 });
 
 test("empty workspace can create a complete starter cycle", async ({ page }) => {
@@ -2464,7 +2493,7 @@ test("clearing all data also resets adaptive training policy", async ({ page }) 
       customExercises: [],
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(policy));
   }, { policy: trainingPolicy("strength") });
   await page.goto("/settings");
   await page.getByRole("button", { name: "清空全部数据" }).click();
@@ -2472,7 +2501,7 @@ test("clearing all data also resets adaptive training policy", async ({ page }) 
 
   await expect.poll(() => page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       dayCount: Object.keys(data.days ?? {}).length,
       bodyWeightCount: data.bodyWeights?.length,
@@ -2493,7 +2522,7 @@ test("backup preview does not replace adaptive policy before confirmation", asyn
       customExercises: [],
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(policy));
   }, { policy: trainingPolicy("strength") });
   await page.goto("/settings");
   const importedPolicy = trainingPolicy("hypertrophy");
@@ -2511,18 +2540,18 @@ test("backup preview does not replace adaptive policy before confirmation", asyn
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
       adaptiveTraining: {
         app: "fitlog-adaptive-training",
-        version: 3,
+        version: 4,
         exportedAt: "2026-08-02T00:00:00.000Z",
         policy: importedPolicy,
       },
     })),
   });
   await expect(page.getByRole("button", { name: "确认覆盖导入" })).toBeVisible();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal)).toBe("strength");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}").goal)).toBe("strength");
 
   await page.getByRole("button", { name: "确认覆盖导入" }).click();
   await expect.poll(() => page.evaluate(() => ({
-    goal: JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}").goal,
+    goal: JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}").goal,
     imported: Boolean(JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}").days?.["2026-01-02"]),
   }))).toEqual({ goal: "hypertrophy", imported: true });
 });
@@ -2538,7 +2567,7 @@ test("failed overwrite import rolls back its adaptive policy and data", async ({
       customExercises: [],
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(policy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(policy));
   }, { policy: trainingPolicy("strength") });
   await page.goto("/settings");
 
@@ -2557,7 +2586,7 @@ test("failed overwrite import rolls back its adaptive policy and data", async ({
       schedule: { split: ["push", "pull", "legs", "rest", "", "", ""] },
       adaptiveTraining: {
         app: "fitlog-adaptive-training",
-        version: 3,
+        version: 4,
         exportedAt: "2026-08-08T00:00:00.000Z",
         policy: importedPolicy,
       },
@@ -2575,7 +2604,7 @@ test("failed overwrite import rolls back its adaptive policy and data", async ({
   await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
   expect(await page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policy = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       original: data.days?.["2026-08-01"]?.recovery?.energy,
       imported: Boolean(data.days?.["2026-08-02"]),
@@ -2612,7 +2641,7 @@ test("adaptive plan apply and undo commit templates with policy", async ({ page 
         ],
       },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(storedPolicy));
   }, { storedPolicy: policy });
 
   await page.goto("/training-policy");
@@ -2620,7 +2649,7 @@ test("adaptive plan apply and undo commit templates with policy", async ({ page 
   await page.getByRole("button", { name: "Apply selected changes" }).click();
   await expect.poll(() => page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
       rollback: Boolean(policyValue.rollbackSnapshot),
@@ -2631,7 +2660,7 @@ test("adaptive plan apply and undo commit templates with policy", async ({ page 
   await page.getByRole("button", { name: "Undo latest plan adaptation" }).click();
   await expect.poll(() => page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
       rollback: Boolean(policyValue.rollbackSnapshot),
@@ -2662,13 +2691,13 @@ test("adaptive plan rolls back when policy persistence fails", async ({ page }, 
         microcycle: [{ id: "step_1", type: "legs", label: "Legs", templateId: "tpl_legs" }],
       },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(storedPolicy));
   }, { storedPolicy: policy });
   await page.goto("/training-policy");
   await page.evaluate(() => {
     const originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function setItem(key: string, value: string) {
-      if (key === "fitlog:training-policy:v3") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      if (key === "fitlog:training-policy:v4") throw new DOMException("Storage quota exceeded", "QuotaExceededError");
       originalSetItem.call(this, key, value);
     };
   });
@@ -2676,7 +2705,7 @@ test("adaptive plan rolls back when policy persistence fails", async ({ page }, 
   await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
   expect(await page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
       rollback: Boolean(policyValue.rollbackSnapshot),
@@ -2707,7 +2736,7 @@ test("adaptive plan rolls back policy when data persistence fails", async ({ pag
         microcycle: [{ id: "step_1", type: "legs", label: "Legs", templateId: "tpl_legs" }],
       },
     }));
-    localStorage.setItem("fitlog:training-policy:v3", JSON.stringify(storedPolicy));
+    localStorage.setItem("fitlog:training-policy:v4", JSON.stringify(storedPolicy));
   }, { storedPolicy: policy });
   await page.goto("/training-policy");
   await page.evaluate(() => {
@@ -2721,7 +2750,7 @@ test("adaptive plan rolls back policy when data persistence fails", async ({ pag
   await expect(page.locator(".persistence-alert")).toContainText("本次修改未能保存");
   expect(await page.evaluate(() => {
     const data = JSON.parse(localStorage.getItem("fitlog:v1") ?? "{}");
-    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v3") ?? "{}");
+    const policyValue = JSON.parse(localStorage.getItem("fitlog:training-policy:v4") ?? "{}");
     return {
       exerciseId: data.templates?.[0]?.items?.[0]?.exerciseId,
       rollback: Boolean(policyValue.rollbackSnapshot),

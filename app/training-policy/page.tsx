@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import TrainingWorkspaceNav from "@/components/TrainingWorkspaceNav";
 import {
   acceptAdaptiveLearningSignal,
@@ -32,11 +33,19 @@ import {
   mergeTrainingPolicy,
   parseTrainingPolicyText,
   policyRevision,
+  removeMusclePlanTarget,
   saveTrainingPolicy,
+  setExerciseLock,
+  setMusclePriority,
   type AdaptationMode,
   type EvidenceAdaptationMode,
+  type ExerciseLockMode,
   type ExercisePreference,
   type MusclePriority,
+  type PlanningAggressiveness,
+  type PolicyParseClause,
+  type ScheduleAdaptationStyle,
+  type TrainingDecisionFeedbackReason,
   type TrainingGoal,
   type TrainingPolicy,
 } from "@/lib/trainingPolicy";
@@ -53,6 +62,17 @@ const AUTO_PERMISSION_KEYS: Array<keyof TrainingPolicy["autoApply"]> = [
   "repChanges",
   "exerciseReplacement",
   "scheduleChanges",
+];
+const SCHEDULE_STYLE_VALUES: ScheduleAdaptationStyle[] = ["preserve", "balanced", "priority"];
+const AGGRESSIVENESS_VALUES: PlanningAggressiveness[] = ["conservative", "balanced", "progressive"];
+const LOCK_VALUES: Array<ExerciseLockMode | "none"> = ["none", "keep", "freeze"];
+const REJECTION_REASON_VALUES: TrainingDecisionFeedbackReason[] = [
+  "volumeTooHigh",
+  "recoveryConcern",
+  "tooManyChanges",
+  "exerciseMismatch",
+  "scheduleMismatch",
+  "other",
 ];
 
 function updateNumber(
@@ -78,8 +98,10 @@ export default function TrainingPolicyPage() {
   const [savedRevision, setSavedRevision] = useState("");
   const [command, setCommand] = useState("");
   const [recognized, setRecognized] = useState<string[]>([]);
+  const [parseClauses, setParseClauses] = useState<PolicyParseClause[]>([]);
   const [ignoredTemplateIds, setIgnoredTemplateIds] = useState<Set<string>>(new Set());
   const [includeSchedule, setIncludeSchedule] = useState(true);
+  const [rejectingProposal, setRejectingProposal] = useState(false);
 
   useEffect(() => {
     const stored = loadTrainingPolicy();
@@ -139,6 +161,20 @@ export default function TrainingPolicyPage() {
     label: value === "suggestOnly" ? t("仅建议", "Suggest only", "提案のみ") : value === "approvalRequired" ? t("确认后应用", "Approval required", "確認後に適用") : t("安全自动", "Safe auto", "安全な自動適用"),
     detail: value === "suggestOnly" ? t("不修改计划", "Never changes the plan", "プランを変更しない") : value === "approvalRequired" ? t("结构变化需要确认", "Plan changes require confirmation", "構造変更は確認が必要") : t("只执行授权的小范围变化", "Only authorized, bounded changes", "許可済みの小幅変更のみ"),
   }));
+  const planningStyles = AGGRESSIVENESS_VALUES.map((value) => ({
+    value,
+    label: value === "conservative" ? t("恢复优先", "Recovery first", "回復優先") : value === "progressive" ? t("积极进阶", "Progressive", "積極的") : t("平衡", "Balanced", "バランス"),
+    detail: value === "conservative" ? t("每轮只做最小改动", "Minimum changes per pass", "各回の変更を最小化") : value === "progressive" ? t("证据允许时分散加量", "Distribute increases when supported", "根拠があれば分散して増量") : t("多目标轮流分配", "Round-robin across goals", "複数目標へ順番に配分"),
+  }));
+  const scheduleStyles = SCHEDULE_STYLE_VALUES.map((value) => ({
+    value,
+    label: value === "preserve" ? t("保持分化", "Preserve split", "分割を維持") : value === "priority" ? t("目标优先", "Priority led", "目標優先") : t("平衡重排", "Balanced", "均衡再編") ,
+    detail: value === "preserve" ? t("不改训练日结构", "Keep training-day structure", "トレーニング日の構造を維持") : value === "priority" ? t("额外频率给优先目标", "Extra frequency follows priorities", "追加頻度を優先目標へ") : t("保留完整分化并均匀恢复", "Keep full split with even recovery", "分割を保ち回復を均等化"),
+  }));
+  const rejectionReasons = REJECTION_REASON_VALUES.map((value) => ({
+    value,
+    label: value === "volumeTooHigh" ? t("容量太高", "Too much volume", "量が多すぎる") : value === "recoveryConcern" ? t("恢复不足", "Recovery concern", "回復が不安") : value === "tooManyChanges" ? t("改动太多", "Too many changes", "変更が多すぎる") : value === "exerciseMismatch" ? t("动作不合适", "Exercise mismatch", "種目が合わない") : value === "scheduleMismatch" ? t("日程不合适", "Schedule mismatch", "日程が合わない") : t("其他原因", "Other reason", "その他"),
+  }));
 
   function markSaved(next: TrainingPolicy) {
     setPolicy(next);
@@ -149,14 +185,17 @@ export default function TrainingPolicyPage() {
     if (saveTrainingPolicy(next)) {
       markSaved(next);
       toast.show(success, { tone: "success" });
+      return true;
     } else {
       toast.show(t("训练倾向保存失败", "Training preferences were not saved", "トレーニング設定を保存できませんでした"), { tone: "error" });
+      return false;
     }
   }
 
   function parseCommand() {
     const result = parseTrainingPolicyText(command, data, policy);
     setPolicy(result.policy);
+    setParseClauses(result.clauses);
     setRecognized(result.recognized.length
       ? result.recognized
       : [t("没有识别到可应用的倾向，请使用下方选项设置。", "No applicable preference was recognized. Use the controls below.", "適用できる設定を認識できませんでした。下の項目から設定してください。")]);
@@ -216,7 +255,7 @@ export default function TrainingPolicyPage() {
     }
   }
 
-  function rejectCurrentProposal() {
+  function rejectCurrentProposal(feedbackReason: TrainingDecisionFeedbackReason) {
     let next = mergeTrainingPolicy(policy, {
       ignoredPlanRevisions: [
         ...policy.ignoredPlanRevisions,
@@ -229,8 +268,11 @@ export default function TrainingPolicyPage() {
       proposalId: proposalRevision,
       outcome: "rejected",
       summary: "拒绝当前训练计划适配提案",
+      feedbackReason,
     });
-    persist(next, t("已拒绝当前提案", "Proposal rejected", "現在の提案を拒否しました"));
+    if (persist(next, t("已拒绝当前提案并记录原因", "Proposal rejected and feedback recorded", "提案を拒否し、理由を記録しました"))) {
+      setRejectingProposal(false);
+    }
   }
 
   function undoLastAdaptation() {
@@ -330,14 +372,14 @@ export default function TrainingPolicyPage() {
         <section className="control-card overflow-hidden">
           <div className="p-4">
             <div className="flex items-start justify-between gap-3">
-              <SectionTitle title={t("计划变更", "Plan changes", "プラン変更")} detail={t("逐项选择后一次应用", "Select changes and apply them together", "変更を選択して一括適用")} />
+              <SectionTitle title={t("计划变更", "Plan changes", "プラン変更")} detail={t("按模板选择，模板内联动改动保持约束", "Select by template so linked changes keep their constraints", "テンプレート単位で選び、連動する制約を維持")} />
               <span className="adaptive-scale tnum">{proposalConfidence}</span>
             </div>
             <p className="text-[13px] leading-relaxed text-muted">{adaptiveText(locale, proposal.summary)}</p>
             <div className="mt-3 grid grid-cols-4 gap-2">
               <Fact label={t("模板", "Templates", "テンプレート")} value={String(proposal.impact.changedTemplates)} />
               <Fact label={t("组差", "Set delta", "セット差")} value={`${proposal.impact.setDelta > 0 ? "+" : ""}${proposal.impact.setDelta}`} />
-              <Fact label={t("替换", "Replaced", "置換")} value={String(proposal.impact.replacedExercises)} />
+              <Fact label={t("增/换/删", "Add/swap/remove", "追加/置換/削除")} value={`${proposal.impact.addedExercises}/${proposal.impact.replacedExercises}/${proposal.impact.removedExercises}`} />
               <Fact label={t("周期训练日", "Cycle days", "周期トレ日")} value={`${scheduleProposal.trainingDaysBefore}→${scheduleProposal.trainingDaysAfter} / ${scheduleProposal.cycleDays}`} />
             </div>
           </div>
@@ -346,8 +388,39 @@ export default function TrainingPolicyPage() {
             const selected = !ignoredTemplateIds.has(change.templateId);
             const beforeSets = change.previousItems.reduce((sum, item) => sum + item.sets, 0);
             const afterSets = change.nextItems.reduce((sum, item) => sum + item.sets, 0);
-            return <div key={change.templateId} className="soft-divider border-t px-4 py-3 first:border-t-0"><button type="button" onClick={() => setIgnoredTemplateIds((current) => { const next = new Set(current); if (next.has(change.templateId)) next.delete(change.templateId); else next.add(change.templateId); return next; })} className="press flex w-full items-start gap-3 text-left"><CheckMark selected={selected} /><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-fg">{tr(change.templateName)}</span><span className="tnum mt-0.5 block text-[11px] text-faint">{beforeSets} → {afterSets} {t("组", "sets", "セット")} · {change.estimatedMinutesBefore} → {change.estimatedMinutesAfter} {t("分钟", "min", "分")}</span></span></button><div className="mt-2 space-y-1 pl-8">{change.reasons.map((reason) => <p key={reason} className="text-[11px] leading-relaxed text-muted">{adaptiveText(locale, reason)}</p>)}</div></div>;
+            return (
+              <div key={change.templateId} className="soft-divider border-t px-4 py-3 first:border-t-0">
+                <button
+                  type="button"
+                  onClick={() => setIgnoredTemplateIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(change.templateId)) next.delete(change.templateId);
+                    else next.add(change.templateId);
+                    return next;
+                  })}
+                  className="press flex w-full items-start gap-3 text-left"
+                >
+                  <CheckMark selected={selected} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-fg">{tr(change.templateName)}</span>
+                    <span className="tnum mt-0.5 block text-[11px] text-faint">{beforeSets} → {afterSets} {t("组", "sets", "セット")} · {change.estimatedMinutesBefore} → {change.estimatedMinutesAfter} {t("分钟", "min", "分")}</span>
+                  </span>
+                </button>
+                <div className="adaptive-item-diffs mt-2 pl-8">
+                  {change.itemDiffs.map((diff) => (
+                    <div key={diff.id} className="adaptive-item-diff">
+                      <span>{diff.kind === "added" ? t("新增", "Add", "追加") : diff.kind === "removed" ? t("移除", "Remove", "削除") : diff.kind === "sets" ? t("组数", "Sets", "セット") : diff.kind === "replaced" ? t("替换", "Swap", "置換") : t("处方", "Prescription", "処方")}</span>
+                      <strong>{diff.kind === "replaced" && diff.previousExerciseName ? `${tr(diff.previousExerciseName)} → ${tr(diff.exerciseName)}` : tr(diff.exerciseName)}</strong>
+                      <small className="tnum">{diff.beforeSets != null && diff.afterSets != null ? `${diff.beforeSets} → ${diff.afterSets}` : diff.afterSets != null ? `+${diff.afterSets}` : diff.beforeSets != null ? `-${diff.beforeSets}` : ""}</small>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 space-y-1 pl-8">{change.reasons.map((reason) => <p key={reason} className="text-[11px] leading-relaxed text-muted">{adaptiveText(locale, reason)}</p>)}</div>
+              </div>
+            );
           })}</div> : <div className="soft-divider border-t px-4 py-4 text-[12px] text-faint">{t("当前模板符合已保存倾向。", "Current templates match the saved preferences.", "現在のテンプレートは保存済み設定に合っています。")}</div>}
+
+          {proposal.impact.muscles.length > 0 && <details className="adaptive-disclosure-inline soft-divider border-t px-4 py-3"><summary>{t("查看肌群容量影响", "View muscle-volume impact", "筋群ボリュームへの影響")}</summary><div className="adaptive-muscle-impact mt-2">{proposal.impact.muscles.map((impact) => <div key={impact.muscle}><strong>{tr(MUSCLE_LABELS[impact.muscle])}</strong><span className="tnum">{t("直接", "Direct", "直接")} {impact.directBefore} → {impact.directAfter}</span><span className="tnum">{t("有效", "Effective", "有効")} {impact.effectiveBefore} → {impact.effectiveAfter}</span><small className="tnum">{t("目标", "Target", "目標")} {impact.targetLow}–{impact.targetHigh}</small></div>)}</div></details>}
 
           <div className="soft-divider border-t px-4 py-3">
             <button type="button" onClick={() => setIncludeSchedule((value) => !value)} disabled={!scheduleProposal.changed} className="press flex min-h-11 w-full items-center gap-3 text-left disabled:opacity-50"><CheckMark selected={includeSchedule && scheduleProposal.changed} /><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-fg">{t("重排下一微周期", "Reschedule next microcycle", "次の微周期を再編成")}</span><span className="mt-0.5 block text-[11px] text-faint">{scheduleProposal.nextSchedule.microcycle?.map((step) => step.type === "rest" ? t("休", "Rest", "休") : tr(step.label)).join(" · ")}</span></span></button>
@@ -357,7 +430,15 @@ export default function TrainingPolicyPage() {
           {[...proposal.warnings, ...scheduleProposal.warnings].length > 0 && <details className="adaptive-warning soft-divider border-t px-4 py-3"><summary>{t("查看限制与警告", "View constraints and warnings", "制限と警告を見る")}</summary><div className="mt-2 space-y-1">{[...new Set([...proposal.warnings, ...scheduleProposal.warnings])].map((warning) => <p key={warning}>{adaptiveText(locale, warning)}</p>)}</div></details>}
           <div className="soft-divider border-t p-4">
             <button type="button" onClick={applySelected} disabled={!selectedChanges.length && !(includeSchedule && scheduleProposal.changed)} className="press h-11 w-full rounded-md bg-accent text-[14px] font-semibold text-accent-fg disabled:opacity-30">{t("应用所选变化", "Apply selected changes", "選択した変更を適用")}</button>
-            <button type="button" onClick={rejectCurrentProposal} disabled={isIgnored || (!proposal.changes.length && !scheduleProposal.changed)} className="press mt-2 h-10 w-full rounded-md border border-border bg-surface text-[12px] font-semibold text-muted disabled:opacity-30">{t("拒绝当前提案", "Reject proposal", "現在の提案を拒否")}</button>
+            <button type="button" onClick={() => setRejectingProposal((value) => !value)} aria-expanded={rejectingProposal} disabled={isIgnored || (!proposal.changes.length && !scheduleProposal.changed)} className="press mt-2 h-10 w-full rounded-md border border-border bg-surface text-[12px] font-semibold text-muted disabled:opacity-30">{t("拒绝当前提案", "Reject proposal", "現在の提案を拒否")}</button>
+            {rejectingProposal && (
+              <div className="adaptive-reject-panel mt-2" role="group" aria-label={t("拒绝原因", "Rejection reason", "拒否理由")}>
+                <p>{t("选择原因，系统只在同类反馈重复出现后请求你确认长期调整。", "Choose a reason. Long-term changes are suggested only after repeated feedback.", "理由を選択してください。同じ反応が繰り返された場合のみ長期調整を提案します。")}</p>
+                <div>
+                  {rejectionReasons.map((reason) => <button key={reason.value} type="button" onClick={() => rejectCurrentProposal(reason.value)} className="choice-chip press min-h-10 border border-border px-2 text-[11px] font-semibold">{reason.label}</button>)}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -375,6 +456,26 @@ export default function TrainingPolicyPage() {
           <div className="adaptive-day-picker">
             {[1, 2, 3, 4, 5, 6, 7].map((days) => <button key={days} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { weeklyTrainingDays: { minimum: Math.max(1, days - 1), target: days, maximum: Math.min(7, days + 1) } }))} aria-pressed={policy.weeklyTrainingDays.target === days} className="press">{days}</button>)}
           </div>
+          <FieldLabel className="mt-3">{t("计划修改幅度", "Planning pace", "調整ペース")}</FieldLabel>
+          <div className="adaptive-segmented" data-columns="3">
+            {planningStyles.map((style) => <button key={style.value} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { planningAggressiveness: style.value }))} aria-pressed={policy.planningAggressiveness === style.value} className="press"><strong>{style.label}</strong><small>{style.detail}</small></button>)}
+          </div>
+          <FieldLabel className="mt-3">{t("微周期日程", "Microcycle schedule", "微周期日程")}</FieldLabel>
+          <div className="adaptive-segmented" data-columns="3">
+            {scheduleStyles.map((style) => <button key={style.value} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { scheduleAdaptation: style.value }))} aria-pressed={policy.scheduleAdaptation === style.value} className="press"><strong>{style.label}</strong><small>{style.detail}</small></button>)}
+          </div>
+          <FieldLabel className="mt-3">{t("同肌群最少间隔天数", "Minimum days between the same muscle", "同一筋群の最小間隔日数")}</FieldLabel>
+          <div className="grid grid-cols-5 gap-2">
+            {[0, 1, 2, 3, 4].map((days) => <button key={days} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { minimumRecoveryDays: days }))} aria-pressed={policy.minimumRecoveryDays === days} className="choice-chip press h-10 border border-border text-[12px] font-semibold">{days}</button>)}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { allowExerciseAdditions: !current.allowExerciseAdditions }))} aria-pressed={policy.allowExerciseAdditions} className="control-strip press flex min-h-12 items-center gap-2 rounded-md px-2.5 text-left"><CheckMark selected={policy.allowExerciseAdditions} /><span className="text-[11px] font-semibold text-fg">{t("允许补齐缺失动作", "Allow missing exercises", "不足種目の追加を許可")}</span></button>
+            <button type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { preserveTotalWorkingSets: !current.preserveTotalWorkingSets }))} aria-pressed={policy.preserveTotalWorkingSets} className="control-strip press flex min-h-12 items-center gap-2 rounded-md px-2.5 text-left"><CheckMark selected={policy.preserveTotalWorkingSets} /><span className="text-[11px] font-semibold text-fg">{t("保持总工作组数", "Preserve total work sets", "総ワークセットを維持")}</span></button>
+          </div>
+          <label className="control-strip mt-2 block rounded-md px-3 py-2.5">
+            <span className="flex items-center justify-between gap-3 text-[11px] font-semibold text-muted"><span>{t("非目标肌群维持底线", "Maintenance floor for other muscles", "非対象筋群の維持下限")}</span><strong className="tnum text-fg">{Math.round(policy.maintenanceFloorRatio * 100)}%</strong></span>
+            <input type="range" min={40} max={100} step={5} value={Math.round(policy.maintenanceFloorRatio * 100)} onChange={(event) => setPolicy((current) => mergeTrainingPolicy(current, { maintenanceFloorRatio: Number(event.target.value) / 100 }))} className="mt-2 w-full accent-[var(--accent)]" aria-label={t("非目标肌群维持底线", "Maintenance floor for other muscles", "非対象筋群の維持下限")} />
+          </label>
           <FieldLabel className="mt-3">{t("不可用器械", "Unavailable equipment", "使用不可の器具")}</FieldLabel>
           <div className="grid grid-cols-2 gap-2">
             {EQUIPMENT_VALUES.map((equipment) => {
@@ -396,6 +497,13 @@ export default function TrainingPolicyPage() {
             const detail = key === "setChanges" ? t("单动作最多 ±1 组", "At most ±1 set per exercise", "1種目あたり最大±1セット") : key === "repChanges" ? t("上下限最多变化 2 次", "Rep bounds change by at most 2", "上下限の変更は最大2回") : key === "exerciseReplacement" ? t("只处理明确排除与不可用器械", "Only explicit exclusions and unavailable equipment", "明示的な除外と使用不可器具のみ") : t("只减少，不自动增加训练日", "Reductions only; never adds days", "削減のみで日数は自動追加しない");
             return <button key={key} type="button" onClick={() => setPolicy((current) => mergeTrainingPolicy(current, { autoApply: { ...current.autoApply, [key]: !active } }))} aria-pressed={active} className="control-strip press flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left"><CheckMark selected={active} /><span className="min-w-0 flex-1"><strong className="block text-[12px] text-fg">{label}</strong><small className="block text-[11px] text-faint">{detail}</small></span></button>;
           })}</div>}
+          <details className="adaptive-inline-details mt-3">
+            <summary>{t("每次提案改动上限", "Per-proposal change limits", "提案ごとの変更上限")}</summary>
+            <div className="grid grid-cols-2 gap-2">
+              <LimitField label={t("单动作组差", "Set delta", "セット差")} value={policy.changeBudget.maxSetDeltaPerExercise} min={1} max={3} onChange={(value) => setPolicy((current) => mergeTrainingPolicy(current, { changeBudget: { ...current.changeBudget, maxSetDeltaPerExercise: value } }))} />
+              <LimitField label={t("新增动作", "Additions", "追加種目")} value={policy.changeBudget.maxAddedExercisesPerTemplate} min={0} max={3} onChange={(value) => setPolicy((current) => mergeTrainingPolicy(current, { changeBudget: { ...current.changeBudget, maxAddedExercisesPerTemplate: value } }))} />
+            </div>
+          </details>
           <button type="button" onClick={save} disabled={!dirty} className="press mt-3 h-11 w-full rounded-md bg-fg text-[13px] font-semibold text-bg disabled:opacity-40">{dirty ? t("保存训练倾向", "Save training preferences", "トレーニング設定を保存") : t("训练倾向已保存", "Training preferences saved", "トレーニング設定は保存済み")}</button>
         </section>
 
@@ -405,6 +513,7 @@ export default function TrainingPolicyPage() {
             <textarea aria-label={t("训练倾向描述", "Training preference description", "トレーニング設定の説明")} value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t("例如：胸为主，中束增长，每 7 天 5 练，每次最多 70 分钟。", "Example: focus on chest, grow side delts, 5 sessions per 7 days, max 70 minutes.", "例：胸を優先、中部三角筋を伸ばす、7日5回、1回70分まで。") } className="number-cell min-h-24 w-full resize-y rounded-md border border-border bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed text-fg outline-none placeholder:text-faint focus:border-accent" />
             <button type="button" onClick={parseCommand} disabled={!command.trim()} className="press mt-2 h-10 w-full rounded-md bg-fg text-[13px] font-semibold text-bg disabled:opacity-30">{t("解析倾向", "Parse preferences", "設定を解析")}</button>
             {recognized.length > 0 && <div className="mt-3 space-y-1 border-t border-border pt-3">{recognized.map((item) => <p key={item} className="text-[12px] leading-relaxed text-muted">{adaptiveText(locale, item)}</p>)}</div>}
+            {parseClauses.length > 0 && <div className="adaptive-parse-results mt-3">{parseClauses.map((clause, index) => <div key={`${clause.source}:${index}`} className="adaptive-parse-clause" data-status={clause.status}><span>{clause.status === "recognized" ? t("已识别", "Recognized", "認識済み") : clause.status === "partial" ? t("部分识别", "Partial", "一部認識") : t("未识别", "Unresolved", "未認識")}</span><strong>{clause.source}</strong>{clause.unresolved && <small>{t("未识别部分", "Unresolved part", "未認識部分")}：{clause.unresolved}</small>}</div>)}</div>}
           </div>
         </details>
 
@@ -412,9 +521,16 @@ export default function TrainingPolicyPage() {
           <summary><span><strong>{t("肌群与动作偏好", "Muscle and exercise preferences", "筋群と種目の設定")}</strong><small>{t("只在需要专项或避开动作时设置", "Set only for specialization or avoidance", "特化や回避が必要な場合のみ設定")}</small></span><Chevron /></summary>
           <div className="soft-divider border-t p-4">
             <FieldLabel>{t("肌群优先级", "Muscle priorities", "筋群の優先度")}</FieldLabel>
-            <div className="grid gap-2 sm:grid-cols-2">{MUSCLE_ORDER.map((muscle) => <MusclePriorityRow key={muscle} locale={locale} label={tr(MUSCLE_LABELS[muscle])} value={policy.musclePriorities[muscle]} onChange={(value) => setPolicy((current) => { const priorities = { ...current.musclePriorities }; if (value === "default") delete priorities[muscle]; else priorities[muscle] = value; return mergeTrainingPolicy(current, { musclePriorities: priorities }); })} />)}</div>
+            <div className="grid gap-2 sm:grid-cols-2">{MUSCLE_ORDER.map((muscle) => <MusclePriorityRow key={muscle} locale={locale} label={tr(MUSCLE_LABELS[muscle])} value={policy.musclePriorities[muscle]} onChange={(value) => setPolicy((current) => setMusclePriority(current, muscle, value === "default" ? undefined : value))} />)}</div>
+            {policy.planTargets.length > 0 && <div className="mt-4"><FieldLabel>{t("已编译训练目标", "Compiled training targets", "解析済みトレーニング目標")}</FieldLabel><div className="adaptive-target-list">{policy.planTargets.map((target) => <div key={target.id} className="adaptive-target-row"><div><strong>{tr(target.label)}</strong><span>{[target.priority ? priorityLabel(locale, target.priority) : "", target.cycleTarget ? t(`周期 ${target.cycleTarget.low}–${target.cycleTarget.high} 组`, `Cycle ${target.cycleTarget.low}-${target.cycleTarget.high} sets`, `周期 ${target.cycleTarget.low}〜${target.cycleTarget.high}セット`) : "", target.maxDirectSetsPerSession != null ? t(`单次最多 ${target.maxDirectSetsPerSession} 直接组`, `Max ${target.maxDirectSetsPerSession} direct sets per session`, `1回最大${target.maxDirectSetsPerSession}直接セット`) : ""].filter(Boolean).join(" · ")}</span></div><button type="button" onClick={() => setPolicy((current) => removeMusclePlanTarget(current, target.id))} className="press grid h-9 w-9 place-items-center rounded-md text-faint hover:text-danger" aria-label={t(`清除${tr(target.label)}训练目标`, `Clear ${tr(target.label)} target`, `${tr(target.label)}の目標を解除`)} title={t("清除目标", "Clear target", "目標を解除")}><Trash2 size={16} strokeWidth={1.8} /></button></div>)}</div></div>}
             <FieldLabel className="mt-4">{t("模板动作偏好", "Template exercise preferences", "テンプレート種目の設定")}</FieldLabel>
-            {templateExercises.length ? <div className="grid gap-2 sm:grid-cols-2">{templateExercises.map((exercise) => <div key={exercise.id} className="control-strip flex items-center gap-2 rounded-md px-3 py-2"><span className="min-w-0 flex-1 truncate text-[12px] font-medium text-fg">{tr(exercise.name)}</span><select value={policy.exercisePreferences[exercise.id] ?? "neutral"} onChange={(event) => setPolicy((current) => mergeTrainingPolicy(current, { exercisePreferences: { ...current.exercisePreferences, [exercise.id]: event.target.value as ExercisePreference } }))} className="h-9 rounded-md border border-border bg-surface px-2 text-[12px] font-semibold text-muted outline-none focus:border-accent" aria-label={t(`${tr(exercise.name)}偏好`, `${tr(exercise.name)} preference`, `${tr(exercise.name)}の設定`)}>{PREFERENCE_VALUES.map((value) => <option key={value} value={value}>{preferenceLabel(locale, value)}</option>)}</select></div>)}</div> : <p className="text-[12px] text-faint">{t("模板中还没有动作。", "No exercises are in templates yet.", "テンプレートに種目がありません。")}</p>}
+            {templateExercises.length ? <div className="grid gap-2">{templateExercises.map((exercise) => (
+              <div key={exercise.id} className="adaptive-exercise-pref-row control-strip rounded-md px-3 py-2">
+                <span className="min-w-0 truncate text-[12px] font-medium text-fg">{tr(exercise.name)}</span>
+                <select value={policy.exercisePreferences[exercise.id] ?? "neutral"} onChange={(event) => setPolicy((current) => mergeTrainingPolicy(current, { exercisePreferences: { ...current.exercisePreferences, [exercise.id]: event.target.value as ExercisePreference } }))} className="h-9 rounded-md border border-border bg-surface px-2 text-[12px] font-semibold text-muted outline-none focus:border-accent" aria-label={t(`${tr(exercise.name)}偏好`, `${tr(exercise.name)} preference`, `${tr(exercise.name)}の設定`)}>{PREFERENCE_VALUES.map((value) => <option key={value} value={value}>{preferenceLabel(locale, value)}</option>)}</select>
+                <select value={policy.exerciseLocks[exercise.id] ?? "none"} onChange={(event) => setPolicy((current) => setExerciseLock(current, exercise.id, event.target.value === "none" ? undefined : event.target.value as ExerciseLockMode))} className="h-9 rounded-md border border-border bg-surface px-2 text-[12px] font-semibold text-muted outline-none focus:border-accent" aria-label={t(`${tr(exercise.name)}锁定方式`, `${tr(exercise.name)} lock mode`, `${tr(exercise.name)}の固定方法`)}>{LOCK_VALUES.map((value) => <option key={value} value={value}>{lockLabel(locale, value)}</option>)}</select>
+              </div>
+            ))}</div> : <p className="text-[12px] text-faint">{t("模板中还没有动作。", "No exercises are in templates yet.", "テンプレートに種目がありません。")}</p>}
           </div>
         </details>
 
@@ -478,4 +594,10 @@ function preferenceLabel(locale: Locale, value: ExercisePreference) {
   if (value === "avoid") return localeText(locale, "避免", "Avoid", "回避");
   if (value === "exclude") return localeText(locale, "排除", "Exclude", "除外");
   return localeText(locale, "默认", "Default", "標準");
+}
+
+function lockLabel(locale: Locale, value: ExerciseLockMode | "none") {
+  if (value === "keep") return localeText(locale, "保留动作", "Keep", "種目を維持");
+  if (value === "freeze") return localeText(locale, "完全冻结", "Freeze", "完全固定");
+  return localeText(locale, "不锁定", "Unlocked", "固定なし");
 }

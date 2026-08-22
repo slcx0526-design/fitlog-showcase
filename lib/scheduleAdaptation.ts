@@ -208,17 +208,67 @@ function orderedTrainingTypes(
   return sequence;
 }
 
+function recoveryViolations(
+  sequence: PlannedTrainingType[],
+  cycleDays: number,
+  minimumRecoveryDays: number,
+  positionedDays = trainingPositions(sequence.length, cycleDays),
+) {
+  if (minimumRecoveryDays <= 0 || !sequence.length) return [];
+  const byType = new Map<PlannedTrainingType, number[]>();
+  sequence.forEach((type, index) => byType.set(type, [...(byType.get(type) ?? []), positionedDays[index]]));
+  return [...byType.entries()].flatMap(([type, values]) => values.flatMap((position, index) => {
+    const next = values[(index + 1) % values.length] + (index === values.length - 1 ? cycleDays : 0);
+    const restDays = Math.max(0, next - position - 1);
+    return restDays < minimumRecoveryDays ? [{ type, restDays }] : [];
+  }));
+}
+
+function optimizeTrainingSequence(
+  allocation: Map<PlannedTrainingType, number>,
+  scores: Map<PlannedTrainingType, number>,
+  cycleDays: number,
+  minimumRecoveryDays: number,
+) {
+  const baseline = orderedTrainingTypes(allocation, scores);
+  if (baseline.length > 9 || minimumRecoveryDays <= 0) return baseline;
+  const remaining = new Map(allocation);
+  let best = baseline;
+  let bestScore = Number.POSITIVE_INFINITY;
+  const candidate: PlannedTrainingType[] = [];
+  const visit = () => {
+    if (candidate.length === baseline.length) {
+      const violations = recoveryViolations(candidate, cycleDays, minimumRecoveryDays);
+      const recoveryPenalty = violations.reduce((sum, violation) => (
+        sum + (minimumRecoveryDays - violation.restDays) * 100
+      ), 0);
+      const baselinePenalty = candidate.reduce((sum, type, index) => sum + Number(type !== baseline[index]), 0);
+      const score = recoveryPenalty + baselinePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = [...candidate];
+      }
+      return;
+    }
+    const ranked = [...remaining.entries()]
+      .filter(([, count]) => count > 0)
+      .sort(([left], [right]) => (scores.get(right) ?? 0) - (scores.get(left) ?? 0));
+    for (const [type, count] of ranked) {
+      remaining.set(type, count - 1);
+      candidate.push(type);
+      visit();
+      candidate.pop();
+      remaining.set(type, count);
+    }
+  };
+  visit();
+  return best;
+}
+
 function trainingPositions(trainingDays: number, cycleDays: number) {
   if (trainingDays >= cycleDays) return Array.from({ length: cycleDays }, (_, index) => index);
   if (trainingDays <= 1) return [0];
-  const positions: number[] = [];
-  for (let index = 0; index < trainingDays; index += 1) {
-    let position = Math.round(index * (cycleDays - 1) / (trainingDays - 1));
-    while (positions.includes(position) && position < cycleDays - 1) position += 1;
-    while (positions.includes(position) && position > 0) position -= 1;
-    positions.push(position);
-  }
-  return positions.sort((left, right) => left - right);
+  return Array.from({ length: trainingDays }, (_, index) => Math.floor(index * cycleDays / trainingDays));
 }
 
 function buildSchedule(
@@ -270,6 +320,20 @@ function frequency(schedule: Schedule, type: PlannedTrainingType) {
     ? schedule.microcycle
     : schedule.split.map((value, index) => ({ id: `split_${index}`, type: value || "rest", label: String(value) }));
   return steps.filter((step) => step.type === type).length;
+}
+
+function scheduleTrainingLayout(schedule: Schedule) {
+  const steps = schedule.microcycle?.length
+    ? schedule.microcycle
+    : schedule.split.map((value, index) => ({ id: `split_${index}`, type: value || "rest", label: String(value) }));
+  const sequence: PlannedTrainingType[] = [];
+  const positions: number[] = [];
+  steps.forEach((step, index) => {
+    if (!TRAINING_TYPES.includes(step.type as PlannedTrainingType)) return;
+    sequence.push(step.type as PlannedTrainingType);
+    positions.push(index);
+  });
+  return { sequence, positions };
 }
 
 export function scheduleAdaptationRevision(
@@ -347,16 +411,79 @@ export function buildScheduleAdaptation(
   if (policy.evidenceMode !== "off" && !evidenceQualified && evidence.state !== "normal") {
     warnings.push(`动态证据置信度为 ${evidence.confidence}，未达到 ${policy.evidenceMinimumConfidence} 门槛`);
   }
+  if (policy.scheduleAdaptation === "preserve") {
+    if (targetDays !== trainingDaysBefore) {
+      warnings.push(`已锁定当前分化结构；目标为 ${targetDays} 个训练日，当前保持 ${trainingDaysBefore} 个训练日`);
+    }
+    reasons.push("分化策略设为保持当前结构，不自动增删或重排训练日");
+    const sourceRevision = scheduleAdaptationRevision(data, policy, date, evidence);
+    return {
+      id: `schedule-proposal-${sourceRevision}`,
+      sourceRevision,
+      changed: false,
+      previousSchedule,
+      nextSchedule: previousSchedule,
+      reasons,
+      warnings,
+      trainingDaysBefore,
+      trainingDaysAfter: trainingDaysBefore,
+      cycleDays,
+      weeklyEquivalentBefore,
+      weeklyEquivalentAfter: weeklyEquivalentBefore,
+      frequencyChanges: TRAINING_TYPES.map((type) => ({ type, before: frequency(previousSchedule, type), after: frequency(previousSchedule, type) })),
+      targetTrainingDays: targetDays,
+      targetWeeklyTrainingDays,
+      evidenceAdjusted,
+      evidenceState: evidence.state,
+      evidenceConfidence: evidence.confidence,
+    };
+  }
+  if (targetDays < available.length && available.every((type) => frequency(previousSchedule, type) > 0)) {
+    warnings.push(`目标训练日 ${targetDays} 少于现有 ${available.length} 类分化；为避免删除完整训练类型，保持当前微周期`);
+    const sourceRevision = scheduleAdaptationRevision(data, policy, date, evidence);
+    return {
+      id: `schedule-proposal-${sourceRevision}`,
+      sourceRevision,
+      changed: false,
+      previousSchedule,
+      nextSchedule: previousSchedule,
+      reasons,
+      warnings,
+      trainingDaysBefore,
+      trainingDaysAfter: trainingDaysBefore,
+      cycleDays,
+      weeklyEquivalentBefore,
+      weeklyEquivalentAfter: weeklyEquivalentBefore,
+      frequencyChanges: TRAINING_TYPES.map((type) => ({ type, before: frequency(previousSchedule, type), after: frequency(previousSchedule, type) })),
+      targetTrainingDays: targetDays,
+      targetWeeklyTrainingDays,
+      evidenceAdjusted,
+      evidenceState: evidence.state,
+      evidenceConfidence: evidence.confidence,
+    };
+  }
   const scores = new Map<PlannedTrainingType, number>(available.map((type) => [
     type,
     typeScore(type, byType.get(type) ?? [], policy, constraints, presets),
   ]));
   const allocation = allocateTrainingTypes(targetDays, available, scores);
-  const sequence = orderedTrainingTypes(allocation, scores);
+  const sequence = optimizeTrainingSequence(
+    allocation,
+    scores,
+    cycleDays,
+    constraints.minimumRecoveryDays,
+  );
   const allocationMatchesCurrent = TRAINING_TYPES.every((type) => (
     frequency(previousSchedule, type) === (allocation.get(type) ?? 0)
   ));
-  const nextSchedule = allocationMatchesCurrent
+  const currentLayout = scheduleTrainingLayout(previousSchedule);
+  const currentRecoveryViolations = recoveryViolations(
+    currentLayout.sequence,
+    cycleDays,
+    constraints.minimumRecoveryDays,
+    currentLayout.positions,
+  );
+  const nextSchedule = allocationMatchesCurrent && currentRecoveryViolations.length === 0
     ? previousSchedule
     : buildSchedule(sequence, byType, cycleDays);
   const trainingDaysAfter = sequence.length;
@@ -364,6 +491,9 @@ export function buildScheduleAdaptation(
 
   if (trainingDaysBefore !== trainingDaysAfter) {
     reasons.push(`${cycleDays} 天微周期训练日 ${trainingDaysBefore} → ${trainingDaysAfter}（约每 7 天 ${weeklyEquivalentBefore} → ${weeklyEquivalentAfter} 次）`);
+  }
+  if (allocationMatchesCurrent && currentRecoveryViolations.length > 0) {
+    reasons.push(`按同肌群至少间隔 ${constraints.minimumRecoveryDays} 天重排训练顺序`);
   }
   for (const type of TRAINING_TYPES) {
     const before = frequency(previousSchedule, type);
@@ -374,6 +504,11 @@ export function buildScheduleAdaptation(
     warnings.push(`缺少 ${TRAINING_TYPES.filter((type) => !available.includes(type)).join(" / ")} 类型的非空模板，无法分配该类型`);
   }
   if (targetDays === cycleDays) warnings.push(`${cycleDays} 天微周期没有休息日；请确认恢复能力与实际时间允许`);
+  const unresolvedRecovery = recoveryViolations(sequence, cycleDays, constraints.minimumRecoveryDays);
+  if (unresolvedRecovery.length > 0) {
+    const types = [...new Set(unresolvedRecovery.map((violation) => violation.type))].join(" / ");
+    warnings.push(`${cycleDays} 天微周期内 ${types} 的频率无法满足同肌群至少间隔 ${constraints.minimumRecoveryDays} 天；请减少频率或延长微周期`);
+  }
 
   const sourceRevision = scheduleAdaptationRevision(data, policy, date, evidence);
   return {

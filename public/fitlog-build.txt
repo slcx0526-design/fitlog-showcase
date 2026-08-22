@@ -1,1 +1,1 @@
-FitLog 16.0.0 visual system and workout-first hierarchy
+FitLog 17.0.0 constraint-aware adaptive planning

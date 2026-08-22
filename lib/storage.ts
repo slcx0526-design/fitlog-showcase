@@ -1467,6 +1467,17 @@ function remapTrainingPolicyExerciseReferences(
     for (const exerciseId of reference.exerciseIds) exercisePreferences[exerciseId] = reference.preference;
   }
 
+  const lockReferences = Object.entries(policy.exerciseLocks)
+    .map(([exerciseId, lock]) => ({
+      exerciseIds: identity.expandReferenceIds([exerciseId]) ?? [exerciseId],
+      lock,
+    }))
+    .sort((a, b) => b.exerciseIds.length - a.exerciseIds.length);
+  const exerciseLocks: TrainingPolicy["exerciseLocks"] = {};
+  for (const reference of lockReferences) {
+    for (const exerciseId of reference.exerciseIds) exerciseLocks[exerciseId] = reference.lock;
+  }
+
   const usedRestrictionIds = new Set<string>();
   const restrictions = policy.restrictions.flatMap((restriction) => {
     if (!restriction.exerciseId) {
@@ -1540,6 +1551,7 @@ function remapTrainingPolicyExerciseReferences(
   return {
     ...policy,
     exercisePreferences,
+    exerciseLocks,
     restrictions,
     overrides,
     decisionEvents,

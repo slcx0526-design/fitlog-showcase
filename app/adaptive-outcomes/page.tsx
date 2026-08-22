@@ -7,11 +7,12 @@ import { buildAdaptiveResponseModel } from "@/lib/adaptiveResponse";
 import { adaptiveText } from "@/lib/adaptiveText";
 import { useToday } from "@/lib/hooks";
 import { localeText, useI18n, type Locale } from "@/lib/i18n";
+import { MUSCLE_LABELS } from "@/lib/muscles";
 import { useStore } from "@/lib/store";
 
 export default function AdaptiveOutcomesPage() {
   const { loaded, data } = useStore();
-  const { locale } = useI18n();
+  const { locale, tr } = useI18n();
   const today = useToday();
   const model = useMemo(() => buildAdaptiveResponseModel(data, today), [data, today]);
   const t = (zh: string, en: string, ja: string) => localeText(locale, zh, en, ja);
@@ -74,6 +75,30 @@ export default function AdaptiveOutcomesPage() {
               {model.reasons.length > 0 && <details className="adaptive-inline-details mt-3"><summary>{t("查看判断依据", "View reasoning", "判断根拠を見る")}</summary><div className="mt-2 space-y-1">{model.reasons.map((reason) => <p key={reason}>{adaptiveText(locale, reason)}</p>)}</div></details>}
             </div>
           </section>
+
+          {model.muscles.length > 0 && (
+            <section className="control-card overflow-hidden">
+              <div className="p-4">
+                <SectionTitle title={t("肌群反应", "Muscle response", "筋群別反応")} detail={t("按肌群比较实际直接组、完成和进阶结果", "Compare direct work, completion, and progression by muscle", "筋群ごとに直接セット、完遂、進行を比較")} />
+              </div>
+              <div className="soft-divider border-t">
+                {model.muscles.map((response) => (
+                  <div key={response.muscle} className="adaptive-muscle-response soft-divider border-t px-4 py-3 first:border-t-0">
+                    <div>
+                      <strong>{tr(MUSCLE_LABELS[response.muscle])}</strong>
+                      <span className="tnum">{t("最近直接组", "Latest direct sets", "直近の直接セット")} {response.latestDirectSets}</span>
+                    </div>
+                    <div className="adaptive-muscle-response__status">
+                      <span data-tolerance={response.tolerance}>{response.tolerance === "low" ? t("耐受偏低", "Low tolerance", "耐性低め") : response.tolerance === "high" ? t("耐受偏高", "High tolerance", "耐性高め") : response.tolerance === "balanced" ? t("适合维持", "Hold dose", "維持向き") : t("证据不足", "Insufficient", "根拠不足")}</span>
+                      <small>{response.confidence === "ready" ? t("充分证据", "Ready evidence", "十分な根拠") : response.confidence === "building" ? t("建立中", "Building", "構築中") : t("低置信", "Low confidence", "低信頼")}</small>
+                    </div>
+                    <p>{adaptiveText(locale, response.summary)}</p>
+                    {response.reasons.length > 0 && <details className="adaptive-inline-details"><summary>{t("查看肌群依据", "View muscle evidence", "筋群の根拠を見る")}</summary><div>{response.reasons.map((reason) => <p key={reason}>{adaptiveText(locale, reason)}</p>)}</div></details>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="control-card overflow-hidden">
             <div className="p-4">

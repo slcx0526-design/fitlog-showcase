@@ -1,8 +1,15 @@
 import { DEFAULT_EXERCISES } from "./exercises";
-import { MUSCLE_LABELS, weeklyTargetFor, type MuscleGroup } from "./muscles";
+import { buildAdaptiveResponseModel, type AdaptiveResponseModel } from "./adaptiveResponse";
+import { MUSCLE_LABELS, MUSCLE_ORDER, weeklyTargetFor, type MuscleGroup } from "./muscles";
 import { normalizeTemplateItemPrescription } from "./prescription";
 import { compileTrainingConstraints, exerciseConstraintViolations, exercisePreferenceScore } from "./trainingConstraints";
-import { musclePriorityMultiplier, policyRevision, type TrainingPolicy } from "./trainingPolicy";
+import {
+  effectiveMusclePlanTargets,
+  musclePriorityMultiplier,
+  policyRevision,
+  type MusclePlanTarget,
+  type TrainingPolicy,
+} from "./trainingPolicy";
 import type { AppData, ExercisePreset, Template, TemplateItem, VolumeContribution } from "./types";
 
 export type PlanAdaptationTrigger =
@@ -19,6 +26,30 @@ export interface TemplatePlanChange {
   reasons: string[];
   estimatedMinutesBefore: number;
   estimatedMinutesAfter: number;
+  itemDiffs: PlanItemDiff[];
+}
+
+export interface PlanItemDiff {
+  id: string;
+  kind: "added" | "removed" | "replaced" | "sets" | "prescription";
+  exerciseId: string;
+  exerciseName: string;
+  previousExerciseId?: string;
+  previousExerciseName?: string;
+  beforeSets?: number;
+  afterSets?: number;
+}
+
+export interface PlanMuscleImpact {
+  muscle: MuscleGroup;
+  directBefore: number;
+  directAfter: number;
+  effectiveBefore: number;
+  effectiveAfter: number;
+  targetLow: number;
+  targetHigh: number;
+  statusBefore: "low" | "inRange" | "high";
+  statusAfter: "low" | "inRange" | "high";
 }
 
 export interface PlanAdaptationProposal {
@@ -34,12 +65,14 @@ export interface PlanAdaptationProposal {
   changes: TemplatePlanChange[];
   impact: {
     changedTemplates: number;
+    addedExercises: number;
     replacedExercises: number;
     removedExercises: number;
     setDelta: number;
     estimatedMinutesBefore: number;
     estimatedMinutesAfter: number;
     muscleSetDelta: Partial<Record<MuscleGroup, number>>;
+    muscles: PlanMuscleImpact[];
   };
   warnings: string[];
 }
@@ -58,6 +91,8 @@ type MutableTemplate = {
   reasons: Set<string>;
   replaced: number;
   removed: number;
+  added: number;
+  replacements: Array<{ before: TemplateItem; after: TemplateItem }>;
 };
 
 const RECOVERY_GROUPS: Array<{ key: string; muscles: MuscleGroup[]; sessionCap: number; repeatedSessionCap: number }> = [
@@ -73,8 +108,6 @@ const RECOVERY_GROUPS: Array<{ key: string; muscles: MuscleGroup[]; sessionCap: 
 
 type RecoveryCapContext = Map<string, { cap: number; exposures: number; cycleDays: number }>;
 
-const MAX_PRIORITY_ADDITIONS_PER_TEMPLATE = 2;
-
 function cloneItems(items: TemplateItem[]) {
   return items.map((item) => ({
     ...item,
@@ -84,6 +117,76 @@ function cloneItems(items: TemplateItem[]) {
     ...(item.recordModes ? { recordModes: [...item.recordModes] } : {}),
     ...(item.prescription ? { prescription: { ...item.prescription } } : {}),
   }));
+}
+
+function buildItemDiffs(
+  templateId: string,
+  previous: TemplateItem[],
+  next: TemplateItem[],
+  replacements: MutableTemplate["replacements"],
+): PlanItemDiff[] {
+  const previousById = new Map(previous.map((item) => [item.exerciseId, item]));
+  const nextById = new Map(next.map((item) => [item.exerciseId, item]));
+  const replacedPreviousIds = new Set(replacements.map((entry) => entry.before.exerciseId));
+  const replacedNextIds = new Set(replacements.map((entry) => entry.after.exerciseId));
+  const diffs: PlanItemDiff[] = [];
+  for (const replacement of replacements) {
+    diffs.push({
+      id: `${templateId}:replaced:${replacement.before.exerciseId}:${replacement.after.exerciseId}`,
+      kind: "replaced",
+      exerciseId: replacement.after.exerciseId,
+      exerciseName: replacement.after.name,
+      previousExerciseId: replacement.before.exerciseId,
+      previousExerciseName: replacement.before.name,
+      beforeSets: replacement.before.sets,
+      afterSets: replacement.after.sets,
+    });
+  }
+  for (const item of previous) {
+    if (replacedPreviousIds.has(item.exerciseId)) continue;
+    const after = nextById.get(item.exerciseId);
+    if (!after) {
+      diffs.push({
+        id: `${templateId}:removed:${item.exerciseId}`,
+        kind: "removed",
+        exerciseId: item.exerciseId,
+        exerciseName: item.name,
+        beforeSets: item.sets,
+      });
+      continue;
+    }
+    if (item.sets !== after.sets) {
+      diffs.push({
+        id: `${templateId}:sets:${item.exerciseId}`,
+        kind: "sets",
+        exerciseId: item.exerciseId,
+        exerciseName: after.name,
+        beforeSets: item.sets,
+        afterSets: after.sets,
+      });
+    }
+    if (JSON.stringify(item.prescription) !== JSON.stringify(after.prescription) && item.sets === after.sets) {
+      diffs.push({
+        id: `${templateId}:prescription:${item.exerciseId}`,
+        kind: "prescription",
+        exerciseId: item.exerciseId,
+        exerciseName: after.name,
+        beforeSets: item.sets,
+        afterSets: after.sets,
+      });
+    }
+  }
+  for (const item of next) {
+    if (previousById.has(item.exerciseId) || replacedNextIds.has(item.exerciseId)) continue;
+    diffs.push({
+      id: `${templateId}:added:${item.exerciseId}`,
+      kind: "added",
+      exerciseId: item.exerciseId,
+      exerciseName: item.name,
+      afterSets: item.sets,
+    });
+  }
+  return diffs;
 }
 
 function fingerprintTemplates(data: AppData, policy: TrainingPolicy) {
@@ -104,6 +207,13 @@ function fingerprintTemplates(data: AppData, policy: TrainingPolicy) {
 function directContributions(item: TemplateItem, preset?: Preset): VolumeContribution[] {
   const configured = item.volumeContributions?.length ? item.volumeContributions : preset?.volumeContributions;
   if (configured?.length) return configured.filter((entry) => entry.direct);
+  const primary = item.primaryMuscle ?? preset?.primaryMuscle;
+  return primary ? [{ muscle: primary, weight: 1, direct: true }] : [];
+}
+
+function allContributions(item: TemplateItem, preset?: Preset): VolumeContribution[] {
+  const configured = item.volumeContributions?.length ? item.volumeContributions : preset?.volumeContributions;
+  if (configured?.length) return configured;
   const primary = item.primaryMuscle ?? preset?.primaryMuscle;
   return primary ? [{ muscle: primary, weight: 1, direct: true }] : [];
 }
@@ -228,8 +338,28 @@ function cycleMuscleSets(templates: MutableTemplate[], usage: Map<string, number
   return totals;
 }
 
-function itemMuscleWeight(item: TemplateItem, muscle: MuscleGroup, presets: Map<string, Preset>) {
-  return directContributions(item, itemPreset(item, presets)).find((entry) => entry.muscle === muscle)?.weight ?? 0;
+function cycleMuscleVolume(templates: MutableTemplate[], usage: Map<string, number>, presets: Map<string, Preset>) {
+  const direct: Partial<Record<MuscleGroup, number>> = {};
+  const effective: Partial<Record<MuscleGroup, number>> = {};
+  for (const template of templates) {
+    const count = usage.get(template.source.id) ?? 0;
+    if (!count) continue;
+    for (const item of template.items) {
+      for (const contribution of allContributions(item, itemPreset(item, presets))) {
+        const amount = item.sets * contribution.weight * count;
+        effective[contribution.muscle] = (effective[contribution.muscle] ?? 0) + amount;
+        if (contribution.direct) direct[contribution.muscle] = (direct[contribution.muscle] ?? 0) + amount;
+      }
+    }
+  }
+  return { direct, effective };
+}
+
+function itemTargetWeight(item: TemplateItem, muscles: MuscleGroup[], presets: Map<string, Preset>) {
+  const included = new Set(muscles);
+  return directContributions(item, itemPreset(item, presets))
+    .filter((entry) => included.has(entry.muscle))
+    .reduce((sum, entry) => sum + entry.weight, 0);
 }
 
 function withWorkingSets(item: TemplateItem, sets: number): TemplateItem {
@@ -245,13 +375,121 @@ function recoveryGroupFor(muscle: MuscleGroup) {
     ?? { key: muscle, muscles: [muscle], sessionCap: 8, repeatedSessionCap: 6 };
 }
 
+type ResolvedPlanTarget = {
+  id: string;
+  label: string;
+  muscles: MuscleGroup[];
+  recoveryKey: string;
+  priority?: NonNullable<MusclePlanTarget["priority"]>;
+  cycleTarget?: { low: number; high: number };
+  maxDirectSetsPerSession?: number;
+  order: number;
+};
+
+function resolvedPlanTargets(policy: TrainingPolicy): ResolvedPlanTarget[] {
+  const targets = effectiveMusclePlanTargets(policy);
+  const owner = new Map<MuscleGroup, number>();
+  targets.forEach((target, index) => target.muscles.forEach((muscle) => owner.set(muscle, index)));
+  return targets.flatMap((target, targetIndex) => {
+    const ownedMuscles = target.muscles.filter((muscle) => owner.get(muscle) === targetIndex);
+    const byRecovery = new Map<string, MuscleGroup[]>();
+    for (const muscle of ownedMuscles) {
+      const key = recoveryGroupFor(muscle).key;
+      byRecovery.set(key, [...(byRecovery.get(key) ?? []), muscle]);
+    }
+    const groups = [...byRecovery.entries()];
+    return groups.map(([recoveryKey, muscles], groupIndex) => {
+      const divisor = Math.max(1, groups.length);
+      const cycleTarget = target.cycleTarget
+        ? {
+            low: Math.max(1, Math.round(target.cycleTarget.low / divisor)),
+            high: Math.max(1, Math.round(target.cycleTarget.high / divisor)),
+          }
+        : undefined;
+      return {
+        id: `${target.id}:${recoveryKey}`,
+        label: muscles.map((muscle) => MUSCLE_LABELS[muscle]).join("/"),
+        muscles,
+        recoveryKey,
+        ...(target.priority ? { priority: target.priority } : {}),
+        ...(cycleTarget ? { cycleTarget } : {}),
+        ...(target.maxDirectSetsPerSession != null ? { maxDirectSetsPerSession: target.maxDirectSetsPerSession } : {}),
+        order: targetIndex * 10 + groupIndex,
+      };
+    });
+  });
+}
+
+function configuredRecoveryCap(policy: TrainingPolicy, recoveryKey: string) {
+  const caps = resolvedPlanTargets(policy)
+    .filter((target) => target.recoveryKey === recoveryKey && target.maxDirectSetsPerSession != null)
+    .map((target) => target.maxDirectSetsPerSession as number);
+  return caps.length ? Math.min(...caps) : undefined;
+}
+
+type MaintenanceFloors = Partial<Record<MuscleGroup, number>>;
+
+function buildMaintenanceFloors(
+  data: AppData,
+  policy: TrainingPolicy,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  presets: Map<string, Preset>,
+) {
+  const current = cycleMuscleSets(templates, usage, presets);
+  const cycleScale = planningCycleDays(data) / 7;
+  const explicitTargets = resolvedPlanTargets(policy).filter((target) => target.cycleTarget);
+  const floors: MaintenanceFloors = {};
+  for (const [muscle, amount] of Object.entries(current) as Array<[MuscleGroup, number]>) {
+    if (amount <= 0) continue;
+    const priority = policy.musclePriorities[muscle];
+    const ratio = priority === "deprioritize"
+      ? 0.4
+      : priority === "maintain"
+        ? Math.max(0.6, policy.maintenanceFloorRatio)
+        : priority === "grow" || priority === "specialize"
+          ? 0.8
+          : policy.maintenanceFloorRatio;
+    const explicitTarget = explicitTargets.find((target) => target.muscles.includes(muscle));
+    const groupCurrent = explicitTarget?.muscles.reduce((sum, targetMuscle) => sum + (current[targetMuscle] ?? 0), 0) ?? 0;
+    const configuredLow = explicitTarget?.cycleTarget && groupCurrent > 0
+      ? explicitTarget.cycleTarget.low * amount / groupCurrent
+      : (data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel)).low * cycleScale;
+    floors[muscle] = Math.min(amount, Math.round(configuredLow * ratio * 10) / 10);
+  }
+  return floors;
+}
+
+function canReduceWithoutCrossingFloor(
+  template: MutableTemplate,
+  item: TemplateItem,
+  setDelta: number,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  presets: Map<string, Preset>,
+  floors: MaintenanceFloors,
+) {
+  const count = usage.get(template.source.id) ?? 0;
+  if (!count || setDelta <= 0) return true;
+  const totals = cycleMuscleSets(templates, usage, presets);
+  return directContributions(item, itemPreset(item, presets)).every((entry) => (
+    (totals[entry.muscle] ?? 0) - setDelta * entry.weight * count >= (floors[entry.muscle] ?? 0) - 0.001
+  ));
+}
+
 function buildRecoveryCapContext(
   templates: MutableTemplate[],
   usage: Map<string, number>,
   presets: Map<string, Preset>,
   cycleDays: number,
+  policy: TrainingPolicy,
 ): RecoveryCapContext {
-  return new Map(RECOVERY_GROUPS.map((group) => {
+  const groups = [...RECOVERY_GROUPS];
+  for (const target of resolvedPlanTargets(policy)) {
+    if (groups.some((group) => group.key === target.recoveryKey)) continue;
+    groups.push({ key: target.recoveryKey, muscles: target.muscles, sessionCap: 8, repeatedSessionCap: 6 });
+  }
+  return new Map(groups.map((group) => {
     const exposures = templates.reduce((total, template) => {
       const used = usage.get(template.source.id) ?? 0;
       if (!used) return total;
@@ -260,10 +498,12 @@ function buildRecoveryCapContext(
       return total + (contributes ? used : 0);
     }, 0);
     const exposureRate7d = exposures * 7 / Math.max(1, cycleDays);
+    const generatedCap = exposureRate7d >= 1.5 ? group.repeatedSessionCap : group.sessionCap;
+    const explicitCap = configuredRecoveryCap(policy, group.key);
     return [group.key, {
       exposures,
       cycleDays,
-      cap: exposureRate7d >= 1.5 ? group.repeatedSessionCap : group.sessionCap,
+      cap: explicitCap == null ? generatedCap : Math.min(generatedCap, explicitCap),
     }];
   }));
 }
@@ -309,9 +549,17 @@ function enforceRecoveryCaps(
   presets: Map<string, Preset>,
   constraints: ReturnType<typeof compileTrainingConstraints>,
   recoveryCaps: RecoveryCapContext,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  floors: MaintenanceFloors,
   warnings: string[],
 ) {
-  for (const recovery of RECOVERY_GROUPS) {
+  const recoveryGroups = [...RECOVERY_GROUPS];
+  for (const target of resolvedPlanTargets(policy)) {
+    if (recoveryGroups.some((group) => group.key === target.recoveryKey)) continue;
+    recoveryGroups.push({ key: target.recoveryKey, muscles: target.muscles, sessionCap: 8, repeatedSessionCap: 6 });
+  }
+  for (const recovery of recoveryGroups) {
     const sessionCap = recoveryCapFor(recovery, recoveryCaps);
     const capContext = recoveryCaps.get(recovery.key);
     const initial = templateDirectSets(template, recovery.muscles, presets);
@@ -321,9 +569,19 @@ function enforceRecoveryCaps(
     while (templateDirectSets(template, recovery.muscles, presets) > sessionCap + 0.001 && guard < 80) {
       guard += 1;
       const candidates = template.items
-        .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
-        .filter(({ item }) => item.sets > 1 && directContributions(item, itemPreset(item, presets)).some((entry) => recovery.muscles.includes(entry.muscle)))
+        .map((item, index) => ({
+          item,
+          index,
+          preset: itemPreset(item, presets),
+          floorSafe: canReduceWithoutCrossingFloor(template, item, 1, templates, usage, presets, floors),
+        }))
+        .filter(({ item }) => (
+          item.sets > 1
+          && constraints.exerciseLocks.get(item.exerciseId) !== "freeze"
+          && directContributions(item, itemPreset(item, presets)).some((entry) => recovery.muscles.includes(entry.muscle))
+        ))
         .sort((left, right) => {
+          if (left.floorSafe !== right.floorSafe) return Number(right.floorSafe) - Number(left.floorSafe);
           const leftMain = left.item.isMain ?? left.preset?.isMain ?? false;
           const rightMain = right.item.isMain ?? right.preset?.isMain ?? false;
           if (leftMain !== rightMain) return Number(leftMain) - Number(rightMain);
@@ -336,6 +594,10 @@ function enforceRecoveryCaps(
         });
       const candidate = candidates[0];
       if (!candidate) break;
+      if (!candidate.floorSafe) {
+        const warning = `${template.source.name} 为满足${recovery.muscles.map((muscle) => MUSCLE_LABELS[muscle]).join("/")}单次恢复上限，需要低于部分肌群维持量底线。`;
+        if (!warnings.includes(warning)) warnings.push(warning);
+      }
       template.items[candidate.index] = withWorkingSets(candidate.item, candidate.item.sets - 1);
       reductions.set(candidate.item.name, (reductions.get(candidate.item.name) ?? 0) + 1);
     }
@@ -352,10 +614,17 @@ function enforceRecoveryCaps(
     while (remaining > sessionCap + 0.001 && template.items.length > 1 && guard < 80) {
       guard += 1;
       const candidates = template.items
-        .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
+        .map((item, index) => ({
+          item,
+          index,
+          preset: itemPreset(item, presets),
+          floorSafe: canReduceWithoutCrossingFloor(template, item, item.sets, templates, usage, presets, floors),
+        }))
         .filter(({ item, preset }) => directContributions(item, preset)
-          .some((entry) => recovery.muscles.includes(entry.muscle)))
+          .some((entry) => recovery.muscles.includes(entry.muscle))
+          && !constraints.exerciseLocks.has(item.exerciseId))
         .sort((left, right) => {
+          if (left.floorSafe !== right.floorSafe) return Number(right.floorSafe) - Number(left.floorSafe);
           const leftMain = left.item.isMain ?? left.preset?.isMain ?? false;
           const rightMain = right.item.isMain ?? right.preset?.isMain ?? false;
           if (leftMain !== rightMain) return Number(leftMain) - Number(rightMain);
@@ -368,6 +637,10 @@ function enforceRecoveryCaps(
         });
       const candidate = candidates[0];
       if (!candidate) break;
+      if (!candidate.floorSafe) {
+        const warning = `${template.source.name} 为满足${groupLabel}单次恢复上限，需要低于部分肌群维持量底线。`;
+        if (!warnings.includes(warning)) warnings.push(warning);
+      }
       template.items.splice(candidate.index, 1);
       template.removed += 1;
       template.reasons.add(`${groupLabel}：单次直接组上限 ${sessionCap}，移除低优先级动作 ${candidate.item.name}`);
@@ -383,13 +656,14 @@ function enforceRecoveryCaps(
 function canAddPrioritySet(
   template: MutableTemplate,
   itemIndex: number,
-  muscle: MuscleGroup,
+  muscles: MuscleGroup[],
   constraints: ReturnType<typeof compileTrainingConstraints>,
   presets: Map<string, Preset>,
   recoveryCaps: RecoveryCapContext,
 ) {
   const item = template.items[itemIndex];
   if (!item || item.sets >= 12) return false;
+  if (constraints.exerciseLocks.get(item.exerciseId) === "freeze") return false;
   if (template.items.reduce((sum, candidate) => sum + candidate.sets, 0) >= constraints.maxWorkingSetsPerSession) return false;
   const nextItems = template.items.map((candidate, index) => index === itemIndex
     ? withWorkingSets(candidate, candidate.sets + 1)
@@ -401,10 +675,162 @@ function canAddPrioritySet(
     const current = addedByRecoveryGroup.get(group.key);
     addedByRecoveryGroup.set(group.key, { group, weight: (current?.weight ?? 0) + contribution.weight });
   }
-  if (!addedByRecoveryGroup.size || itemMuscleWeight(item, muscle, presets) <= 0) return false;
+  if (!addedByRecoveryGroup.size || itemTargetWeight(item, muscles, presets) <= 0) return false;
   return [...addedByRecoveryGroup.values()].every(({ group, weight }) => (
     templateDirectSets(template, group.muscles, presets) + weight <= recoveryCapFor(group, recoveryCaps) + 0.001
   ));
+}
+
+function targetCycleRange(data: AppData, target: ResolvedPlanTarget) {
+  if (target.cycleTarget) return target.cycleTarget;
+  const cycleScale = planningCycleDays(data) / 7;
+  const ranges = target.muscles.map((muscle) => data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel));
+  return {
+    low: Math.max(1, Math.round(Math.max(...ranges.map((range) => range.low)) * cycleScale)),
+    high: Math.max(1, Math.round(Math.max(...ranges.map((range) => range.high)) * cycleScale)),
+  };
+}
+
+function makeAddedTemplateItem(preset: Preset, policy: TrainingPolicy, sets: number) {
+  const strengthMain = policy.goal === "strength" && preset.isMain;
+  const repsLow = strengthMain ? 4 : preset.isMain ? 6 : 10;
+  const repsHigh = strengthMain ? 6 : preset.isMain ? 10 : 15;
+  return normalizeTemplateItemPrescription({
+    exerciseId: preset.id,
+    name: preset.name,
+    sets,
+    repsLow,
+    repsHigh,
+    isMain: preset.isMain,
+    ...(preset.primaryMuscle ? { primaryMuscle: preset.primaryMuscle } : {}),
+    ...(preset.secondaryMuscles?.length ? { secondaryMuscles: [...preset.secondaryMuscles] } : {}),
+    ...(preset.volumeContributions?.length ? { volumeContributions: preset.volumeContributions.map((entry) => ({ ...entry })) } : {}),
+    ...(preset.equipment ? { equipment: preset.equipment } : {}),
+    ...(preset.movementPattern ? { movementPattern: preset.movementPattern } : {}),
+    ...(preset.alternatives?.length ? { alternatives: [...preset.alternatives] } : {}),
+    ...(preset.recordModes?.length ? { recordModes: [...preset.recordModes] } : {}),
+  }, preset);
+}
+
+function newItemFitsSession(
+  template: MutableTemplate,
+  item: TemplateItem,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  presets: Map<string, Preset>,
+  recoveryCaps: RecoveryCapContext,
+) {
+  if (template.items.length >= constraints.maxExercisesPerSession) return false;
+  if (template.items.reduce((sum, candidate) => sum + candidate.sets, 0) + item.sets > constraints.maxWorkingSetsPerSession) return false;
+  if (estimateTemplateMinutes([...template.items, item], presets) > constraints.maxSessionMinutes) return false;
+  const groups = new Map<string, { group: ReturnType<typeof recoveryGroupFor>; weight: number }>();
+  for (const contribution of directContributions(item, itemPreset(item, presets))) {
+    const group = recoveryGroupFor(contribution.muscle);
+    const current = groups.get(group.key);
+    groups.set(group.key, { group, weight: (current?.weight ?? 0) + contribution.weight * item.sets });
+  }
+  return [...groups.values()].every(({ group, weight }) => (
+    templateDirectSets(template, group.muscles, presets) + weight <= recoveryCapFor(group, recoveryCaps) + 0.001
+  ));
+}
+
+function fundAddedExercise(
+  template: MutableTemplate,
+  target: ResolvedPlanTarget,
+  sets: number,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  presets: Map<string, Preset>,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  floors: MaintenanceFloors,
+) {
+  const priorityScore = (item: TemplateItem, preset?: Preset) => directContributions(item, preset).reduce((score, entry) => {
+    const priority = constraints.musclePriorities[entry.muscle];
+    return score + (priority === "specialize" ? 4 : priority === "grow" ? 3 : priority === "maintain" ? 1 : priority === "deprioritize" ? 0 : 2);
+  }, 0);
+  const snapshot = cloneItems(template.items);
+  let remaining = sets;
+  while (remaining > 0) {
+    const candidates = template.items
+      .map((item, index) => ({
+        item,
+        index,
+        targetWeight: itemTargetWeight(item, target.muscles, presets),
+        floorSafe: canReduceWithoutCrossingFloor(template, item, 1, templates, usage, presets, floors),
+        preset: itemPreset(item, presets),
+      }))
+      .filter(({ item, floorSafe }) => item.sets > 1 && floorSafe && constraints.exerciseLocks.get(item.exerciseId) !== "freeze")
+      .sort((left, right) => (
+        left.targetWeight - right.targetWeight
+        || priorityScore(left.item, left.preset) - priorityScore(right.item, right.preset)
+        || right.item.sets - left.item.sets
+      ));
+    const candidate = candidates[0];
+    if (!candidate) {
+      template.items = snapshot;
+      return false;
+    }
+    template.items[candidate.index] = withWorkingSets(candidate.item, candidate.item.sets - 1);
+    remaining -= 1;
+  }
+  return true;
+}
+
+function tryAddTargetExercise(
+  target: ResolvedPlanTarget,
+  policy: TrainingPolicy,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  presets: Map<string, Preset>,
+  constraints: ReturnType<typeof compileTrainingConstraints>,
+  recoveryCaps: RecoveryCapContext,
+  floors: MaintenanceFloors,
+) {
+  if (!constraints.allowExerciseAdditions) return undefined;
+  const usedExerciseIds = new Set(templates.flatMap((template) => template.items.map((item) => item.exerciseId)));
+  const candidates = templates.flatMap((template) => [...presets.values()].flatMap((preset) => {
+    if (!(usage.get(template.source.id) ?? 0)) return [];
+    if (template.added >= constraints.changeBudget.maxAddedExercisesPerTemplate) return [];
+    if (usedExerciseIds.has(preset.id)) return [];
+    if (preset.type !== template.source.type && preset.type !== "custom") return [];
+    if (exerciseConstraintViolations(preset, constraints).length) return [];
+    if (constraints.avoidedExerciseIds.has(preset.id)) return [];
+    const weight = directContributions({ exerciseId: preset.id, name: preset.name, sets: 1, repsLow: 8, repsHigh: 12 }, preset)
+      .filter((entry) => target.muscles.includes(entry.muscle))
+      .reduce((sum, entry) => sum + entry.weight, 0);
+    if (weight <= 0) return [];
+    const sets = policy.planningAggressiveness === "conservative" ? 1 : 2;
+    const item = makeAddedTemplateItem(preset, policy, sets);
+    if (!newItemFitsSession(template, item, constraints, presets, recoveryCaps) && !constraints.preserveTotalWorkingSets) return [];
+    const score = exercisePreferenceScore(preset, constraints) + weight * 20 + (preset.isMain ? 0 : 5);
+    return [{ template, preset, item, score }];
+  })).sort((left, right) => (
+    right.score - left.score
+    || left.template.items.reduce((sum, item) => sum + item.sets, 0) - right.template.items.reduce((sum, item) => sum + item.sets, 0)
+    || left.preset.name.localeCompare(right.preset.name)
+  ));
+  for (const candidate of candidates) {
+    const beforeFunding = cloneItems(candidate.template.items);
+    if (constraints.preserveTotalWorkingSets && !fundAddedExercise(
+      candidate.template,
+      target,
+      candidate.item.sets,
+      templates,
+      usage,
+      presets,
+      constraints,
+      floors,
+    )) continue;
+    if (!newItemFitsSession(candidate.template, candidate.item, constraints, presets, recoveryCaps)) {
+      candidate.template.items = beforeFunding;
+      continue;
+    }
+    candidate.template.items.push(candidate.item);
+    candidate.template.added += 1;
+    candidate.template.reasons.add(`${target.label}缺少直接动作，补入 ${candidate.item.name} ${candidate.item.sets} 组`);
+    if (constraints.preserveTotalWorkingSets) candidate.template.reasons.add("保持总工作组数：新增动作由低优先级组数等量置换");
+    return { template: candidate.template, item: candidate.item };
+  }
+  return undefined;
 }
 
 function adjustMusclePriorities(
@@ -415,44 +841,81 @@ function adjustMusclePriorities(
   presets: Map<string, Preset>,
   constraints: ReturnType<typeof compileTrainingConstraints>,
   recoveryCaps: RecoveryCapContext,
+  floors: MaintenanceFloors,
+  responseModel: AdaptiveResponseModel,
   warnings: string[],
 ) {
   const cycleDays = planningCycleDays(data);
-  const cycleScale = cycleDays / 7;
   const currentTotals = cycleMuscleSets(templates, usage, presets);
-  const increases = (Object.entries(policy.musclePriorities) as Array<[MuscleGroup, NonNullable<TrainingPolicy["musclePriorities"][MuscleGroup]>]>)
-    .filter(([, priority]) => priority === "specialize" || priority === "grow")
-    .map(([muscle, priority]) => {
-      const target = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
-      return {
-        muscle,
-        priority,
-        desired: Math.max(1, Math.round(target.low * cycleScale * musclePriorityMultiplier(priority))),
-        current: currentTotals[muscle] ?? 0,
-      };
+  const responseByMuscle = new Map(responseModel.muscles.map((response) => [response.muscle, response]));
+  const targetStates = resolvedPlanTargets(policy).map((target) => {
+    const range = targetCycleRange(data, target);
+    const lowTolerance = target.muscles.some((muscle) => {
+      const response = responseByMuscle.get(muscle);
+      return response && response.confidence !== "low" && response.tolerance === "low";
     });
+    const current = target.muscles.reduce((sum, muscle) => sum + (currentTotals[muscle] ?? 0), 0);
+    const priorityDesired = Math.max(1, Math.round(range.low * musclePriorityMultiplier(target.priority)));
+    const desired = target.cycleTarget
+      ? target.priority === "specialize"
+        ? Math.min(range.high, priorityDesired)
+        : range.low
+      : target.priority
+        ? priorityDesired
+        : current;
+    return {
+      ...target,
+      desired: lowTolerance
+        ? current
+        : desired,
+      current,
+      lowTolerance,
+    };
+  });
+  for (const state of targetStates.filter((target) => target.lowTolerance && (target.priority === "specialize" || target.priority === "grow"))) {
+    warnings.push(`${state.label}的个人周期反应显示容量耐受偏低，本轮不自动加量；保留目标并等待恢复或后续周期证据。`);
+  }
+  const increases = targetStates.filter((target) => (
+    target.current + 0.001 < target.desired
+    && (target.priority === "specialize" || target.priority === "grow" || Boolean(target.cycleTarget))
+  ));
   const templateAdditions = new Map<string, number>();
-  const touchedItems = new Set<string>();
-  const maxRounds = increases.some((state) => state.priority === "specialize") ? 2 : 1;
+  const itemDeltas = new Map<string, number>();
+  const maxRounds = policy.planningAggressiveness === "conservative"
+    ? 1
+    : policy.planningAggressiveness === "progressive"
+      ? 3
+      : increases.some((state) => state.priority === "specialize")
+        ? 2
+        : 1;
+  const maxTemplateSetAdditions = policy.planningAggressiveness === "conservative" ? 1 : policy.planningAggressiveness === "progressive" ? 3 : 2;
 
-  // Give every requested recovery family one conservative pass before a
-  // specialization receives a second set. Broad goals such as chest or
-  // shoulders must not consume the whole session before another goal is seen.
+  // Every requested recovery family gets one pass before a specialization can
+  // receive another set. This keeps multi-goal commands from starving later goals.
   for (let round = 0; round < maxRounds; round += 1) {
     const recoveryGroupsTouchedThisRound = new Set<string>();
     for (const state of increases) {
-      if (round > 0 && state.priority !== "specialize") continue;
+      if (round > 0 && state.priority !== "specialize" && policy.planningAggressiveness !== "progressive") continue;
       if (state.current >= state.desired) continue;
-      const recoveryKey = recoveryGroupFor(state.muscle).key;
-      if (recoveryGroupsTouchedThisRound.has(recoveryKey)) continue;
-      const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
-        .filter(({ item }) => itemMuscleWeight(item, state.muscle, presets) > 0)
+      if (recoveryGroupsTouchedThisRound.has(state.recoveryKey)) continue;
+      const directCandidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
+        .filter(({ item }) => itemTargetWeight(item, state.muscles, presets) > 0);
+      if (!directCandidates.length && round === 0) {
+        const added = tryAddTargetExercise(state, policy, templates, usage, presets, constraints, recoveryCaps, floors);
+        if (added) {
+          const refreshed = cycleMuscleSets(templates, usage, presets);
+          state.current = state.muscles.reduce((sum, muscle) => sum + (refreshed[muscle] ?? 0), 0);
+          recoveryGroupsTouchedThisRound.add(state.recoveryKey);
+          continue;
+        }
+      }
+      const candidates = directCandidates
         .filter(({ item }) => !constraints.avoidedExerciseIds.has(item.exerciseId))
-        .filter(({ template, item }) => !touchedItems.has(`${template.source.id}:${item.exerciseId}`))
-        .filter(({ template }) => (templateAdditions.get(template.source.id) ?? 0) < MAX_PRIORITY_ADDITIONS_PER_TEMPLATE)
-        .filter(({ template, index }) => canAddPrioritySet(template, index, state.muscle, constraints, presets, recoveryCaps))
+        .filter(({ template, item }) => (itemDeltas.get(`${template.source.id}:${item.exerciseId}`) ?? 0) < constraints.changeBudget.maxSetDeltaPerExercise)
+        .filter(({ template }) => (templateAdditions.get(template.source.id) ?? 0) < maxTemplateSetAdditions)
+        .filter(({ template, index }) => canAddPrioritySet(template, index, state.muscles, constraints, presets, recoveryCaps))
         .sort((a, b) => {
-          const recovery = recoveryGroupFor(state.muscle);
+          const recovery = recoveryGroupFor(state.muscles[0]);
           const loadDelta = templateDirectSets(a.template, recovery.muscles, presets) - templateDirectSets(b.template, recovery.muscles, presets);
           if (loadDelta) return loadDelta;
           const aPreset = itemPreset(a.item, presets);
@@ -465,28 +928,39 @@ function adjustMusclePriorities(
       if (!candidate) continue;
       const nextSets = candidate.item.sets + 1;
       candidate.template.items[candidate.index] = withWorkingSets(candidate.item, nextSets);
-      candidate.template.reasons.add(`${MUSCLE_LABELS[state.muscle]}：${state.priority === "specialize" ? "专项" : "增长"}，按 ${cycleDays} 天微周期增加 1 组`);
-      touchedItems.add(`${candidate.template.source.id}:${candidate.item.exerciseId}`);
+      const reason = state.priority === "specialize"
+        ? "专项"
+        : state.priority === "grow"
+          ? "增长"
+          : "明确周期目标";
+      candidate.template.reasons.add(`${state.label}：${reason}，按 ${cycleDays} 天微周期增加 1 组`);
+      const itemKey = `${candidate.template.source.id}:${candidate.item.exerciseId}`;
+      itemDeltas.set(itemKey, (itemDeltas.get(itemKey) ?? 0) + 1);
       templateAdditions.set(candidate.template.source.id, (templateAdditions.get(candidate.template.source.id) ?? 0) + 1);
-      recoveryGroupsTouchedThisRound.add(recoveryKey);
-      state.current += itemMuscleWeight(candidate.item, state.muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
+      recoveryGroupsTouchedThisRound.add(state.recoveryKey);
+      state.current += itemTargetWeight(candidate.item, state.muscles, presets) * (usage.get(candidate.template.source.id) ?? 1);
     }
   }
 
   for (const state of increases) {
     if (state.current + 0.001 >= state.desired) continue;
-    warnings.push(`${MUSCLE_LABELS[state.muscle]}目标按 ${cycleDays} 天微周期折算为 ${state.desired} 组；受单次恢复和总时长边界限制，不把剩余缺口集中堆到一天。`);
+    warnings.push(`${state.label}目标按 ${cycleDays} 天微周期折算为 ${state.desired} 组；受单次恢复和总时长边界限制，不把剩余缺口集中堆到一天。`);
   }
 
-  for (const [muscle, priority] of Object.entries(policy.musclePriorities) as Array<[MuscleGroup, NonNullable<TrainingPolicy["musclePriorities"][MuscleGroup]>]>) {
-    if (priority === "specialize" || priority === "grow") continue;
-    const target = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
-    const desired = Math.max(1, Math.round(target.low * cycleScale * musclePriorityMultiplier(priority)));
-    let current = cycleMuscleSets(templates, usage, presets)[muscle] ?? 0;
-    const reductionBudget = priority === "maintain" ? 1 : 2;
-    if (current <= desired) continue;
+  for (const state of targetStates.filter((target) => (
+    target.current > target.desired + 0.001
+    && (target.priority === "maintain" || target.priority === "deprioritize" || Boolean(target.cycleTarget))
+  ))) {
+    const priority = state.priority;
+    let current = state.muscles.reduce((sum, muscle) => sum + (cycleMuscleSets(templates, usage, presets)[muscle] ?? 0), 0);
+    const reductionBudget = priority === "maintain"
+      ? 1
+      : Math.min(2, constraints.changeBudget.maxSetDeltaPerExercise + 1);
+    if (current <= state.desired) continue;
     const candidates = templates.flatMap((template) => template.items.map((item, index) => ({ template, item, index })))
-      .filter(({ item }) => itemMuscleWeight(item, muscle, presets) > 0 && item.sets > 2)
+      .filter(({ item }) => itemTargetWeight(item, state.muscles, presets) > 0 && item.sets > 2)
+      .filter(({ item }) => constraints.exerciseLocks.get(item.exerciseId) !== "freeze")
+      .filter(({ template, item }) => canReduceWithoutCrossingFloor(template, item, 1, templates, usage, presets, floors))
       .sort((a, b) => {
         const aPreset = itemPreset(a.item, presets);
         const bPreset = itemPreset(b.item, presets);
@@ -495,10 +969,11 @@ function adjustMusclePriorities(
         return Number(aMain) - Number(bMain) || b.item.sets - a.item.sets;
       });
     for (const candidate of candidates.slice(0, reductionBudget)) {
-      if (current <= desired) break;
+      if (current <= state.desired) break;
       candidate.template.items[candidate.index] = withWorkingSets(candidate.item, candidate.item.sets - 1);
-      candidate.template.reasons.add(`${MUSCLE_LABELS[muscle]}：${priority === "maintain" ? "维持" : "降低"}，按 ${cycleDays} 天微周期减少 1 组`);
-      current -= itemMuscleWeight(candidate.item, muscle, presets) * (usage.get(candidate.template.source.id) ?? 1);
+      const reason = priority === "maintain" ? "维持" : priority === "deprioritize" ? "降低" : "明确周期目标";
+      candidate.template.reasons.add(`${state.label}：${reason}，按 ${cycleDays} 天微周期减少 1 组`);
+      current -= itemTargetWeight(candidate.item, state.muscles, presets) * (usage.get(candidate.template.source.id) ?? 1);
     }
   }
 }
@@ -507,6 +982,10 @@ function enforceSessionCaps(
   template: MutableTemplate,
   constraints: ReturnType<typeof compileTrainingConstraints>,
   presets: Map<string, Preset>,
+  templates: MutableTemplate[],
+  usage: Map<string, number>,
+  floors: MaintenanceFloors,
+  warnings: string[],
 ) {
   const setCount = () => template.items.reduce((sum, item) => sum + item.sets, 0);
   const exceedsWorkOrTimeCap = () => (
@@ -514,8 +993,15 @@ function enforceSessionCaps(
     || estimateTemplateMinutes(template.items, presets) > constraints.maxSessionMinutes
   );
   const lowValueIndex = () => template.items
-    .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
+    .map((item, index) => ({
+      item,
+      index,
+      preset: itemPreset(item, presets),
+      floorSafe: canReduceWithoutCrossingFloor(template, item, item.sets, templates, usage, presets, floors),
+    }))
+    .filter(({ item }) => !constraints.exerciseLocks.has(item.exerciseId))
     .sort((a, b) => {
+      if (a.floorSafe !== b.floorSafe) return Number(b.floorSafe) - Number(a.floorSafe);
       const aMain = a.item.isMain ?? a.preset?.isMain ?? false;
       const bMain = b.item.isMain ?? b.preset?.isMain ?? false;
       const aScore = exercisePreferenceScore(a.preset ?? { id: a.item.exerciseId }, constraints);
@@ -526,6 +1012,11 @@ function enforceSessionCaps(
   while (template.items.length > constraints.maxExercisesPerSession) {
     const index = lowValueIndex();
     if (index == null) break;
+    const candidate = template.items[index];
+    if (!canReduceWithoutCrossingFloor(template, candidate, candidate.sets, templates, usage, presets, floors)) {
+      const warning = `${template.source.name} 为满足动作数上限，需要低于部分肌群维持量底线。`;
+      if (!warnings.includes(warning)) warnings.push(warning);
+    }
     const [removed] = template.items.splice(index, 1);
     template.removed += 1;
     template.reasons.add(`动作数超过 ${constraints.maxExercisesPerSession}，移除低优先级动作 ${removed.name}`);
@@ -538,9 +1029,15 @@ function enforceSessionCaps(
   ) {
     guard += 1;
     const candidates = template.items
-      .map((item, index) => ({ item, index, preset: itemPreset(item, presets) }))
-      .filter(({ item }) => item.sets > 1)
+      .map((item, index) => ({
+        item,
+        index,
+        preset: itemPreset(item, presets),
+        floorSafe: canReduceWithoutCrossingFloor(template, item, 1, templates, usage, presets, floors),
+      }))
+      .filter(({ item }) => item.sets > 1 && constraints.exerciseLocks.get(item.exerciseId) !== "freeze")
       .sort((a, b) => {
+        if (a.floorSafe !== b.floorSafe) return Number(b.floorSafe) - Number(a.floorSafe);
         const aMain = a.item.isMain ?? a.preset?.isMain ?? false;
         const bMain = b.item.isMain ?? b.preset?.isMain ?? false;
         const aScore = exercisePreferenceScore(a.preset ?? { id: a.item.exerciseId }, constraints);
@@ -549,6 +1046,10 @@ function enforceSessionCaps(
       });
     const candidate = candidates[0];
     if (!candidate) break;
+    if (!candidate.floorSafe) {
+      const warning = `${template.source.name} 为满足单次时间或总组数上限，需要低于部分肌群维持量底线。`;
+      if (!warnings.includes(warning)) warnings.push(warning);
+    }
     const nextSets = candidate.item.sets - 1;
     template.items[candidate.index] = {
       ...candidate.item,
@@ -570,6 +1071,10 @@ function enforceSessionCaps(
     template.removed += 1;
     template.reasons.add(`单次上限仍超出，移除低优先级动作 ${removed.name}，控制在 ${constraints.maxSessionMinutes} 分钟 / ${constraints.maxWorkingSetsPerSession} 组以内`);
   }
+  if (template.items.length > constraints.maxExercisesPerSession || exceedsWorkOrTimeCap()) {
+    const warning = `${template.source.name} 含保留或冻结动作，无法在不破坏锁定条件的前提下满足单次上限。`;
+    if (!warnings.includes(warning)) warnings.push(warning);
+  }
 }
 
 function sameItems(left: TemplateItem[], right: TemplateItem[]) {
@@ -584,6 +1089,64 @@ function muscleDelta(before: Partial<Record<MuscleGroup, number>>, after: Partia
     if (delta) result[muscle] = delta;
   }
   return result;
+}
+
+function volumeStatus(value: number, low: number, high: number): PlanMuscleImpact["statusAfter"] {
+  if (value < low) return "low";
+  if (value > high) return "high";
+  return "inRange";
+}
+
+function muscleImpacts(
+  data: AppData,
+  policy: TrainingPolicy,
+  before: ReturnType<typeof cycleMuscleVolume>,
+  after: ReturnType<typeof cycleMuscleVolume>,
+) {
+  const cycleScale = planningCycleDays(data) / 7;
+  const explicitTargets = resolvedPlanTargets(policy).filter((target) => target.cycleTarget);
+  const relevant = new Set<MuscleGroup>([
+    ...Object.keys(before.direct),
+    ...Object.keys(after.direct),
+    ...Object.keys(policy.musclePriorities),
+    ...explicitTargets.flatMap((target) => target.muscles),
+  ] as MuscleGroup[]);
+  return [...relevant].flatMap((muscle): PlanMuscleImpact[] => {
+    const directBefore = Math.round((before.direct[muscle] ?? 0) * 10) / 10;
+    const directAfter = Math.round((after.direct[muscle] ?? 0) * 10) / 10;
+    const effectiveBefore = Math.round((before.effective[muscle] ?? 0) * 10) / 10;
+    const effectiveAfter = Math.round((after.effective[muscle] ?? 0) * 10) / 10;
+    if (directBefore === directAfter && effectiveBefore === effectiveAfter && !policy.musclePriorities[muscle]) return [];
+    const explicitTarget = explicitTargets.find((target) => target.muscles.includes(muscle));
+    const explicitRange = explicitTarget ? targetCycleRange(data, explicitTarget) : undefined;
+    const groupReference = explicitTarget?.muscles.reduce((sum, targetMuscle) => (
+      sum + Math.max(before.direct[targetMuscle] ?? 0, after.direct[targetMuscle] ?? 0)
+    ), 0) ?? 0;
+    const muscleReference = Math.max(directBefore, directAfter);
+    const share = explicitTarget
+      ? groupReference > 0
+        ? muscleReference / groupReference
+        : 1 / explicitTarget.muscles.length
+      : 1;
+    const weekly = data.muscleTargets?.[muscle] ?? weeklyTargetFor(muscle, data.profile?.trainingLevel);
+    const targetLow = explicitRange
+      ? Math.max(0.5, Math.round(explicitRange.low * share * 10) / 10)
+      : Math.max(1, Math.round(weekly.low * cycleScale * 10) / 10);
+    const targetHigh = explicitRange
+      ? Math.max(targetLow, Math.round(explicitRange.high * share * 10) / 10)
+      : Math.max(targetLow, Math.round(weekly.high * cycleScale * 10) / 10);
+    return [{
+      muscle,
+      directBefore,
+      directAfter,
+      effectiveBefore,
+      effectiveAfter,
+      targetLow,
+      targetHigh,
+      statusBefore: volumeStatus(directBefore, targetLow, targetHigh),
+      statusAfter: volumeStatus(directAfter, targetLow, targetHigh),
+    }];
+  }).sort((left, right) => MUSCLE_ORDER.indexOf(left.muscle) - MUSCLE_ORDER.indexOf(right.muscle));
 }
 
 export function buildPlanAdaptation(
@@ -602,6 +1165,8 @@ export function buildPlanAdaptation(
     reasons: new Set<string>(),
     replaced: 0,
     removed: 0,
+    added: 0,
+    replacements: [],
   }));
   const warnings: string[] = [];
 
@@ -620,10 +1185,17 @@ export function buildPlanAdaptation(
       } as ExercisePreset);
       const violations = exerciseConstraintViolations(preset, constraints);
       if (!violations.length) continue;
+      const lock = constraints.exerciseLocks.get(item.exerciseId);
+      if (lock) {
+        warnings.push(`${template.source.name} 的${item.name}已${lock === "freeze" ? "冻结" : "设为保留"}，但同时违反${violations.join("、")}；未自动修改。`);
+        continue;
+      }
       const replacement = replacementCandidates(template, item, presets, constraints)[0];
       if (replacement) {
-        template.items[index] = replacementItem(item, replacement);
+        const after = replacementItem(item, replacement);
+        template.items[index] = after;
         template.replaced += 1;
+        template.replacements.push({ before: cloneItems([item])[0], after: cloneItems([after])[0] });
         template.reasons.add(`${item.name} 因${violations.join("、")}替换为 ${replacement.name}`);
         continue;
       }
@@ -640,15 +1212,24 @@ export function buildPlanAdaptation(
   }
 
   const usage = templateUsage(data);
-  const recoveryCaps = buildRecoveryCapContext(templates, usage, presets, planningCycleDays(data));
-  const beforeMuscles = cycleMuscleSets(templates.map((template) => ({ ...template, items: cloneItems(template.source.items) })), usage, presets);
+  const sourceTemplates = templates.map((template) => ({ ...template, items: cloneItems(template.source.items) }));
+  const beforeVolume = cycleMuscleVolume(sourceTemplates, usage, presets);
+  const beforeMuscles = beforeVolume.direct;
+  const recoveryCaps = buildRecoveryCapContext(templates, usage, presets, planningCycleDays(data), policy);
+  const floors = buildMaintenanceFloors(data, policy, templates, usage, presets);
+  const responseModel = buildAdaptiveResponseModel(data, date);
   for (const template of templates) {
-    enforceRecoveryCaps(template, policy, presets, constraints, recoveryCaps, warnings);
-    enforceSessionCaps(template, constraints, presets);
+    enforceRecoveryCaps(template, policy, presets, constraints, recoveryCaps, templates, usage, floors, warnings);
+    enforceSessionCaps(template, constraints, presets, templates, usage, floors, warnings);
   }
-  adjustMusclePriorities(data, policy, templates, usage, presets, constraints, recoveryCaps, warnings);
-  for (const template of templates) enforceRecoveryCaps(template, policy, presets, constraints, recoveryCaps, warnings);
-  const afterMuscles = cycleMuscleSets(templates, usage, presets);
+  adjustMusclePriorities(data, policy, templates, usage, presets, constraints, recoveryCaps, floors, responseModel, warnings);
+  const finalRecoveryCaps = buildRecoveryCapContext(templates, usage, presets, planningCycleDays(data), policy);
+  for (const template of templates) {
+    enforceRecoveryCaps(template, policy, presets, constraints, finalRecoveryCaps, templates, usage, floors, warnings);
+    enforceSessionCaps(template, constraints, presets, templates, usage, floors, warnings);
+  }
+  const afterVolume = cycleMuscleVolume(templates, usage, presets);
+  const afterMuscles = afterVolume.direct;
 
   const changes: TemplatePlanChange[] = templates.flatMap((template) => {
     if (sameItems(template.source.items, template.items)) return [];
@@ -660,6 +1241,7 @@ export function buildPlanAdaptation(
       reasons: [...template.reasons],
       estimatedMinutesBefore: estimateTemplateMinutes(template.source.items, presets),
       estimatedMinutesAfter: estimateTemplateMinutes(template.items, presets),
+      itemDiffs: buildItemDiffs(template.source.id, template.source.items, template.items, template.replacements),
     }];
   });
 
@@ -670,6 +1252,7 @@ export function buildPlanAdaptation(
   ), 0);
   const replacedExercises = templates.reduce((sum, template) => sum + template.replaced, 0);
   const removedExercises = templates.reduce((sum, template) => sum + template.removed, 0);
+  const addedExercises = templates.reduce((sum, template) => sum + template.added, 0);
   const cycleDays = planningCycleDays(data);
   const scheduledTrainingDays = planningSteps(data)
     ?.filter((step) => step.type !== "rest").length
@@ -689,7 +1272,7 @@ export function buildPlanAdaptation(
     sourceRevision,
     confidence: reasons.some((reason) => reason.includes("排除") || reason.includes("器械")) ? "explicit" : changes.length ? "high" : "medium",
     summary: changes.length
-      ? `建议调整 ${changes.length} 个模板：${replacedExercises} 个动作替换，${removedExercises} 个动作移除，工作组净变化 ${setDelta > 0 ? "+" : ""}${setDelta}。`
+      ? `建议调整 ${changes.length} 个模板：${addedExercises} 个动作补入，${replacedExercises} 个动作替换，${removedExercises} 个动作移除，工作组净变化 ${setDelta > 0 ? "+" : ""}${setDelta}。`
       : "没有发现必须修改的模板。",
     reasons,
     evidence: [
@@ -703,12 +1286,14 @@ export function buildPlanAdaptation(
     changes,
     impact: {
       changedTemplates: changes.length,
+      addedExercises,
       replacedExercises,
       removedExercises,
       setDelta,
       estimatedMinutesBefore,
       estimatedMinutesAfter,
       muscleSetDelta: muscleDelta(beforeMuscles, afterMuscles),
+      muscles: muscleImpacts(data, policy, beforeVolume, afterVolume),
     },
     warnings,
   };

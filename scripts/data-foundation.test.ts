@@ -420,6 +420,7 @@ const identityCollisionBackup = parseBackupWithMeta(JSON.stringify({
   adaptiveTraining: exportTrainingPolicyBackup({
     ...defaultTrainingPolicy("2026-07-02T00:00:00.000Z"),
     exercisePreferences: { px_barbell_bench: "exclude", cx_duplicate: "prefer" },
+    exerciseLocks: { px_barbell_bench: "keep", cx_duplicate: "freeze" },
     restrictions: [{ id: "restriction_collision", exerciseId: "px_barbell_bench", level: "exclude" }],
     overrides: [{
       id: "override_collision",
@@ -457,6 +458,9 @@ assert.deepEqual(normalizeData(collisionData), collisionData, "Exercise identity
 assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.px_barbell_bench, "exclude");
 assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.px_barbell_bench_2, "exclude");
 assert.equal(identityCollisionBackup.adaptiveTraining?.exercisePreferences.cx_duplicate_2, "prefer");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exerciseLocks.px_barbell_bench, "keep");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exerciseLocks.px_barbell_bench_2, "keep");
+assert.equal(identityCollisionBackup.adaptiveTraining?.exerciseLocks.cx_duplicate_2, "freeze");
 assert.deepEqual(
   identityCollisionBackup.adaptiveTraining?.restrictions.map((item) => item.exerciseId),
   ["px_barbell_bench", "px_barbell_bench_2"],
@@ -819,7 +823,7 @@ assert.deepEqual(isolatedCorruption.customExercises[0].volumeContributions, [{ m
 const backup = toBackup(normalized);
 assert.equal(backup.version, SCHEMA_VERSION);
 assert.equal(backup.version, 18);
-assert.equal(backup.adaptiveTraining?.version, 3);
+assert.equal(backup.adaptiveTraining?.version, 4);
 assert.deepEqual(backup.favoriteExerciseIds, ["px_incline_barbell", "cx_same", "cx_same_2"]);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].progressionTrackId, undefined);
 assert.equal(backup.days["2026-07-01"].workout?.exercises[0].prescription?.progressionTrackId, "incline-strength");
@@ -845,7 +849,7 @@ assert.equal(backup.days["2026-07-01"].recovery?.energy, 4, "Schema 18 backups p
     ...backup,
     adaptiveTraining: exportTrainingPolicyBackup(defaultTrainingPolicy("2026-07-01T00:00:00.000Z")),
   }));
-  assert.equal(preview.adaptiveTraining?.version, 3);
+  assert.equal(preview.adaptiveTraining?.version, 4);
   assert.deepEqual(writes, [], "Previewing a backup must not mutate training policy storage");
   if (previousWindow) {
     Object.defineProperty(runtime, "window", { configurable: true, value: previousWindow });

@@ -30,6 +30,12 @@ const EXACT: Record<string, Pair> = {
   "没有可用于重排的非空训练模板": { en: "No non-empty training templates are available for scheduling", ja: "日程を組み直せる空でないテンプレートがありません" },
   "当前设置为连续 7 个训练日；请确认恢复能力与实际时间允许": { en: "Seven consecutive training days are selected; confirm recovery and time allow it", ja: "7日連続のトレーニング設定です。回復と時間を確認してください" },
   "近期多数训练被标记为偏难": { en: "Most recent sessions were marked hard", ja: "直近の多くのセッションが難しいと記録されています" },
+  "该肌群在当前剂量下的完成、进阶或恢复反应偏弱。": { en: "Completion, progression, or recovery for this muscle is weak at the current dose.", ja: "この筋群は現在の量で完遂、進行、回復の反応が弱めです。" },
+  "该肌群加量后仍保持良好的完成、进阶与恢复反应。": { en: "This muscle maintained good completion, progression, and recovery after volume increased.", ja: "この筋群は増量後も良好な完遂、進行、回復を維持しました。" },
+  "该肌群目前更适合维持剂量并继续观察。": { en: "This muscle is better suited to holding the current dose while gathering more evidence.", ja: "この筋群は現在の量を維持し、さらに観察するのが適しています。" },
+  "该肌群还没有足够的完整周期证据。": { en: "This muscle does not yet have enough complete-cycle evidence.", ja: "この筋群はまだ完全な周期データが不足しています。" },
+  "保持总工作组数：新增动作由低优先级组数等量置换": { en: "Total work sets held: the new exercise is funded by equal lower-priority reductions", ja: "総ワークセットを維持：新種目分を優先度の低いセットから同量削減" },
+  "分化策略设为保持当前结构，不自动增删或重排训练日": { en: "The split is locked; training days will not be added, removed, or reordered", ja: "分割を固定し、トレーニング日の追加・削除・並べ替えは行いません" },
 };
 
 const PATTERNS: Array<{
@@ -98,9 +104,9 @@ const PATTERNS: Array<{
     ja: (muscle, priority) => `${muscle}：${priority === "专项强化" ? "特化" : priority === "增长" ? "増量" : priority === "维持" ? "維持" : "優先度を下げる"}`,
   },
   {
-    pattern: /^(.+)：(专项|增长|维持|降低)，按 (\d+) 天微周期(增加|减少) 1 组$/,
-    en: (muscle, priority, days, direction) => `${muscle}: ${priority === "专项" ? "specialize" : priority === "增长" ? "grow" : priority === "维持" ? "maintain" : "deprioritize"}; ${direction === "增加" ? "+1" : "-1"} set for the ${days}-day microcycle`,
-    ja: (muscle, priority, days, direction) => `${muscle}：${priority === "专项" ? "特化" : priority === "增长" ? "増量" : priority === "维持" ? "維持" : "優先度低下"}。${days}日マイクロサイクルで${direction === "增加" ? "+1" : "-1"}セット`,
+    pattern: /^(.+)：(专项|增长|维持|降低|明确周期目标)，按 (\d+) 天微周期(增加|减少) 1 组$/,
+    en: (muscle, priority, days, direction) => `${muscle}: ${priority === "专项" ? "specialize" : priority === "增长" ? "grow" : priority === "维持" ? "maintain" : priority === "降低" ? "deprioritize" : "explicit cycle target"}; ${direction === "增加" ? "+1" : "-1"} set for the ${days}-day microcycle`,
+    ja: (muscle, priority, days, direction) => `${muscle}：${priority === "专项" ? "特化" : priority === "增长" ? "増量" : priority === "维持" ? "維持" : priority === "降低" ? "優先度低下" : "明示した周期目標"}。${days}日マイクロサイクルで${direction === "增加" ? "+1" : "-1"}セット`,
   },
   {
     pattern: /^(.+)目标按 (\d+) 天微周期折算为 ([\d.]+) 组；受单次恢复和总时长边界限制，不把剩余缺口集中堆到一天。$/,
@@ -128,9 +134,14 @@ const PATTERNS: Array<{
     ja: (cycles, comparisons) => `構築周期 ${cycles} 件、隣接周期比較 ${comparisons} 件を分析`,
   },
   {
-    pattern: /^建议调整 (\d+) 个模板：(\d+) 个动作替换，(\d+) 个动作移除，工作组净变化 ([+-]?\d+)。$/,
-    en: (templates, replaced, removed, sets) => `${templates} templates: ${replaced} replacements, ${removed} removals, ${sets} net working sets.`,
-    ja: (templates, replaced, removed, sets) => `${templates}テンプレート：種目置換 ${replaced}、削除 ${removed}、ワーキングセット差 ${sets}。`,
+    pattern: /^建议调整 (\d+) 个模板：(\d+) 个动作补入，(\d+) 个动作替换，(\d+) 个动作移除，工作组净变化 ([+-]?\d+)。$/,
+    en: (templates, added, replaced, removed, sets) => `${templates} templates: ${added} additions, ${replaced} replacements, ${removed} removals, ${sets} net working sets.`,
+    ja: (templates, added, replaced, removed, sets) => `${templates}テンプレート：種目追加 ${added}、置換 ${replaced}、削除 ${removed}、ワーキングセット差 ${sets}。`,
+  },
+  {
+    pattern: /^(.+)缺少直接动作，补入 (.+) (\d+) 组$/,
+    en: (muscle, exercise, sets) => `${muscle} lacked direct work; add ${exercise} for ${sets} sets`,
+    ja: (muscle, exercise, sets) => `${muscle}の直接種目が不足しているため、${exercise}を${sets}セット追加`,
   },
   {
     pattern: /^(.+) 因(.+)替换为 (.+)$/,
@@ -211,6 +222,36 @@ const PATTERNS: Array<{
     pattern: /^(push|pull|legs) 频率 (\d+) → (\d+)$/,
     en: (type, before, after) => `${type} frequency ${before} → ${after}`,
     ja: (type, before, after) => `${type} 頻度 ${before} → ${after}`,
+  },
+  {
+    pattern: /^按同肌群至少间隔 (\d+) 天重排训练顺序$/,
+    en: (days) => `Reordered sessions to leave at least ${days} days between the same muscle group`,
+    ja: (days) => `同一筋群の間隔を最低${days}日空けるよう並べ替えました`,
+  },
+  {
+    pattern: /^(\d+) 天微周期内 (.+) 的频率无法满足同肌群至少间隔 (\d+) 天；请减少频率或延长微周期$/,
+    en: (cycleDays, types, recoveryDays) => `${types} cannot keep ${recoveryDays} recovery days in this ${cycleDays}-day microcycle; reduce frequency or lengthen the cycle`,
+    ja: (cycleDays, types, recoveryDays) => `${cycleDays}日周期では${types}に${recoveryDays}日の間隔を確保できません。頻度を下げるか周期を延長してください`,
+  },
+  {
+    pattern: /^(.+)的个人周期反应显示容量耐受偏低，本轮不自动加量；保留目标并等待恢复或后续周期证据。$/,
+    en: (muscle) => `${muscle} shows low cycle-level volume tolerance, so this pass will not increase it; the goal remains pending recovery or more evidence.`,
+    ja: (muscle) => `${muscle}は周期単位のボリューム耐性が低いため、今回は増量しません。回復または追加データまで目標を保持します。`,
+  },
+  {
+    pattern: /^该肌群已分析 (\d+) 个周期和 (\d+) 次可比较变化$/,
+    en: (cycles, comparisons) => `Analyzed ${cycles} cycles and ${comparisons} comparable changes for this muscle`,
+    ja: (cycles, comparisons) => `この筋群について${cycles}周期と${comparisons}回の比較可能な変化を分析`,
+  },
+  {
+    pattern: /^该肌群(加量后改善|加量后恶化|减量后改善) (\d+) 次$/,
+    en: (outcome, count) => `${outcome === "加量后改善" ? "Improved after an increase" : outcome === "加量后恶化" ? "Declined after an increase" : "Improved after a reduction"} ${count} time${count === "1" ? "" : "s"}`,
+    ja: (outcome, count) => `${outcome === "加量后改善" ? "増量後に改善" : outcome === "加量后恶化" ? "増量後に悪化" : "減量後に改善"} ${count}回`,
+  },
+  {
+    pattern: /^最近 (\d+) 次有原因的提案拒绝中，(\d+) 次选择同一原因$/,
+    en: (sample, count) => `${count} of the latest ${sample} reasoned rejections used the same reason`,
+    ja: (sample, count) => `理由付き拒否${sample}件中${count}件が同じ理由でした`,
   },
   {
     pattern: /^最近 (\d+) 次训练中有 (\d+) 次偏难$/,

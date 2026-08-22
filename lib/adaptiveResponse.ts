@@ -2,7 +2,8 @@ import { scoreRecoveryCheckIn } from "./recovery";
 import { collectFinalizedMicrocycleSamples } from "./cycleSamples";
 import { evaluateProgressionOutcome } from "./trainingExecution";
 import { summarizeExerciseWork, summarizeWorkoutWork } from "./trainingMetrics";
-import type { AppData, TrainingCyclePhase } from "./types";
+import { MUSCLE_ORDER, type MuscleGroup } from "./muscles";
+import type { AppData, Exercise, TrainingCyclePhase, VolumeContribution } from "./types";
 
 export type AdaptiveResponseConfidence = "low" | "building" | "ready";
 export type AdaptiveVolumeTolerance = "unknown" | "low" | "balanced" | "high";
@@ -28,6 +29,27 @@ export interface AdaptiveCycleResponse {
   prescribedSetsPer7Days: number;
   completedSetsPer7Days: number;
   normalSetsPer7Days: number;
+  muscles: Partial<Record<MuscleGroup, AdaptiveMuscleCycleResponse>>;
+}
+
+export interface AdaptiveMuscleCycleResponse {
+  plannedDirectSets: number;
+  directSets: number;
+  effectiveSets: number;
+  completionPct: number | null;
+  progressionPct: number | null;
+}
+
+export interface AdaptiveMuscleResponse {
+  muscle: MuscleGroup;
+  confidence: AdaptiveResponseConfidence;
+  tolerance: AdaptiveVolumeTolerance;
+  evaluatedCycles: number;
+  comparableTransitions: number;
+  volumeBias: number;
+  latestDirectSets: number;
+  summary: string;
+  reasons: string[];
 }
 
 export interface AdaptiveCycleTransition {
@@ -41,7 +63,7 @@ export interface AdaptiveCycleTransition {
 }
 
 export interface AdaptiveResponseModel {
-  version: 3;
+  version: 4;
   generatedAt: string;
   confidence: AdaptiveResponseConfidence;
   tolerance: AdaptiveVolumeTolerance;
@@ -53,6 +75,7 @@ export interface AdaptiveResponseModel {
   reasons: string[];
   cycles: AdaptiveCycleResponse[];
   transitions: AdaptiveCycleTransition[];
+  muscles: AdaptiveMuscleResponse[];
 }
 
 const round = (value: number, digits = 1) => {
@@ -62,6 +85,11 @@ const round = (value: number, digits = 1) => {
 
 function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function exerciseContributions(exercise: Exercise): VolumeContribution[] {
+  if (exercise.volumeContributions?.length) return exercise.volumeContributions;
+  return exercise.primaryMuscle ? [{ muscle: exercise.primaryMuscle, weight: 1, direct: true }] : [];
 }
 
 function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] {
@@ -76,6 +104,13 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
       let progressionTotal = 0;
       let progressionCredits = 0;
       let normalSets = 0;
+      const muscleStats = new Map<MuscleGroup, {
+        plannedDirectSets: number;
+        directSets: number;
+        effectiveSets: number;
+        progressionTotal: number;
+        progressionCredits: number;
+      }>();
       const recoveryScores: number[] = [];
       const adaptiveScales: number[] = [];
       for (const day of sample.days) {
@@ -96,10 +131,32 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
           if (workout.difficulty === "hard") hardSessions += 1;
         }
         for (const exercise of workout.exercises) {
+          const exerciseWork = summarizeExerciseWork(exercise);
           const outcome = evaluateProgressionOutcome(exercise, workout);
-          if (outcome.status === "unassessable") continue;
-          progressionTotal += 1;
-          progressionCredits += outcome.status === "achieved" ? 1 : outcome.status === "partial" ? 0.5 : 0;
+          const progressionCredit = outcome.status === "achieved" ? 1 : outcome.status === "partial" ? 0.5 : 0;
+          if (outcome.status !== "unassessable") {
+            progressionTotal += 1;
+            progressionCredits += progressionCredit;
+          }
+          for (const contribution of exerciseContributions(exercise)) {
+            const current = muscleStats.get(contribution.muscle) ?? {
+              plannedDirectSets: 0,
+              directSets: 0,
+              effectiveSets: 0,
+              progressionTotal: 0,
+              progressionCredits: 0,
+            };
+            current.effectiveSets += exerciseWork.completionCredits * contribution.weight;
+            if (contribution.direct) {
+              current.plannedDirectSets += exerciseWork.plannedSets * contribution.weight;
+              current.directSets += exerciseWork.completionCredits * contribution.weight;
+              if (outcome.status !== "unassessable") {
+                current.progressionTotal += 1;
+                current.progressionCredits += progressionCredit;
+              }
+            }
+            muscleStats.set(contribution.muscle, current);
+          }
         }
         const recovery = scoreRecoveryCheckIn(day.recovery, day.date);
         if (recovery && recovery.signalCount >= 2) recoveryScores.push(recovery.score);
@@ -108,6 +165,17 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
       }
       const cycleSteps = Math.max(sample.completedSteps, sessions, 1);
       const sessionDivisor = Math.max(1, sessions);
+      const muscles = Object.fromEntries([...muscleStats.entries()].map(([muscle, stats]) => [muscle, {
+        plannedDirectSets: round(stats.plannedDirectSets),
+        directSets: round(stats.directSets),
+        effectiveSets: round(stats.effectiveSets),
+        completionPct: stats.plannedDirectSets > 0
+          ? Math.round(Math.min(100, stats.directSets / stats.plannedDirectSets * 100))
+          : null,
+        progressionPct: stats.progressionTotal > 0
+          ? Math.round(stats.progressionCredits / stats.progressionTotal * 100)
+          : null,
+      }])) as Partial<Record<MuscleGroup, AdaptiveMuscleCycleResponse>>;
       return {
         microcycleId: sample.id,
         startedAt: sample.startedAt,
@@ -128,6 +196,7 @@ function finalizedCycles(data: AppData, today: string): AdaptiveCycleResponse[] 
         prescribedSetsPer7Days: round(plannedSets * 7 / cycleSteps),
         completedSetsPer7Days: round(completedSets * 7 / cycleSteps),
         normalSetsPer7Days: round(normalSets * 7 / cycleSteps),
+        muscles,
       };
     })
     .filter((cycle) => cycle.sessions >= 2 && cycle.completedSets > 0)
@@ -196,6 +265,89 @@ function compareCycles(previous: AdaptiveCycleResponse, next: AdaptiveCycleRespo
   };
 }
 
+function buildMuscleResponses(cycles: AdaptiveCycleResponse[]): AdaptiveMuscleResponse[] {
+  return MUSCLE_ORDER.flatMap((muscle): AdaptiveMuscleResponse[] => {
+    const relevant = cycles.filter((cycle) => cycle.phase === "build" && (cycle.muscles[muscle]?.directSets ?? 0) > 0);
+    const transitions = relevant.slice(1).flatMap((cycle, index) => {
+      const previous = relevant[index];
+      const before = previous.muscles[muscle];
+      const after = cycle.muscles[muscle];
+      if (!before || !after || before.directSets <= 0) return [];
+      let score = 0;
+      let evidenceSignals = 0;
+      if (before.completionPct != null && after.completionPct != null) {
+        evidenceSignals += 1;
+        const delta = after.completionPct - before.completionPct;
+        if (delta >= 5) score += 1;
+        else if (delta <= -10) score -= 1;
+      }
+      if (before.progressionPct != null && after.progressionPct != null) {
+        evidenceSignals += 1;
+        const delta = after.progressionPct - before.progressionPct;
+        if (delta >= 10) score += 1;
+        else if (delta <= -15) score -= 1;
+      }
+      if (previous.hardRatio != null && cycle.hardRatio != null) {
+        evidenceSignals += 1;
+        const delta = cycle.hardRatio - previous.hardRatio;
+        if (delta <= -0.15) score += 1;
+        else if (delta >= 0.2) score -= 1;
+      }
+      if (previous.recoveryAverage != null && cycle.recoveryAverage != null) {
+        evidenceSignals += 1;
+        const delta = cycle.recoveryAverage - previous.recoveryAverage;
+        if (delta >= 7) score += 1;
+        else if (delta <= -8) score -= 1;
+      }
+      return [{
+        loadRatio: round(after.directSets / before.directSets, 2),
+        outcome: score >= 2 ? "positive" as const : score <= -2 ? "negative" as const : "neutral" as const,
+        evidenceSignals,
+      }];
+    }).filter((transition) => transition.evidenceSignals >= 2);
+    if (!relevant.length) return [];
+    const confidence: AdaptiveResponseConfidence = relevant.length >= 4 && transitions.length >= 3
+      ? "ready"
+      : relevant.length >= 2 && transitions.length >= 1
+        ? "building"
+        : "low";
+    const higherPositive = transitions.filter((item) => item.loadRatio >= 1.04 && item.outcome === "positive").length;
+    const higherNegative = transitions.filter((item) => item.loadRatio >= 1.04 && item.outcome === "negative").length;
+    const lowerPositive = transitions.filter((item) => item.loadRatio <= 0.94 && item.outcome === "positive").length;
+    const stableNegative = transitions.filter((item) => item.loadRatio > 0.94 && item.loadRatio < 1.04 && item.outcome === "negative").length;
+    let tolerance: AdaptiveVolumeTolerance = "unknown";
+    if (confidence !== "low") {
+      if (higherNegative + lowerPositive + stableNegative >= 1) tolerance = "low";
+      else if (higherPositive >= 2 && higherNegative === 0) tolerance = "high";
+      else tolerance = "balanced";
+    }
+    const volumeBias = tolerance === "low" ? -0.1 : tolerance === "high" ? 0.05 : 0;
+    const summary = tolerance === "low"
+      ? "该肌群在当前剂量下的完成、进阶或恢复反应偏弱。"
+      : tolerance === "high"
+        ? "该肌群加量后仍保持良好的完成、进阶与恢复反应。"
+        : tolerance === "balanced"
+          ? "该肌群目前更适合维持剂量并继续观察。"
+          : "该肌群还没有足够的完整周期证据。";
+    return [{
+      muscle,
+      confidence,
+      tolerance,
+      evaluatedCycles: relevant.length,
+      comparableTransitions: transitions.length,
+      volumeBias,
+      latestDirectSets: relevant.at(-1)?.muscles[muscle]?.directSets ?? 0,
+      summary,
+      reasons: [
+        `该肌群已分析 ${relevant.length} 个周期和 ${transitions.length} 次可比较变化`,
+        ...(higherPositive ? [`该肌群加量后改善 ${higherPositive} 次`] : []),
+        ...(higherNegative ? [`该肌群加量后恶化 ${higherNegative} 次`] : []),
+        ...(lowerPositive ? [`该肌群减量后改善 ${lowerPositive} 次`] : []),
+      ],
+    }];
+  });
+}
+
 export function buildAdaptiveResponseModel(data: AppData, today: string): AdaptiveResponseModel {
   const generatedAt = new Date().toISOString();
   const cycles = finalizedCycles(data, today);
@@ -237,9 +389,10 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
     ...(lowerPositive ? [`减量后改善 ${lowerPositive} 次`] : []),
     ...(stableNegative ? [`同等剂量下恶化 ${stableNegative} 次`] : []),
   ];
+  const muscles = buildMuscleResponses(buildCycles);
 
   return {
-    version: 3,
+    version: 4,
     generatedAt,
     confidence,
     tolerance,
@@ -251,5 +404,6 @@ export function buildAdaptiveResponseModel(data: AppData, today: string): Adapti
     reasons,
     cycles: cycles.slice(-8).reverse(),
     transitions: transitions.slice(-8).reverse(),
+    muscles,
   };
 }

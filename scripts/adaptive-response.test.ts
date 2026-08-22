@@ -64,6 +64,12 @@ function addTrainingDay(
         id: "bench",
         name: "卧推",
         isMain: true,
+        primaryMuscle: "chest",
+        volumeContributions: [
+          { muscle: "chest", weight: 1, direct: true },
+          { muscle: "frontDelt", weight: 0.5, direct: false },
+          { muscle: "triceps", weight: 0.5, direct: false },
+        ],
         sets: Array.from({ length: args.completedSets }, () => ({
           weight: 80,
           reps: 8,
@@ -179,6 +185,7 @@ function addPositionedCycle(
   assert.equal(model.volumeBias, 0.05);
   assert.equal(model.trainingDayDelta, 1);
   assert.ok(model.transitions.filter((transition) => transition.outcome === "positive").length >= 2);
+  assert.equal(model.muscles.find((response) => response.muscle === "chest")?.tolerance, "high");
 }
 
 {
@@ -193,6 +200,7 @@ function addPositionedCycle(
   assert.equal(model.volumeBias, -0.1);
   assert.equal(model.trainingDayDelta, -1);
   assert.ok(model.transitions.filter((transition) => transition.outcome === "negative").length >= 2);
+  assert.equal(model.muscles.find((response) => response.muscle === "chest")?.tolerance, "low");
 }
 
 {

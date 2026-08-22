@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { selectSafeAutomaticChanges } from "../lib/adaptiveAutomation";
 import { applyAdaptivePlanPatch } from "../lib/adaptivePlanCommit";
 import { adaptiveText } from "../lib/adaptiveText";
-import { deriveAdaptiveLearningSignals } from "../lib/adaptiveLearning";
+import { acceptAdaptiveLearningSignal, deriveAdaptiveLearningSignals } from "../lib/adaptiveLearning";
 import { buildPlanAdaptation } from "../lib/planAdaptation";
 import { buildScheduleAdaptation } from "../lib/scheduleAdaptation";
 import { defaultMicrocycle } from "../lib/microcycle";
@@ -11,8 +11,13 @@ import {
   defaultTrainingPolicy,
   exportTrainingPolicyBackup,
   importTrainingPolicyBackup,
+  loadTrainingPolicy,
   mergeTrainingPolicy,
   parseTrainingPolicyText,
+  PREVIOUS_TRAINING_POLICY_STORAGE_KEY,
+  setExerciseLock,
+  setMusclePriority,
+  TRAINING_POLICY_STORAGE_KEY,
 } from "../lib/trainingPolicy";
 import type { AppData, ExercisePreset, Schedule, Template } from "../lib/types";
 
@@ -787,7 +792,7 @@ function data(): AppData {
     }],
   });
   const restored = importTrainingPolicyBackup(exportTrainingPolicyBackup(policy));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.equal(restored.decisionEvents.length, 1);
   assert.equal(restored.evidenceMode, "preview");
   assert.equal(restored.evidenceMinimumConfidence, "building");
@@ -814,6 +819,187 @@ function data(): AppData {
   assert.equal(next.schedule.microcycle?.[0].templateId, legTemplate.id);
   assert.equal(next.microcycle?.steps?.[0].templateSnapshot?.items[0].sets, 4);
   assert.notEqual(next, current, "Adaptive plan commit must produce one immutable next state");
+}
+
+{
+  const result = parseTrainingPolicyText(
+    "胸部为主，中束增长，保持三分化，胸每次最多6组，保留杠铃深蹲，晚上跑步",
+    data(),
+    defaultTrainingPolicy(),
+  );
+  assert.equal(result.policy.musclePriorities.chest, "specialize");
+  assert.equal(result.policy.musclePriorities.sideDelt, "grow");
+  assert.equal(result.policy.scheduleAdaptation, "preserve");
+  assert.equal(result.policy.exerciseLocks[squat.id], "keep");
+  assert.equal(result.policy.planTargets.find((target) => target.muscles.includes("chest"))?.maxDirectSetsPerSession, 6);
+  assert.deepEqual(result.unresolved, ["晚上跑步"]);
+  assert.equal(result.clauses.at(-1)?.status, "unresolved");
+
+  const partial = parseTrainingPolicyText("胸为主但每天都要练到力竭", data(), defaultTrainingPolicy());
+  assert.equal(partial.clauses[0]?.status, "partial");
+  assert.ok(partial.clauses[0]?.unresolved?.includes("每天都要练到力竭"));
+}
+
+{
+  const selected = setMusclePriority(defaultTrainingPolicy(), "sideDelt", "grow");
+  assert.equal(selected.musclePriorities.sideDelt, "grow");
+  const cleared = setMusclePriority(selected, "sideDelt", undefined);
+  assert.equal(cleared.musclePriorities.sideDelt, undefined, "Returning a muscle to default must remove the stored priority");
+  const locked = setExerciseLock(cleared, squat.id, "freeze");
+  assert.equal(setExerciseLock(locked, squat.id, undefined).exerciseLocks[squat.id], undefined, "Unlocking must remove the stored lock");
+}
+
+{
+  const current = data();
+  const parsed = parseTrainingPolicyText("中束本轮12-16组", current, defaultTrainingPolicy());
+  assert.equal(parsed.policy.musclePriorities.sideDelt, undefined, "An explicit dose target does not need an invented growth label");
+  const target = parsed.policy.planTargets.find((item) => item.muscles.includes("sideDelt"));
+  assert.deepEqual(target?.cycleTarget, { low: 12, high: 16 });
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  assert.equal(
+    proposal.changes.find((change) => change.templateId === pushTemplate.id)?.nextItems[0]?.sets,
+    5,
+    "An explicit cycle target must create a bounded correction without a separate growth keyword",
+  );
+}
+
+{
+  const current = data();
+  const parsed = parseTrainingPolicyText("胸增长", current, defaultTrainingPolicy());
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === pushTemplate.id);
+  assert.ok(change, "A missing priority movement must produce a proposal");
+  const added = change.nextItems.find((item) => !pushTemplate.items.some((source) => source.exerciseId === item.exerciseId));
+  assert.ok(added, "The planner must add a compatible built-in movement instead of only changing existing exercises");
+  assert.ok((added.volumeContributions ?? []).some((entry) => entry.direct && (entry.muscle === "chest" || entry.muscle === "upperChest")));
+  assert.equal(proposal.impact.addedExercises, 1);
+  assert.ok(change.itemDiffs.some((diff) => diff.kind === "added" && diff.exerciseId === added.exerciseId));
+}
+
+{
+  const current = data();
+  current.muscleTargets = { sideDelt: { low: 1, high: 2 } };
+  const parsed = parseTrainingPolicyText("胸增长，保持总组数", current, defaultTrainingPolicy());
+  const proposal = buildPlanAdaptation(current, parsed.policy, TODAY);
+  const change = proposal.changes.find((item) => item.templateId === pushTemplate.id);
+  assert.ok(change);
+  assert.equal(
+    change.nextItems.reduce((sum, item) => sum + item.sets, 0),
+    pushTemplate.items.reduce((sum, item) => sum + item.sets, 0),
+    "Preserve-total mode must fund a new target movement with an equal low-priority reduction",
+  );
+  assert.ok(change.reasons.includes("保持总工作组数：新增动作由低优先级组数等量置换"));
+}
+
+{
+  const current = data();
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    musclePriorities: { sideDelt: "grow" },
+    exerciseLocks: { [lateralRaise.id]: "freeze" },
+  });
+  const proposal = buildPlanAdaptation(current, policy, TODAY);
+  assert.equal(proposal.changes.find((change) => change.templateId === pushTemplate.id), undefined, "A frozen exercise must not receive automatic set changes");
+
+  const conflict = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    exercisePreferences: { [squat.id]: "exclude" },
+    exerciseLocks: { [squat.id]: "keep" },
+  });
+  const conflictProposal = buildPlanAdaptation(current, conflict, TODAY);
+  assert.equal(conflictProposal.changes.find((change) => change.templateId === legTemplate.id), undefined);
+  assert.ok(conflictProposal.warnings.some((warning) => warning.includes("设为保留") && warning.includes("动作已排除")));
+}
+
+{
+  const current = data();
+  current.templates = [pushTemplate];
+  current.schedule = {
+    split: ["push", "push", "rest", "rest", "rest", "rest", "rest"],
+    microcycle: [
+      { id: "recovery_1", type: "push", label: "推 1", templateId: pushTemplate.id },
+      { id: "recovery_2", type: "push", label: "推 2", templateId: pushTemplate.id },
+      { id: "recovery_3", type: "rest", label: "休息" },
+      { id: "recovery_4", type: "rest", label: "休息" },
+      { id: "recovery_5", type: "rest", label: "休息" },
+      { id: "recovery_6", type: "rest", label: "休息" },
+      { id: "recovery_7", type: "rest", label: "休息" },
+    ],
+  };
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    weeklyTrainingDays: { minimum: 1, target: 2, maximum: 3 },
+    minimumRecoveryDays: 2,
+  });
+  const proposal = buildScheduleAdaptation(current, policy, TODAY);
+  const pushPositions = proposal.nextSchedule.microcycle?.flatMap((step, index) => step.type === "push" ? [index] : []) ?? [];
+  assert.equal(proposal.changed, true);
+  assert.deepEqual(pushPositions, [0, 3]);
+  assert.ok(proposal.reasons.some((reason) => reason.includes("至少间隔 2 天")));
+}
+
+{
+  const policy = mergeTrainingPolicy(defaultTrainingPolicy(), {
+    decisionEvents: [
+      { id: "reject_1", at: "2026-07-20T00:00:00.000Z", proposalId: "proposal_1", outcome: "rejected", summary: "拒绝", feedbackReason: "volumeTooHigh" },
+      { id: "reject_2", at: "2026-07-21T00:00:00.000Z", proposalId: "proposal_2", outcome: "rejected", summary: "拒绝", feedbackReason: "volumeTooHigh" },
+    ],
+  });
+  const signal = deriveAdaptiveLearningSignals(data(), policy).find((item) => item.kind === "feedbackGuardrail");
+  assert.ok(signal, "Repeated proposal feedback must become an explicit, confirmable learning signal");
+  const accepted = acceptAdaptiveLearningSignal(policy, signal);
+  assert.equal(accepted.planningAggressiveness, "conservative");
+  assert.equal(accepted.preserveTotalWorkingSets, true);
+}
+
+{
+  const legacy = defaultTrainingPolicy("2026-07-01T00:00:00.000Z") as unknown as Record<string, unknown>;
+  legacy.version = 3;
+  for (const field of ["planTargets", "exerciseLocks", "planningAggressiveness", "scheduleAdaptation", "minimumRecoveryDays", "allowExerciseAdditions", "preserveTotalWorkingSets", "maintenanceFloorRatio", "changeBudget"]) delete legacy[field];
+  const storage = new Map<string, string>([[PREVIOUS_TRAINING_POLICY_STORAGE_KEY, JSON.stringify(legacy)]]);
+  const runtime = globalThis as typeof globalThis & { window?: Window };
+  const previousWindow = runtime.window;
+  Object.defineProperty(runtime, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      },
+    } as unknown as Window,
+  });
+  const migrated = loadTrainingPolicy();
+  assert.equal(migrated.version, 4);
+  assert.equal(migrated.goal, "hypertrophy");
+  assert.equal(migrated.planningAggressiveness, "balanced");
+  assert.ok(storage.has(TRAINING_POLICY_STORAGE_KEY));
+  assert.equal(storage.has(PREVIOUS_TRAINING_POLICY_STORAGE_KEY), false);
+  if (previousWindow) Object.defineProperty(runtime, "window", { configurable: true, value: previousWindow });
+  else Reflect.deleteProperty(runtime, "window");
+}
+
+{
+  const legacy = { ...defaultTrainingPolicy("2026-07-01T00:00:00.000Z"), version: 3, goal: "strength" };
+  const storage = new Map<string, string>([[PREVIOUS_TRAINING_POLICY_STORAGE_KEY, JSON.stringify(legacy)]]);
+  const runtime = globalThis as typeof globalThis & { window?: Window };
+  const previousWindow = runtime.window;
+  Object.defineProperty(runtime, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          if (key === TRAINING_POLICY_STORAGE_KEY) throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+          storage.set(key, value);
+        },
+        removeItem: (key: string) => storage.delete(key),
+      },
+      dispatchEvent: () => true,
+    } as unknown as Window,
+  });
+  const migrated = loadTrainingPolicy();
+  assert.equal(migrated.goal, "strength", "A failed migration write must still return the user's readable legacy policy");
+  assert.equal(storage.has(PREVIOUS_TRAINING_POLICY_STORAGE_KEY), true, "The legacy key must remain until the v4 write succeeds");
+  if (previousWindow) Object.defineProperty(runtime, "window", { configurable: true, value: previousWindow });
+  else Reflect.deleteProperty(runtime, "window");
 }
 
 console.log("training-policy tests passed");
